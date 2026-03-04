@@ -1,0 +1,41 @@
+# Environment & secrets
+.env
+config/keys/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+.uv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data & outputs
+logs/
+*.db
+*.log
+*.xlsx
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
+CLAUDE.md

@@ -1,0 +1,214 @@
+"""Folder organisation services for healthcare document auditing."""
+
+import logging
+import shutil
+from pathlib import Path
+from typing import NamedTuple
+
+import pandas as pd
+
+from core.helpers import safe_move
+
+logger = logging.getLogger(__name__)
+
+
+class FolderCopier:
+    """Handles physical folder copy operations into a target root directory.
+
+    Args:
+        target_root: Root directory where folders will be copied.
+    """
+
+    def __init__(self, target_root: Path) -> None:
+        self.target_root = Path(target_root)
+        self.target_root.mkdir(parents=True, exist_ok=True)
+
+    def copy_folders(self, folders: list[Path], use_prefix: bool = True) -> None:
+        """Copy a list of folders to the target root.
+
+        Args:
+            folders: Source folder paths to copy.
+            use_prefix: When True, prefix the destination name with the parent
+                folder name to avoid name collisions.
+        """
+        for folder in folders:
+            dest = self._build_destination(folder, use_prefix)
+            try:
+                shutil.copytree(folder, dest, dirs_exist_ok=True)
+                logger.info("Copied %s to %s", folder.name, dest.name)
+            except (shutil.Error, OSError) as exc:
+                logger.error("Failed to copy %s: %s", folder.name, exc)
+
+    def _build_destination(self, folder: Path, use_prefix: bool) -> Path:
+        """Build the destination path, optionally prefixing with the parent name.
+
+        Args:
+            folder: Source folder.
+            use_prefix: Whether to prepend the parent directory name.
+
+        Returns:
+            Full destination path inside target_root.
+        """
+        name = (
+            "%s_%s" % (folder.parent.name, folder.name)
+            if use_prefix
+            else folder.name
+        )
+        return self.target_root / name
+
+
+class LeafFolderFinder:
+    """Scans the filesystem and identifies folders that directly contain files."""
+
+    @staticmethod
+    def has_files(path: Path) -> bool:
+        """Return True if the directory directly contains at least one file.
+
+        Args:
+            path: Directory path to inspect.
+
+        Returns:
+            True if the directory exists and contains at least one file.
+        """
+        if not path.is_dir():
+            return False
+        return any(item.is_file() for item in path.iterdir())
+
+    def find_leaf_folders(self, source_root: Path) -> list[Path]:
+        """Scan a source root recursively and return directories containing files.
+
+        Args:
+            source_root: Root directory to scan.
+
+        Returns:
+            List of directories that directly contain at least one file.
+        """
+        return [
+            folder
+            for folder in Path(source_root).rglob("**/")
+            if self.has_files(folder)
+        ]
+
+
+class TransferSummary(NamedTuple):
+    """Summary of a folder organisation run."""
+
+    moved: int
+    failed: int
+    not_found: int
+    errors: list[str]
+
+
+class InvoiceOrganizer:
+    """Orchestrates the movement of invoice folders to their final hierarchy.
+
+    Optimised for large datasets via a single up-front index of the staging area
+    rather than repeated directory scans.
+
+    Args:
+        df: DataFrame indexed by invoice ID with a ``Ruta`` column.
+        staging_dir: Directory containing the downloaded invoice folders.
+        archive_dir: Root directory for the final organised hierarchy.
+    """
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        staging_dir: Path,
+        archive_dir: Path,
+    ) -> None:
+        self.df = df
+        self.staging_dir = Path(staging_dir)
+        self.archive_dir = Path(archive_dir)
+        self._staging_cache: dict[str, Path] = {}
+
+    def _index_staging_area(self) -> None:
+        """Scan the staging folder once and map invoice IDs to physical paths."""
+        logger.info("Indexing staging area at %s", self.staging_dir)
+        for folder in self.staging_dir.iterdir():
+            if folder.is_dir():
+                self._staging_cache[folder.name] = folder
+
+    def _find_source_in_staging(self, invoice_id: str) -> Path | None:
+        """Return the staging path for the given invoice ID, or None if not found.
+
+        Args:
+            invoice_id: Invoice identifier to look up.
+
+        Returns:
+            Matching :class:`~pathlib.Path`, or ``None``.
+        """
+        return next(
+            (
+                path
+                for name, path in self._staging_cache.items()
+                if str(invoice_id) in name
+            ),
+            None,
+        )
+
+    def _move_single_invoice(
+        self,
+        invoice_id: str,
+        source_path: Path,
+        destination_path: Path,
+        dry_run: bool,
+        stats: dict[str, int | list[str]],
+    ) -> None:
+        """Move a single invoice folder from staging to its final location.
+
+        Args:
+            invoice_id: Invoice identifier (used for logging).
+            source_path: Current location of the folder in staging.
+            destination_path: Target location in the final hierarchy.
+            dry_run: When True, only log the intended move without executing it.
+            stats: Mutable statistics dictionary updated in place.
+        """
+        if dry_run:
+            logger.info("[DRY RUN] %s -> %s", source_path.name, destination_path)
+            stats["moved"] = int(stats["moved"]) + 1  # type: ignore[arg-type]
+            return
+
+        if safe_move(source_path, destination_path):
+            stats["moved"] = int(stats["moved"]) + 1  # type: ignore[arg-type]
+            logger.info("Moved invoice %s successfully", invoice_id)
+        else:
+            stats["failed"] = int(stats["failed"]) + 1  # type: ignore[arg-type]
+            stats["errors"].append("Failed to move %s" % invoice_id)  # type: ignore[union-attr]
+
+    def organize(self, dry_run: bool = False) -> TransferSummary:
+        """Execute the migration of invoice folders to the final hierarchy.
+
+        Args:
+            dry_run: When True, log intended moves without modifying the filesystem.
+
+        Returns:
+            :class:`TransferSummary` with counts of moved, failed, and not-found folders.
+        """
+        self._index_staging_area()
+        stats: dict[str, int | list[str]] = {
+            "moved": 0,
+            "failed": 0,
+            "not_found": 0,
+            "errors": [],
+        }
+
+        for invoice_id, row in self.df.iterrows():
+            source_path = self._find_source_in_staging(str(invoice_id))
+
+            if not source_path:
+                logger.warning("Invoice not found in staging: %s", invoice_id)
+                stats["not_found"] = int(stats["not_found"]) + 1  # type: ignore[arg-type]
+                continue
+
+            destination_path = self.archive_dir / row["Ruta"]
+            self._move_single_invoice(
+                str(invoice_id), source_path, destination_path, dry_run, stats
+            )
+
+        return TransferSummary(
+            moved=int(stats["moved"]),  # type: ignore[arg-type]
+            failed=int(stats["failed"]),  # type: ignore[arg-type]
+            not_found=int(stats["not_found"]),  # type: ignore[arg-type]
+            errors=list(stats["errors"]),  # type: ignore[arg-type]
+        )
