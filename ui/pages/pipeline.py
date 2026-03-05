@@ -440,11 +440,7 @@ def render(config_error: str | None) -> None:
             st.markdown("</div>", unsafe_allow_html=True)
 
     # Controls row
-    c_all, c_clear, _, c_run = st.columns([1.3, 1.5, 2.7, 1.5])
-    if c_all.button("Select all", width="stretch"):
-        for key in _STAGE_LABELS:
-            st.session_state["stage_%s" % key] = True
-        st.rerun()
+    c_clear, _, c_run = st.columns([1.5, 4.0, 1.5])
     if c_clear.button("Clear selection", width="stretch"):
         for key in _STAGE_LABELS:
             st.session_state["stage_%s" % key] = False
