@@ -72,19 +72,20 @@ def render(config_error: str | None) -> None:
 
     # ── Hospital config form ─────────────────────────────────────────────────
     with st.expander("Editar configuración técnica", expanded=False):
-        with st.form("hosp_form_%s" % hospital):
-            f_name  = st.text_input("Nombre para mostrar", value=current.get("display_name", ""), key="hf_name")
-            f_nit   = st.text_input("NIT", value=current.get("nit", ""), key="hf_nit")
-            f_inv   = st.text_input("Prefijo factura (INVOICE_IDENTIFIER_PREFIX)", value=current.get("invoice_identifier_prefix", ""), key="hf_inv")
-            f_url   = st.text_input("SIHOS base URL", value=current.get("sihos_base_url", ""), key="hf_url")
-            f_code  = st.text_input("SIHOS doc code", value=current.get("sihos_invoice_doc_code", ""), key="hf_code")
-            f_sihos_user = st.text_input("Usuario SIHOS", value=current.get("sihos_user", ""), key="hf_sihos_user")
-            f_sihos_pass = st.text_input("Contraseña SIHOS", value=current.get("sihos_password", ""), type="password", key="hf_sihos_pass")
+        h = hospital  # shorthand for key suffix
+        with st.form("hosp_form_%s" % h):
+            f_name  = st.text_input("Nombre para mostrar", value=current.get("display_name", ""), key="hf_name_%s" % h)
+            f_nit   = st.text_input("NIT", value=current.get("nit", ""), key="hf_nit_%s" % h)
+            f_inv   = st.text_input("Prefijo factura (INVOICE_IDENTIFIER_PREFIX)", value=current.get("invoice_identifier_prefix", ""), key="hf_inv_%s" % h)
+            f_url   = st.text_input("SIHOS base URL", value=current.get("sihos_base_url", ""), key="hf_url_%s" % h)
+            f_code  = st.text_input("SIHOS doc code", value=current.get("sihos_invoice_doc_code", ""), key="hf_code_%s" % h)
+            f_sihos_user = st.text_input("Usuario SIHOS", value=current.get("sihos_user", ""), key="hf_sihos_user_%s" % h)
+            f_sihos_pass = st.text_input("Contraseña SIHOS", value=current.get("sihos_password", ""), type="password", key="hf_sihos_pass_%s" % h)
             f_ds = st.text_area(
                 "DOCUMENT_STANDARDS (JSON)",
                 value=current.get("document_standards", "{}"),
                 height=140,
-                key="hf_ds",
+                key="hf_ds_%s" % h,
             )
             if st.form_submit_button("Guardar configuración", type="primary"):
                 try:
