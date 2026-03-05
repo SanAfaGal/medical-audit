@@ -6,8 +6,6 @@ import shutil
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from config.settings import Settings
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -15,10 +13,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _RE_NIT: re.Pattern = re.compile(r"_(\d+)_")
-_id_prefix = Settings.invoice_identifier_prefix
-_RE_DIR_ID_LOOSE: re.Pattern = re.compile(
-    rf"({_id_prefix})[^a-zA-Z]*?(\d+)", re.IGNORECASE
-)
 _FOLDER_NAME_PART_INDEX: int = 2
 
 
@@ -34,10 +28,14 @@ class DocumentOps:
 
     Args:
         base_dir: Root directory for all operations.
+        id_prefix: Invoice identifier prefix used to build directory-name regexes.
     """
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, id_prefix: str = "") -> None:
         self.base_dir = Path(base_dir)
+        self._re_dir_id_loose = re.compile(
+            rf"({id_prefix})[^a-zA-Z]*?(\d+)", re.IGNORECASE
+        )
 
     def remove_files(self, files: list[Path]) -> int:
         """Delete a list of files and return the count of successful deletions.
@@ -279,7 +277,7 @@ class DocumentOps:
         """
         count = 0
         for dir_path in dirs:
-            match = _RE_DIR_ID_LOOSE.search(dir_path.name)
+            match = self._re_dir_id_loose.search(dir_path.name)
             if not match:
                 logger.warning(
                     "Cannot extract canonical name from: %s", dir_path.name

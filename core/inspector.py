@@ -4,18 +4,8 @@ import logging
 import re
 from pathlib import Path
 
-from config.settings import Settings
-
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Module-level compiled regex constants
-# ---------------------------------------------------------------------------
-
-_id_prefix = Settings.invoice_identifier_prefix
-_RE_DIR_NAME = re.compile(rf"{_id_prefix}\d+$", re.IGNORECASE)
-_RE_DIR_PATTERN = re.compile(rf"{_id_prefix}.\d+", re.IGNORECASE)
-_RE_FOLDER_SUFFIX = re.compile(rf"({_id_prefix}\d+)$", re.IGNORECASE)
 _VOID_MARKER: str = "ANULAR"
 
 
@@ -24,10 +14,14 @@ class FolderInspector:
 
     Args:
         base_dir: Root directory for all inspection operations.
+        id_prefix: Invoice identifier prefix used to build directory-name regexes.
     """
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, id_prefix: str = "") -> None:
         self.base_dir = Path(base_dir)
+        self._re_dir_name      = re.compile(rf"{id_prefix}\d+$",     re.IGNORECASE)
+        self._re_dir_pattern   = re.compile(rf"{id_prefix}.\d+",     re.IGNORECASE)
+        self._re_folder_suffix = re.compile(rf"({id_prefix}\d+)$",   re.IGNORECASE)
 
     def find_malformed_dirs(
         self, skip: list[Path] | None = None
@@ -46,7 +40,7 @@ class FolderInspector:
             for path in self.base_dir.iterdir()
             if path.is_dir()
             and path not in skip_set
-            and not _RE_DIR_NAME.match(path.name.upper())
+            and not self._re_dir_name.match(path.name.upper())
         ]
 
     def resolve_dir_paths(self, dir_names: list[str]) -> list[Path]:
@@ -76,7 +70,7 @@ class FolderInspector:
         on_disk: set[str] = set()
         for path in self.base_dir.iterdir():
             if path.is_dir():
-                match = _RE_DIR_PATTERN.search(path.name)
+                match = self._re_dir_pattern.search(path.name)
                 if match:
                     on_disk.add(match.group())
         return [name for name in expected_dirs if name not in on_disk]
@@ -113,7 +107,7 @@ class FolderInspector:
                 continue
             for file in folder.iterdir():
                 if file.is_file():
-                    match = _RE_FOLDER_SUFFIX.search(file.stem)
+                    match = self._re_folder_suffix.search(file.stem)
                     if match and match.group(1).upper() != folder.name.upper():
                         mismatched.append(file)
 

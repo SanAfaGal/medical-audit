@@ -4,18 +4,15 @@ import logging
 import re
 from pathlib import Path
 
-from config.settings import Settings
 from core.reader import DocumentReader
 from core.helpers import remove_accents
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Module-level compiled regex constants
+# Module-level compiled regex constants (not id_prefix-dependent)
 # ---------------------------------------------------------------------------
 
-_id_prefix = Settings.invoice_identifier_prefix
-_RE_INVOICE_CODE = re.compile(rf"({_id_prefix}\d+)", re.IGNORECASE)
 _RE_CUFE = re.compile(r"CUFE\s*[:]*\s*(.{64,})\n", re.IGNORECASE)
 _RE_INLINE_WHITESPACE = re.compile(r"[ \t]+")
 _MIN_CUFE_LENGTH: int = 64
@@ -38,10 +35,12 @@ class InvoiceValidator:
 
     Args:
         base_dir: Root directory for file operations.
+        id_prefix: Invoice identifier prefix used to match invoice codes in PDFs.
     """
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, id_prefix: str = "") -> None:
         self.base_dir = Path(base_dir)
+        self._re_invoice_code = re.compile(rf"({id_prefix}\d+)", re.IGNORECASE)
 
     def extract_cufe_code(self, text: str) -> str | None:
         """Extract and normalise a CUFE code from invoice text.
@@ -122,7 +121,7 @@ class InvoiceValidator:
         """
         missing: list[Path] = []
         for f in files:
-            match = _RE_INVOICE_CODE.search(f.stem.upper())
+            match = self._re_invoice_code.search(f.stem.upper())
             if match:
                 code = match.group(1)
                 content = DocumentReader.read_text(f)
@@ -152,7 +151,7 @@ class InvoiceValidator:
 
             normalised = _collapse_inline_whitespace(content.upper())
 
-            invoice_match = _RE_INVOICE_CODE.search(f.stem.upper())
+            invoice_match = self._re_invoice_code.search(f.stem.upper())
             if invoice_match and invoice_match.group(1) not in normalised:
                 missing_invoice_code.append(f)
 

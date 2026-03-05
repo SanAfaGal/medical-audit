@@ -120,6 +120,7 @@ def _run_check_four_main_files(
     repo,
     hospital: str,
     period: str,
+    hospital_cfg: dict,
 ) -> None:
     """Execute the four-mandatory-files audit check across invoice directories.
 
@@ -134,8 +135,8 @@ def _run_check_four_main_files(
         repo: AuditRepository instance for updating invoice types.
         hospital: Active hospital key.
         period: Audit period string.
+        hospital_cfg: Hospital configuration dict from the repository.
     """
-    from config.settings import Settings
     from db.schema import InvoiceType
 
     pipeline_logger = logging.getLogger("app.pipeline")
@@ -207,6 +208,8 @@ def _run_check_four_main_files(
 
 def _execute_pipeline(
     flags: dict[str, bool],
+    hospital: str,
+    period: str,
     live_slot: "st.delta_generator.DeltaGenerator | None" = None,
     on_update: "Callable[[str], None] | None" = None,
 ) -> str:
@@ -226,11 +229,14 @@ def _execute_pipeline(
     Returns:
         Multi-line string of all log output produced during the run.
     """
+    from pathlib import Path
+
     from config.settings import Settings
     from core.billing import BillingIngester
     from core.drive import DriveSync
     from core.helpers import flatten_prefixes
     from core.inspector import FolderInspector
+    from core.ops import DocumentOps
     from core.organizer import FolderCopier, InvoiceOrganizer, LeafFolderFinder
     from core.processor import DocumentProcessor
     from core.reader import DocumentReader
@@ -259,16 +265,30 @@ def _execute_pipeline(
     root.addHandler(handler)
 
     try:
-        scanner    = DocumentScanner(Settings.staging_dir)
-        inspector  = FolderInspector(Settings.staging_dir)
-        ops_cls    = __import__("core.ops", fromlist=["DocumentOps"]).DocumentOps
-        operations = ops_cls(Settings.staging_dir)
-        validator  = InvoiceValidator(Settings.staging_dir)
-        repo       = AuditRepository(Settings.db_path)
+        repo = AuditRepository(Settings.db_path)
 
-        # Load hospital config from DB (falls back to empty dict if not seeded yet)
-        hospital_cfg = repo.fetch_hospital_config(Settings.active_hospital)
-        admin_map    = repo.fetch_admin_contract_map(Settings.active_hospital)
+        # Load hospital config from DB
+        hospital_cfg = repo.fetch_hospital_config(hospital)
+        if not hospital_cfg.get("base_path"):
+            logging.getLogger("app.pipeline").error(
+                "Base path not configured for hospital '%s'. "
+                "Set it in Settings → hospital form.", hospital
+            )
+            return handler.getvalue()
+
+        id_prefix    = hospital_cfg.get("INVOICE_IDENTIFIER_PREFIX", "")
+        base_path    = Path(hospital_cfg["base_path"]) / period
+        staging_dir  = base_path / "STAGE"
+        archive_dir  = base_path / "AUDIT"
+        base_dir     = base_path / "BASE"
+        sihos_report = base_path / ("%s_SIHOS.xlsx" % period)
+        audit_report = base_path / ("%s_AUDITORIA.xlsx" % period)
+
+        scanner    = DocumentScanner(staging_dir)
+        inspector  = FolderInspector(staging_dir, id_prefix=id_prefix)
+        operations = DocumentOps(staging_dir, id_prefix=id_prefix)
+        validator  = InvoiceValidator(staging_dir, id_prefix=id_prefix)
+        admin_map  = repo.fetch_admin_contract_map(hospital)
 
         pipeline_logger = logging.getLogger("app.pipeline")
 
@@ -284,7 +304,7 @@ def _execute_pipeline(
 
         if flags.get("LOAD_AND_PROCESS"):
             ingester = BillingIngester(admin_map)
-            ingester.load_excel(Settings.sihos_report_path, Settings.raw_schema_columns)
+            ingester.load_excel(sihos_report, Settings.raw_schema_columns)
 
             if not ingester.validate_admin_contract_pairs():
                 pipeline_logger.warning("Halted: pre-audit validation failed.")
@@ -293,23 +313,23 @@ def _execute_pipeline(
             df_processed = ingester.build_invoice_dataframe()
             inserted = repo.upsert_invoices(
                 df_processed,
-                hospital=Settings.active_hospital,
-                period=Settings.audit_week,
+                hospital=hospital,
+                period=period,
             )
             pipeline_logger.info("Invoices loaded into audit repository: %d", inserted)
 
             if flags.get("EXPORT_INVOICES"):
                 ingester.export_to_excel(
                     df_processed,
-                    Settings.audit_report_path,
+                    audit_report,
                     Settings.export_schema_columns,
                 )
 
             if flags.get("ORGANIZE"):
                 organizer = InvoiceOrganizer(
                     df=df_processed,
-                    staging_base=Settings.staging_dir,
-                    final_base=Settings.archive_dir,
+                    staging_base=staging_dir,
+                    final_base=archive_dir,
                 )
                 result = organizer.organize(dry_run=False)
                 pipeline_logger.info("Organise result: %s", result)
@@ -322,21 +342,21 @@ def _execute_pipeline(
         if flags.get("DOWNLOAD_DRIVE"):
             from db.schema import FolderStatus
             missing_folders = repo.fetch_by_folder_status(
-                Settings.active_hospital, Settings.audit_week, FolderStatus.MISSING
+                hospital, period, FolderStatus.MISSING
             )
-            drive = DriveSync(credentials_path=Settings.drive_credentials)
-            drive.download_missing_dirs(missing_folders, Settings.base_dir)
+            drive = DriveSync(credentials_path=Path(hospital_cfg["drive_credentials_path"]))
+            drive.download_missing_dirs(missing_folders, base_dir)
             leaf_finder = LeafFolderFinder()
-            leaf_folders = leaf_finder.find_leaf_folders(Settings.base_dir)
+            leaf_folders = leaf_finder.find_leaf_folders(base_dir)
             if leaf_folders:
-                copier = FolderCopier(Settings.staging_dir)
+                copier = FolderCopier(staging_dir)
                 copier.copy_folders(leaf_folders, use_prefix=False)
                 pipeline_logger.info("Leaf folders copied to staging: %d", len(leaf_folders))
 
         # ── Skip list (SOAT) — derived from DB ───────────────────────────────
 
         soat_facturas = repo.fetch_by_tipo(
-            Settings.active_hospital, Settings.audit_week, InvoiceType.SOAT
+            hospital, period, InvoiceType.SOAT
         )
         skip_dirs = inspector.resolve_dir_paths(soat_facturas)
 
@@ -415,12 +435,12 @@ def _execute_pipeline(
 
         if flags.get("CHECK_DIRS"):
             from db.schema import FolderStatus
-            all_folders = repo.fetch_invoice_ids(Settings.active_hospital, Settings.audit_week)
-            missing_dirs = inspector.find_missing_dirs(expected_folders=all_folders)
+            all_folders = repo.fetch_invoice_ids(hospital, period)
+            missing_dirs = inspector.find_missing_dirs(expected_dirs=all_folders)
             pipeline_logger.info("Missing directories: %d", len(missing_dirs))
             for factura in missing_dirs:
                 repo.update_folder_status(
-                    Settings.active_hospital, Settings.audit_week, factura, FolderStatus.MISSING
+                    hospital, period, factura, FolderStatus.MISSING
                 )
 
         if flags.get("CHECK_INVALID_FILES"):
@@ -431,7 +451,7 @@ def _execute_pipeline(
         if flags.get("CHECK_FOUR_MAIN_FILES"):
             _run_check_four_main_files(
                 scanner, inspector, validator, invoices, skip_dirs,
-                repo, Settings.active_hospital, Settings.audit_week,
+                repo, hospital, period, hospital_cfg=hospital_cfg,
             )
 
         if flags.get("CHECK_IF_FILES_NEED_OCR"):
@@ -452,7 +472,17 @@ def _execute_pipeline(
             raw_text = st.session_state.get("invoices_to_download", "")
             invoice_numbers = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
             if invoice_numbers:
-                downloader = SihosDownloader()
+                doc_standards = hospital_cfg.get("DOCUMENT_STANDARDS", {})
+                downloader = SihosDownloader(
+                    user=hospital_cfg["sihos_user"],
+                    password=hospital_cfg["sihos_password"],
+                    base_url=hospital_cfg["SIHOS_BASE_URL"],
+                    hospital_nit=hospital_cfg["NIT"],
+                    invoice_prefix=doc_standards.get("FACTURA", ""),
+                    invoice_id_prefix=id_prefix,
+                    invoice_doc_code=hospital_cfg["SIHOS_INVOICE_DOC_CODE"],
+                    output_dir=staging_dir,
+                )
                 downloader.run_from_list(invoice_numbers)
             else:
                 pipeline_logger.warning("No invoice numbers provided for SIHOS download.")
@@ -581,13 +611,17 @@ def render(config_error: str | None) -> None:
         _pipe["log"]     = ""
         _pipe["error"]   = False
 
-        # Capture flags now — the dict is evaluated at click time
-        _flags_snapshot = dict(flags)
+        # Capture flags and session values now — evaluated at click time
+        _flags_snapshot    = dict(flags)
+        _hospital_snapshot = st.session_state.get("sel_hospital", "")
+        _period_snapshot   = st.session_state.get("sel_period", "")
 
         def _run_thread() -> None:
             try:
                 result = _execute_pipeline(
                     _flags_snapshot,
+                    hospital=_hospital_snapshot,
+                    period=_period_snapshot,
                     on_update=lambda text: _pipe.__setitem__("log", text),
                 )
                 _pipe["log"] = result

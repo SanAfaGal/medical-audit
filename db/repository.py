@@ -79,6 +79,10 @@ class AuditRepository:
                 "ALTER TABLE invoices ADD COLUMN tipo TEXT NOT NULL DEFAULT 'GENERAL'",
                 "ALTER TABLE invoices ADD COLUMN folder_status TEXT NOT NULL DEFAULT 'PRESENTE'",
                 "ALTER TABLE invoices ADD COLUMN nota TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE hospitals ADD COLUMN sihos_user TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE hospitals ADD COLUMN sihos_password TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE hospitals ADD COLUMN drive_credentials_path TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE hospitals ADD COLUMN base_path TEXT NOT NULL DEFAULT ''",
             ):
                 try:
                     conn.execute(stmt)
@@ -487,9 +491,9 @@ class AuditRepository:
                     """
                     INSERT OR IGNORE INTO hospitals
                         (key, display_name, nit, invoice_identifier_prefix,
-                         sihos_base_url, sihos_invoice_doc_code,
-                         document_standards)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                         sihos_base_url, sihos_invoice_doc_code, document_standards,
+                         sihos_user, sihos_password, drive_credentials_path, base_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         key,
@@ -499,6 +503,10 @@ class AuditRepository:
                         cfg.get("SIHOS_BASE_URL", ""),
                         cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
                         json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
+                        "",
+                        "",
+                        "",
+                        "",
                     ),
                 )
             for hospital_key, mapping in mappings_dict.items():
@@ -521,7 +529,8 @@ class AuditRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT key, display_name, nit, invoice_identifier_prefix, "
-                "sihos_base_url, sihos_invoice_doc_code, document_standards "
+                "sihos_base_url, sihos_invoice_doc_code, document_standards, "
+                "sihos_user, sihos_password, drive_credentials_path, base_path "
                 "FROM hospitals ORDER BY key"
             ).fetchall()
         return [dict(r) for r in rows]
@@ -548,6 +557,10 @@ class AuditRepository:
             "SIHOS_BASE_URL": row["sihos_base_url"],
             "SIHOS_INVOICE_DOC_CODE": row["sihos_invoice_doc_code"],
             "DOCUMENT_STANDARDS": json.loads(row["document_standards"]),
+            "sihos_user": row["sihos_user"],
+            "sihos_password": row["sihos_password"],
+            "drive_credentials_path": row["drive_credentials_path"],
+            "base_path": row["base_path"],
         }
 
     def fetch_admin_contract_map(self, hospital_key: str) -> dict:
@@ -586,15 +599,20 @@ class AuditRepository:
                 """
                 INSERT INTO hospitals
                     (key, display_name, nit, invoice_identifier_prefix,
-                     sihos_base_url, sihos_invoice_doc_code, document_standards)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                     sihos_base_url, sihos_invoice_doc_code, document_standards,
+                     sihos_user, sihos_password, drive_credentials_path, base_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     display_name              = excluded.display_name,
                     nit                       = excluded.nit,
                     invoice_identifier_prefix = excluded.invoice_identifier_prefix,
                     sihos_base_url            = excluded.sihos_base_url,
                     sihos_invoice_doc_code    = excluded.sihos_invoice_doc_code,
-                    document_standards        = excluded.document_standards
+                    document_standards        = excluded.document_standards,
+                    sihos_user                = excluded.sihos_user,
+                    sihos_password            = excluded.sihos_password,
+                    drive_credentials_path    = excluded.drive_credentials_path,
+                    base_path                 = excluded.base_path
                 """,
                 (
                     key,
@@ -604,6 +622,10 @@ class AuditRepository:
                     cfg.get("SIHOS_BASE_URL", ""),
                     cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
                     json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
+                    cfg.get("sihos_user", ""),
+                    cfg.get("sihos_password", ""),
+                    cfg.get("drive_credentials_path", ""),
+                    cfg.get("base_path", ""),
                 ),
             )
 

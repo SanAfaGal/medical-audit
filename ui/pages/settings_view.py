@@ -55,25 +55,6 @@ def render(config_error: str | None) -> None:
         st.caption("No configuration parameters to display.")
 
     st.divider()
-    section_header("Key paths")
-
-    path_attrs = [
-        ("Staging directory", Settings.staging_dir),
-        ("Archive directory", Settings.archive_dir),
-        ("Base download dir", Settings.base_dir),
-        ("Audit database",    Settings.db_path),
-    ]
-
-    for label, path in path_attrs:
-        exists = Path(path).exists() if path else False
-        indicator = "exists" if exists else "not found"
-        st.markdown(
-            "**%s** &nbsp; `%s` &nbsp; <span style='font-size:.75rem;color:%s;'>%s</span>"
-            % (label, path, "#16A34A" if exists else "#DC2626", indicator),
-            unsafe_allow_html=True,
-        )
-
-    st.divider()
     section_header("Database")
 
     db = Path(Settings.db_path)
@@ -130,6 +111,22 @@ def render(config_error: str | None) -> None:
                 height=140,
                 key="hf_ds",
             )
+            st.markdown("---")
+            st.markdown("**Credenciales y rutas**")
+            f_sihos_user = st.text_input("Usuario SIHOS", value=current.get("sihos_user", ""), key="hf_sihos_user")
+            f_sihos_pass = st.text_input("Contraseña SIHOS", value=current.get("sihos_password", ""), type="password", key="hf_sihos_pass")
+            f_drive_cred = st.text_input(
+                "Ruta credenciales Drive (drive.json)",
+                value=current.get("drive_credentials_path", ""),
+                placeholder="/home/user/drive.json",
+                key="hf_drive_cred",
+            )
+            f_base_path  = st.text_input(
+                "Base path del hospital",
+                value=current.get("base_path", ""),
+                placeholder="C:/Auditorias/SANTA_LUCIA",
+                key="hf_base_path",
+            )
             if st.form_submit_button("Guardar hospital", type="primary"):
                 try:
                     ds = json.loads(f_ds)
@@ -143,6 +140,10 @@ def render(config_error: str | None) -> None:
                         "SIHOS_BASE_URL":            f_url,
                         "SIHOS_INVOICE_DOC_CODE":    f_code,
                         "DOCUMENT_STANDARDS":        ds,
+                        "sihos_user":                f_sihos_user,
+                        "sihos_password":            f_sihos_pass,
+                        "drive_credentials_path":    f_drive_cred,
+                        "base_path":                 f_base_path,
                     })
                     st.success("Hospital '%s' guardado." % f_key)
                     st.rerun()

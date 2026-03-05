@@ -5,17 +5,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from config.settings import Settings
-
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Compiled regex constants
-# ---------------------------------------------------------------------------
-
-_id_prefix = Settings.invoice_identifier_prefix
-_RE_INVOICE_ID_STRICT = re.compile(rf"{_id_prefix}_?(\d+)", re.IGNORECASE)
-_RE_INVOICE_ID_LOOSE = re.compile(rf"{_id_prefix}[-_ ]?(\d+)", re.IGNORECASE)
 _RE_PREFIX = re.compile(r"^([a-zA-Z]+)")
 
 
@@ -53,6 +44,8 @@ class FilenameStandardizer:
         self.valid_prefixes = valid_prefixes
         self.suffix_const = suffix_const
         self.prefix_map = prefix_map
+        self._re_id_strict = re.compile(rf"{suffix_const}_?(\d+)",    re.IGNORECASE)
+        self._re_id_loose  = re.compile(rf"{suffix_const}[-_ ]?(\d+)", re.IGNORECASE)
 
     def _extract_id_from_path(self, file_path: Path) -> str:
         """Extract the invoice ID from the file path.
@@ -65,11 +58,11 @@ class FilenameStandardizer:
         Returns:
             The ID string, or an empty string if not found.
         """
-        folder_match = _RE_INVOICE_ID_STRICT.search(file_path.parent.name)
+        folder_match = self._re_id_strict.search(file_path.parent.name)
         if folder_match:
             return folder_match.group(1)
 
-        file_match = _RE_INVOICE_ID_LOOSE.search(file_path.name)
+        file_match = self._re_id_loose.search(file_path.name)
         if file_match:
             return file_match.group(1)
 

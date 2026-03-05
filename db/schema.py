@@ -39,13 +39,10 @@ class FindingCode:
     MISSING_RESULTADOS = "MISSING_RESULTADOS"
     MISSING_BITACORA = "MISSING_BITACORA"
     MISSING_RESOLUCION = "MISSING_RESOLUCION"
-    MISSING_MEDICAMENTOS = "MISSING_MEDICAMENTOS"
     MISSING_AUTORIZACION = "MISSING_AUTORIZACION"
     MISSING_ORDEN = "MISSING_ORDEN"
     MISSING_FURIPS = "MISSING_FURIPS"
     MISSING_CUFE = "MISSING_CUFE"
-    MISSING_INVOICE_CODE = "MISSING_INVOICE_CODE"
-    FILE_NEEDS_CORRECTION = "FILE_NEEDS_CORRECTION"
 
     _ALL: frozenset[str] = frozenset()
 
@@ -56,21 +53,18 @@ FindingCode._ALL = frozenset(
 
 # Human-readable labels for the "Comentario" column in exported reports.
 FINDING_LABELS: dict[str, str] = {
-    FindingCode.MISSING_FOLDER: "Carpeta faltante",
-    FindingCode.MISSING_INVOICE: "Factura faltante",
-    FindingCode.MISSING_HISTORIA: "Historia clinica faltante",
-    FindingCode.MISSING_FIRMA: "Firma faltante",
-    FindingCode.MISSING_VALIDACION: "Validacion faltante",
-    FindingCode.MISSING_RESULTADOS: "Resultados faltantes",
-    FindingCode.MISSING_BITACORA: "Bitacora faltante",
-    FindingCode.MISSING_RESOLUCION: "Resolucion faltante",
-    FindingCode.MISSING_MEDICAMENTOS: "Medicamentos faltantes",
-    FindingCode.MISSING_AUTORIZACION: "Autorizacion faltante",
-    FindingCode.MISSING_ORDEN: "Orden faltante",
-    FindingCode.MISSING_FURIPS: "FURIPS faltante",
-    FindingCode.MISSING_CUFE: "CUFE faltante",
-    FindingCode.MISSING_INVOICE_CODE: "Codigo de factura no encontrado en PDF",
-    FindingCode.FILE_NEEDS_CORRECTION: "Archivo requiere correccion",
+    FindingCode.MISSING_FOLDER: "Carpeta",
+    FindingCode.MISSING_INVOICE: "Factura",
+    FindingCode.MISSING_HISTORIA: "Historia clinica",
+    FindingCode.MISSING_FIRMA: "Firma",
+    FindingCode.MISSING_VALIDACION: "Validacion",
+    FindingCode.MISSING_RESULTADOS: "Resultados",
+    FindingCode.MISSING_BITACORA: "Bitacora",
+    FindingCode.MISSING_RESOLUCION: "Resolucion",
+    FindingCode.MISSING_AUTORIZACION: "Autorizacion",
+    FindingCode.MISSING_ORDEN: "Orden",
+    FindingCode.MISSING_FURIPS: "Furips",
+    FindingCode.MISSING_CUFE: "Cufe",
 }
 
 
@@ -107,7 +101,11 @@ CREATE TABLE IF NOT EXISTS hospitals (
     sihos_base_url            TEXT NOT NULL DEFAULT '',
     sihos_invoice_doc_code    TEXT NOT NULL DEFAULT '',
     document_standards        TEXT NOT NULL DEFAULT '{}',
-    misnamed_fixer_map        TEXT NOT NULL DEFAULT '{}'
+    misnamed_fixer_map        TEXT NOT NULL DEFAULT '{}',
+    sihos_user                TEXT NOT NULL DEFAULT '',
+    sihos_password            TEXT NOT NULL DEFAULT '',
+    drive_credentials_path    TEXT NOT NULL DEFAULT '',
+    base_path                 TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS admin_contract_mappings (

@@ -7,7 +7,6 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from config.settings import Settings
 from core.helpers import read_lines_from_file
 
 logger = logging.getLogger(__name__)
@@ -26,21 +25,38 @@ _PASSWORD_SELECTOR: str = 'input[name="TxtPswd"]'
 class SihosDownloader:
     """Downloads invoices from the SIHOS web portal using a browser session.
 
-    Credentials and base URL are derived from the active hospital set in
-    the environment via :class:`~config.settings.Settings`.
+    All credentials and configuration are passed explicitly at construction.
+
+    Args:
+        user: SIHOS portal username.
+        password: SIHOS portal password.
+        base_url: Base URL of the SIHOS portal.
+        hospital_nit: NIT number of the hospital.
+        invoice_prefix: Document type prefix for invoices (e.g. ``"FE"``).
+        invoice_id_prefix: Invoice identifier prefix (e.g. ``"FA"``).
+        invoice_doc_code: SIHOS document code for invoices.
+        output_dir: Directory where downloaded PDFs are saved.
     """
 
-    def __init__(self, output_dir: Path | None = None) -> None:
-        self._base_url: str = Settings.sihos_base_url
-        self._user: str = Settings.sihos_user
-        self._password: str = Settings.sihos_password
-        self._hospital_nit: str = Settings.hospital_nit
-        self._invoice_prefix: str = Settings.invoice_prefix
-        self._invoice_id_prefix: str = Settings.invoice_identifier_prefix
-        self._invoice_doc_code: str = Settings.sihos_invoice_doc_code
-        self._output_dir: Path = (
-            output_dir if output_dir is not None else Settings.staging_dir
-        )
+    def __init__(
+        self,
+        user: str,
+        password: str,
+        base_url: str,
+        hospital_nit: str,
+        invoice_prefix: str,
+        invoice_id_prefix: str,
+        invoice_doc_code: str,
+        output_dir: Path,
+    ) -> None:
+        self._user: str = user
+        self._password: str = password
+        self._base_url: str = base_url
+        self._hospital_nit: str = hospital_nit
+        self._invoice_prefix: str = invoice_prefix
+        self._invoice_id_prefix: str = invoice_id_prefix
+        self._invoice_doc_code: str = invoice_doc_code
+        self._output_dir: Path = output_dir
 
     def run_from_list(self, invoice_numbers: list[str]) -> None:
         """Download invoices from a list of invoice numbers.
