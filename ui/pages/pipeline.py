@@ -19,11 +19,14 @@ logger = logging.getLogger(__name__)
 
 _cancel_event = threading.Event()
 
+# Keys for the shared pipeline state dict.
+_PIPE_RUNNING = "running"
+_PIPE_LOG     = "log"
+
 # Shared dict updated by the pipeline thread; read by the UI polling loop.
-_pipe: dict = {
-    "running": False,
-    "log":     "",
-    "error":   False,
+_pipe: dict[str, object] = {
+    _PIPE_RUNNING: False,
+    _PIPE_LOG:     "",
 }
 
 
@@ -49,9 +52,10 @@ class _LiveLogHandler(logging.Handler):
 
 _STAGE_LABELS: dict[str, str] = {
     "LOAD_AND_PROCESS":              "Load and process SIHOS report",
-    "EXPORT_INVOICES":               "Export invoices to Excel",
+    "DOWNLOAD_DRIVE":                "Download missing folders from Drive → STAGE",
+    "RUN_STAGING":                   "Copy invoice folders from BASE to STAGE",
+    "DOWNLOAD_INVOICES_FROM_SIHOS":  "Download invoices from SIHOS portal",
     "ORGANIZE":                      "Organise invoice folders",
-    "DOWNLOAD_DRIVE":                "Download missing folders from Drive",
     "NORMALIZE_FILES":               "Normalise files (delete non-PDFs, rename)",
     "CHECK_FOLDERS_WITH_EXTRA_TEXT": "Detect folders with extra text in name",
     "NORMALIZE_DIR_NAMES":           "Rename malformed directory names",
@@ -61,16 +65,15 @@ _STAGE_LABELS: dict[str, str] = {
     "CHECK_INVALID_FILES":           "Detect unreadable PDF files",
     "CHECK_FOUR_MAIN_FILES":         "Verify four mandatory document types",
     "CHECK_DIRS":                    "Detect missing directories",
-    "DOWNLOAD_INVOICES_FROM_SIHOS":  "Download invoices from SIHOS portal",
 }
 
 _STAGE_GROUPS: list[tuple[str, list[str]]] = [
     ("Ingestion", [
         "LOAD_AND_PROCESS",
-        "EXPORT_INVOICES",
     ]),
     ("Download", [
         "DOWNLOAD_DRIVE",
+        "RUN_STAGING",
         "DOWNLOAD_INVOICES_FROM_SIHOS",
     ]),
     ("Organisation", [
@@ -95,12 +98,11 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
 # Pipeline execution
 # ---------------------------------------------------------------------------
 
-_SEARCH_ECG         = "ELECTROCARD"
-_SEARCH_LABORATORY  = "LABORATORIO CLINICO"
-_SEARCH_XRAY        = "RADIOGRAF"
-_SEARCH_POLYCLINIC  = "P909000"
-_SEARCH_EMERGENCY   = "URGENCIA"
-_SEARCH_SIGN_VERIFY = "COMPROB"
+_SEARCH_ECG        = "ELECTROCARD"
+_SEARCH_LABORATORY = "LABORATORIO CLINICO"
+_SEARCH_XRAY       = "RADIOGRAF"
+_SEARCH_POLYCLINIC = "P909000"
+_SEARCH_EMERGENCY  = "URGENCIA"
 
 # Mapping from search text → InvoiceType (imported lazily inside functions)
 _TEXT_TO_TIPO: dict[str, str] = {
@@ -223,6 +225,8 @@ def _execute_pipeline(
 
     Args:
         flags: Mapping of stage key to enabled boolean.
+        hospital: Active hospital key (e.g. ``"SANTA_LUCIA"``).
+        period: Audit period string (e.g. ``"22-28_MARZO"``).
         live_slot: Optional Streamlit placeholder updated on each log line.
         on_update: Optional callback receiving the full accumulated log text.
 
@@ -282,7 +286,6 @@ def _execute_pipeline(
         archive_dir  = base_path / "AUDIT"
         base_dir     = base_path / "BASE"
         sihos_report = base_path / ("%s_SIHOS.xlsx" % period)
-        audit_report = base_path / ("%s_AUDITORIA.xlsx" % period)
 
         scanner    = DocumentScanner(staging_dir)
         inspector  = FolderInspector(staging_dir, id_prefix=id_prefix)
@@ -318,13 +321,6 @@ def _execute_pipeline(
             )
             pipeline_logger.info("Invoices loaded into audit repository: %d", inserted)
 
-            if flags.get("EXPORT_INVOICES"):
-                ingester.export_to_excel(
-                    df_processed,
-                    audit_report,
-                    Settings.export_schema_columns,
-                )
-
             if flags.get("ORGANIZE"):
                 organizer = InvoiceOrganizer(
                     df=df_processed,
@@ -337,7 +333,8 @@ def _execute_pipeline(
         if _cancelled():
             return handler.getvalue()
 
-        # ── Drive download ───────────────────────────────────────────────────
+        # ── Drive download (API) ─────────────────────────────────────────────
+        # Downloads specific missing folders (from DB) directly into STAGE.
 
         if flags.get("DOWNLOAD_DRIVE"):
             from db.schema import FolderStatus
@@ -345,13 +342,29 @@ def _execute_pipeline(
                 hospital, period, FolderStatus.MISSING
             )
             drive = DriveSync(credentials_path=Settings.drive_credentials_path(hospital))
-            drive.download_missing_dirs(missing_folders, base_dir)
-            leaf_finder = LeafFolderFinder()
+            drive.download_missing_dirs(missing_folders, staging_dir)
+            pipeline_logger.info(
+                "Missing folders downloaded to STAGE: %d", len(missing_folders)
+            )
+
+        # ── Staging from BASE (manual extraction) ────────────────────────────
+        # When the user manually extracts a Drive zip into BASE, this stage
+        # finds all leaf folders (those that contain files = invoice folders)
+        # and copies them to STAGE for further processing.
+
+        if flags.get("RUN_STAGING"):
+            leaf_finder  = LeafFolderFinder()
             leaf_folders = leaf_finder.find_leaf_folders(base_dir)
             if leaf_folders:
                 copier = FolderCopier(staging_dir)
                 copier.copy_folders(leaf_folders, use_prefix=False)
-                pipeline_logger.info("Leaf folders copied to staging: %d", len(leaf_folders))
+                pipeline_logger.info(
+                    "Leaf folders copied from BASE to STAGE: %d", len(leaf_folders)
+                )
+            else:
+                pipeline_logger.warning(
+                    "RUN_STAGING: no leaf folders found in BASE directory: %s", base_dir
+                )
 
         # ── Skip list (SOAT) — derived from DB ───────────────────────────────
 
@@ -454,19 +467,6 @@ def _execute_pipeline(
                 repo, hospital, period, hospital_cfg=hospital_cfg,
             )
 
-        if flags.get("CHECK_IF_FILES_NEED_OCR"):
-            signatures = scanner.find_by_prefix(hospital_cfg["DOCUMENT_STANDARDS"]["FIRMA"])
-            sigs_needing_ocr = DocumentReader.find_needing_ocr(signatures)
-            ocr_result = DocumentProcessor.batch_ocr(files=sigs_needing_ocr, max_workers=10)
-            pipeline_logger.info("OCR batch completed for signatures: %s", ocr_result)
-
-        if flags.get("CHECK_SIGNS"):
-            signatures = scanner.find_by_prefix(hospital_cfg["DOCUMENT_STANDARDS"]["FIRMA"])
-            files_with_text = validator.find_files_with_text(
-                files=signatures, search_text=_SEARCH_SIGN_VERIFY, return_parent=False
-            )
-            pipeline_logger.info("Signature files containing verification text: %d", len(files_with_text))
-
         if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
             from core.downloader import SihosDownloader
             raw_text = st.session_state.get("invoices_to_download", "")
@@ -563,8 +563,8 @@ def render(config_error: str | None) -> None:
         st.caption("No stages selected.")
 
     run_col, cancel_col, _ = st.columns([1.5, 1.5, 4])
-    run_btn    = run_col.button("Run pipeline", type="primary", disabled=not selected or _pipe["running"])
-    cancel_btn = cancel_col.button("Cancel", disabled=not _pipe["running"])
+    run_btn    = run_col.button("Run pipeline", type="primary", disabled=not selected or bool(_pipe[_PIPE_RUNNING]))
+    cancel_btn = cancel_col.button("Cancel", disabled=not _pipe[_PIPE_RUNNING])
 
     if cancel_btn:
         _cancel_event.set()
@@ -572,7 +572,7 @@ def render(config_error: str | None) -> None:
 
     # ── While pipeline is running: poll and refresh ──────────────────────────
 
-    if _pipe["running"]:
+    if _pipe[_PIPE_RUNNING]:
         status_slot = st.empty()
         status_slot.markdown(
             '<div class="status-bar info">Running — please wait…</div>',
@@ -580,15 +580,16 @@ def render(config_error: str | None) -> None:
         )
         section_header("Pipeline output")
         live_slot = st.empty()
-        live_slot.code(_pipe["log"] or "Starting…", language=None)
+        live_slot.code(_pipe[_PIPE_LOG] or "Starting…", language=None)
         time.sleep(0.4)
         st.rerun()
 
     # ── Show last run result if available ───────────────────────────────────
 
-    elif _pipe["log"]:
-        has_error = "ERROR" in _pipe["log"] or "CRITICAL" in _pipe["log"]
-        cancelled = "cancelled by user" in _pipe["log"]
+    elif _pipe[_PIPE_LOG]:
+        log_text  = str(_pipe[_PIPE_LOG])
+        has_error = "ERROR" in log_text or "CRITICAL" in log_text
+        cancelled = "cancelled by user" in log_text
         if cancelled:
             st.markdown(
                 '<div class="status-bar info">Pipeline cancelled.</div>',
@@ -605,15 +606,14 @@ def render(config_error: str | None) -> None:
                 unsafe_allow_html=True,
             )
         section_header("Pipeline output")
-        log_viewer(_pipe["log"])
+        log_viewer(log_text)
 
     # ── Launch pipeline in background thread ─────────────────────────────────
 
     if run_btn:
         _cancel_event.clear()
-        _pipe["running"] = True
-        _pipe["log"]     = ""
-        _pipe["error"]   = False
+        _pipe[_PIPE_RUNNING] = True
+        _pipe[_PIPE_LOG]     = ""
 
         # Capture flags and session values now — evaluated at click time
         _flags_snapshot    = dict(flags)
@@ -626,14 +626,13 @@ def render(config_error: str | None) -> None:
                     _flags_snapshot,
                     hospital=_hospital_snapshot,
                     period=_period_snapshot,
-                    on_update=lambda text: _pipe.__setitem__("log", text),
+                    on_update=lambda text: _pipe.__setitem__(_PIPE_LOG, text),
                 )
-                _pipe["log"] = result
-            except Exception as exc:
-                _pipe["log"] += "\nERROR (thread): %s" % exc
-                _pipe["error"] = True
+                _pipe[_PIPE_LOG] = result
+            except Exception as exc:  # noqa: BLE001
+                _pipe[_PIPE_LOG] = str(_pipe[_PIPE_LOG]) + "\nERROR (thread): %s" % exc
             finally:
-                _pipe["running"] = False
+                _pipe[_PIPE_RUNNING] = False
 
         threading.Thread(target=_run_thread, daemon=True).start()
         st.rerun()

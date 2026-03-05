@@ -10,7 +10,7 @@ The audit working directory (``audit_path``) is user-configurable and persisted 
 
 import json
 import logging
-import os
+import logging.handlers
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,13 @@ class Settings:
     # --- Fixed system paths ---
     db_path:    Path = _APP_DIR / "audit.db"
     backup_dir: Path = _APP_DIR / "backups"
+    logs_dir:   Path = _APP_DIR / "logs"
 
     # --- Configurable audit working directory ---
     audit_path: Path = _load_audit_path()
 
     # --- Logging ---
-    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    log_level: str = "INFO"
 
     # --- Data schema (universal, not hospital-specific) ---
     raw_schema_columns: list[str] = [
@@ -52,15 +53,34 @@ class Settings:
         "Operario",
     ]
 
-    export_schema_columns: list[str] = [
-        "Fecha",
-        "Documento",
-        "Numero",
-        "Paciente",
-        "Administradora",
-        "Contrato",
-        "Operario",
-    ]
+    @classmethod
+    def setup_file_logging(cls) -> None:
+        """Attach a rotating file handler to the root logger.
+
+        Safe to call on every Streamlit rerun — the handler is added only once
+        per server process.  Writes to ``~/.medical-audit/logs/app.log`` with
+        5 MB rotation and five backup files kept.
+        """
+        root = logging.getLogger()
+        if any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
+            return
+
+        cls.logs_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            cls.logs_dir / "app.log",
+            maxBytes=5 * 1024 * 1024,  # 5 MB per file
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        root.addHandler(file_handler)
+        root.setLevel(getattr(logging, cls.log_level.upper(), logging.INFO))
+        root.info("=" * 70)
+        root.info("Medical Audit — server process started")
+        root.info("=" * 70)
 
     @classmethod
     def save_audit_path(cls, path: Path) -> None:

@@ -40,7 +40,10 @@ class InvoiceValidator:
 
     def __init__(self, base_dir: Path, id_prefix: str = "") -> None:
         self.base_dir = Path(base_dir)
-        self._re_invoice_code = re.compile(rf"({id_prefix}\d+)", re.IGNORECASE)
+        # Anchor to end of string so we extract the trailing invoice number, not the
+        # NIT (which appears earlier in the filename and would be found first otherwise).
+        _esc = re.escape(id_prefix)
+        self._re_invoice_code = re.compile(rf"({_esc}\d+)$", re.IGNORECASE)
 
     def extract_cufe_code(self, text: str) -> str | None:
         """Extract and normalise a CUFE code from invoice text.

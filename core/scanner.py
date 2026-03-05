@@ -105,7 +105,7 @@ class DocumentScanner:
         """
         prefixes_group = "|".join(re.escape(p) for p in valid_prefixes)
         pattern = re.compile(
-            rf"^({prefixes_group})_{nit}_{suffix}\d+\.pdf$",
+            rf"^({prefixes_group})_{re.escape(nit)}_{re.escape(suffix)}\d+\.pdf$",
             re.IGNORECASE,
         )
         return [

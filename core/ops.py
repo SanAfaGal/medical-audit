@@ -33,8 +33,9 @@ class DocumentOps:
 
     def __init__(self, base_dir: Path, id_prefix: str = "") -> None:
         self.base_dir = Path(base_dir)
+        _esc = re.escape(id_prefix)
         self._re_dir_id_loose = re.compile(
-            rf"({id_prefix})[^a-zA-Z]*?(\d+)", re.IGNORECASE
+            rf"({_esc})[^a-zA-Z]*?(\d+)", re.IGNORECASE
         )
 
     def remove_files(self, files: list[Path]) -> int:

@@ -30,6 +30,10 @@ import ui.pages.settings_view as page_settings
 # ── Global CSS ─────────────────────────────────────────────────────────────────
 inject_css()
 
+# ── Persistent file logging ─────────────────────────────────────────────────────
+from config.settings import Settings as _Settings
+_Settings.setup_file_logging()
+
 # ── Settings — loaded once; errors are surfaced per-page ──────────────────────
 _config_error: str | None = None
 _period_map: dict = {}

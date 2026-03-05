@@ -44,8 +44,9 @@ class FilenameStandardizer:
         self.valid_prefixes = valid_prefixes
         self.suffix_const = suffix_const
         self.prefix_map = prefix_map
-        self._re_id_strict = re.compile(rf"{suffix_const}_?(\d+)",    re.IGNORECASE)
-        self._re_id_loose  = re.compile(rf"{suffix_const}[-_ ]?(\d+)", re.IGNORECASE)
+        _esc = re.escape(suffix_const)
+        self._re_id_strict = re.compile(rf"{_esc}_?(\d+)",    re.IGNORECASE)
+        self._re_id_loose  = re.compile(rf"{_esc}[-_ ]?(\d+)", re.IGNORECASE)
 
     def _extract_id_from_path(self, file_path: Path) -> str:
         """Extract the invoice ID from the file path.

@@ -300,3 +300,14 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
         st.caption("%d backup(s) en `%s`" % (len(backups), backup_dir))
     else:
         st.caption("Sin backups. Ejecuta cualquier etapa del pipeline para crear uno.")
+
+    log_file = Path(_S.logs_dir) / "app.log"
+    st.markdown("<br>", unsafe_allow_html=True)
+    section_header("Logs")
+    if log_file.exists():
+        size_kb = log_file.stat().st_size / 1024
+        st.markdown("**Archivo** &nbsp; `%s`" % log_file, unsafe_allow_html=True)
+        st.markdown("**Tamaño** &nbsp; `%.1f KB`" % size_kb, unsafe_allow_html=True)
+        st.caption("Rotación automática a los 5 MB · se conservan 5 archivos (app.log.1 … app.log.5).")
+    else:
+        st.caption("Aún no hay archivo de log. Se crea al iniciar la aplicación.")
