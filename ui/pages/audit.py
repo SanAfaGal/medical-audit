@@ -42,7 +42,7 @@ def _highlight_row(row: pd.Series) -> list[str]:
     Returns:
         List of CSS style strings, one per cell.
     """
-    style = "background-color:#FFF7ED;color:#7C2D12;" if row.get("Findings") else ""
+    style = "background-color:#3D1F0A;color:#FED7AA;" if row.get("Comentario") else ""
     return [style] * len(row)
 
 
@@ -98,7 +98,7 @@ def render(config_error: str | None) -> None:
 
     # --- Summary metrics ---
     total         = len(df)
-    with_findings = int((df["Findings"] != "").sum())
+    with_findings = int((df["Comentario"] != "").sum())
     clean         = total - with_findings
     pct_clean     = int(clean / total * 100) if total else 0
 
