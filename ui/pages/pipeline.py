@@ -188,7 +188,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
     from config.settings import Settings
     from core.billing import BillingIngester
     from core.drive import DriveSync
-    from core.helpers import flatten_prefixes, read_lines_from_file, write_lines_to_file
+    from core.helpers import flatten_prefixes, read_lines_from_file
     from core.inspector import FolderInspector
     from core.organizer import FolderCopier, InvoiceOrganizer, LeafFolderFinder
     from core.processor import DocumentProcessor
@@ -208,7 +208,6 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
     try:
         docs_dir      = Settings.docs_dir
         invoices_list = docs_dir / "invoices.txt"
-        missing_folders_list = docs_dir / "missing_folders.txt"
 
         scanner    = DocumentScanner(Settings.staging_dir)
         inspector  = FolderInspector(Settings.staging_dir)
@@ -259,7 +258,10 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
         # ── Drive download ───────────────────────────────────────────────────
 
         if flags.get("DOWNLOAD_DRIVE"):
-            missing_folders = read_lines_from_file(missing_folders_list) if missing_folders_list.exists() else []
+            from db.schema import FolderStatus
+            missing_folders = repo.fetch_by_folder_status(
+                Settings.active_hospital, Settings.audit_week, FolderStatus.MISSING
+            )
             drive = DriveSync(credentials_path=Settings.drive_credentials)
             drive.download_missing_dirs(missing_folders, Settings.base_dir)
             leaf_finder = LeafFolderFinder()
@@ -344,10 +346,14 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
             pipeline_logger.info("Directories missing invoice files: %d", len(missing_invoice_files))
 
         if flags.get("CHECK_DIRS"):
+            from db.schema import FolderStatus
             all_folders = read_lines_from_file(invoices_list) if invoices_list.exists() else []
             missing_dirs = inspector.find_missing_dirs(expected_folders=all_folders)
             pipeline_logger.info("Missing directories: %d", len(missing_dirs))
-            write_lines_to_file(missing_dirs, missing_folders_list)
+            for factura in missing_dirs:
+                repo.update_folder_status(
+                    Settings.active_hospital, Settings.audit_week, factura, FolderStatus.MISSING
+                )
 
         if flags.get("CHECK_INVALID_FILES"):
             all_files    = scanner.find_by_extension()

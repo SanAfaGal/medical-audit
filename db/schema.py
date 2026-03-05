@@ -75,6 +75,26 @@ FINDING_LABELS: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
+# Folder status
+# ---------------------------------------------------------------------------
+
+
+class FolderStatus:
+    """String constants for the physical presence state of an invoice folder."""
+
+    PRESENT  = "PRESENTE"
+    PENDING  = "PENDIENTE"
+    MISSING  = "FALTANTE"
+
+    _ALL: frozenset[str] = frozenset()
+
+
+FolderStatus._ALL = frozenset(
+    v for k, v in vars(FolderStatus).items() if not k.startswith("_")
+)
+
+
+# ---------------------------------------------------------------------------
 # Finding status
 # ---------------------------------------------------------------------------
 
@@ -114,6 +134,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     operario        TEXT,
     ruta            TEXT,
     tipo            TEXT NOT NULL DEFAULT 'GENERAL',
+    folder_status   TEXT NOT NULL DEFAULT 'PRESENTE',
     UNIQUE(hospital, period, factura)
 );
 

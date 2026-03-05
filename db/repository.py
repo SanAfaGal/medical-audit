@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from db.schema import FINDING_LABELS, SCHEMA_DDL, FindingCode, FindingStatus, InvoiceType
+from db.schema import FINDING_LABELS, SCHEMA_DDL, FindingCode, FindingStatus, FolderStatus, InvoiceType
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,13 @@ class AuditRepository:
             try:
                 conn.execute(
                     "ALTER TABLE invoices ADD COLUMN tipo TEXT NOT NULL DEFAULT 'GENERAL'"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            # Migration: add folder_status column if absent (idempotent)
+            try:
+                conn.execute(
+                    "ALTER TABLE invoices ADD COLUMN folder_status TEXT NOT NULL DEFAULT 'PRESENTE'"
                 )
             except sqlite3.OperationalError:
                 pass  # Column already exists
@@ -355,6 +362,55 @@ class AuditRepository:
             ).fetchall()
         return [r["factura"] for r in rows]
 
+    def update_folder_status(
+        self, hospital: str, period: str, factura: str, status: str
+    ) -> None:
+        """Set the folder presence status for a single invoice.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            factura: Invoice identifier.
+            status: One of the ``FolderStatus`` constants.
+
+        Raises:
+            ValueError: If ``status`` is not a recognised constant.
+        """
+        if status not in FolderStatus._ALL:
+            raise ValueError("Unknown folder_status: %s" % status)
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE invoices SET folder_status = ? WHERE hospital = ? AND period = ? AND factura = ?",
+                (status, hospital, period, factura),
+            )
+
+    def fetch_by_folder_status(
+        self, hospital: str, period: str, statuses: str | list[str]
+    ) -> list[str]:
+        """Return invoice identifiers whose folder_status matches the given value(s).
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            statuses: A single ``FolderStatus`` constant or a list of them.
+
+        Returns:
+            Sorted list of factura identifiers.
+        """
+        if isinstance(statuses, str):
+            statuses = [statuses]
+        placeholders = ",".join("?" * len(statuses))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT factura FROM invoices
+                WHERE hospital = ? AND period = ? AND folder_status IN (%s)
+                ORDER BY factura
+                """ % placeholders,
+                [hospital, period, *statuses],
+            ).fetchall()
+        return [r["factura"] for r in rows]
+
     def fetch_hospitals_and_periods(self) -> dict[str, list[str]]:
         """Return a mapping of hospital name to list of audit periods.
 
@@ -396,7 +452,7 @@ class AuditRepository:
             invoice_rows = conn.execute(
                 """
                 SELECT factura, fecha, documento, numero, paciente,
-                       administradora, contrato, operario, tipo
+                       administradora, contrato, operario, tipo, folder_status
                 FROM invoices
                 WHERE hospital = ? AND period = ?
                 ORDER BY factura
@@ -445,6 +501,7 @@ class AuditRepository:
                     "Contrato": inv["contrato"],
                     "Operario": inv["operario"],
                     "Tipo": inv["tipo"],
+                    "Estado carpeta": inv["folder_status"],
                     "Comentario": _COMMENT_SEPARATOR.join(comment_parts),
                     "Nota": _COMMENT_SEPARATOR.join(
                         n for _, _, n in findings if n

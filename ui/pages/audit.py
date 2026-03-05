@@ -64,7 +64,7 @@ def render(config_error: str | None) -> None:
 
     from config.settings import Settings
     from db.repository import AuditRepository
-    from db.schema import FindingCode, FindingStatus, InvoiceType
+    from db.schema import FindingCode, FindingStatus, FolderStatus, InvoiceType
 
     db_path = Settings.db_path
     if not db_path.exists():
@@ -101,8 +101,9 @@ def render(config_error: str | None) -> None:
     with_findings = int((df["Comentario"] != "").sum())
     clean         = total - with_findings
     pct_clean     = int(clean / total * 100) if total else 0
+    missing_count = int((df["Estado carpeta"] == FolderStatus.MISSING).sum())
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     with m1:
         st.markdown(metric_card("Total invoices", total, "in this period"), unsafe_allow_html=True)
     with m2:
@@ -120,6 +121,12 @@ def render(config_error: str | None) -> None:
         color_rate = "green" if pct_clean >= 80 else "amber"
         st.markdown(
             metric_card("Approval rate", "%d%%" % pct_clean, "invoices with no findings", color=color_rate),
+            unsafe_allow_html=True,
+        )
+    with m5:
+        color_missing = "red" if missing_count else "green"
+        st.markdown(
+            metric_card("Missing folders", missing_count, "not found on disk", color=color_missing),
             unsafe_allow_html=True,
         )
 
