@@ -79,7 +79,6 @@ class Settings:
     audit_week: str = _require_env("AUDIT_WEEK")
     root_path: Path = Path(_require_env("ROOT_PATH"))
     base_path: Path = Path(_require_env("BASE_PATH")) / audit_week
-    docs_dir: Path = base_path / "DOCS"
     base_dir: Path = base_path / "BASE"
     archive_dir: Path = base_path / "AUDIT"
     staging_dir: Path = base_path / "STAGE"

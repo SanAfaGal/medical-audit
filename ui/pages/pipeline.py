@@ -229,7 +229,7 @@ def _execute_pipeline(
     from config.settings import Settings
     from core.billing import BillingIngester
     from core.drive import DriveSync
-    from core.helpers import flatten_prefixes, read_lines_from_file
+    from core.helpers import flatten_prefixes
     from core.inspector import FolderInspector
     from core.organizer import FolderCopier, InvoiceOrganizer, LeafFolderFinder
     from core.processor import DocumentProcessor
@@ -259,9 +259,6 @@ def _execute_pipeline(
     root.addHandler(handler)
 
     try:
-        docs_dir      = Settings.docs_dir
-        invoices_list = docs_dir / "invoices.txt"
-
         scanner    = DocumentScanner(Settings.staging_dir)
         inspector  = FolderInspector(Settings.staging_dir)
         ops_cls    = __import__("core.ops", fromlist=["DocumentOps"]).DocumentOps
@@ -307,7 +304,6 @@ def _execute_pipeline(
                     Settings.audit_report_path,
                     Settings.export_schema_columns,
                 )
-                ingester.export_invoice_list(df_processed, invoices_list)
 
             if flags.get("ORGANIZE"):
                 organizer = InvoiceOrganizer(
@@ -419,7 +415,7 @@ def _execute_pipeline(
 
         if flags.get("CHECK_DIRS"):
             from db.schema import FolderStatus
-            all_folders = read_lines_from_file(invoices_list) if invoices_list.exists() else []
+            all_folders = repo.fetch_invoice_ids(Settings.active_hospital, Settings.audit_week)
             missing_dirs = inspector.find_missing_dirs(expected_folders=all_folders)
             pipeline_logger.info("Missing directories: %d", len(missing_dirs))
             for factura in missing_dirs:

@@ -417,6 +417,23 @@ class AuditRepository:
                     (wrong, correct),
                 )
 
+    def fetch_invoice_ids(self, hospital: str, period: str) -> list[str]:
+        """Return all factura IDs for a given hospital and period.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+
+        Returns:
+            Sorted list of factura identifier strings.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT factura FROM invoices WHERE hospital = ? AND period = ? ORDER BY factura",
+                (hospital, period),
+            ).fetchall()
+        return [r["factura"] for r in rows]
+
     def fetch_filename_fixes(self) -> dict[str, str]:
         """Return all filename prefix fixes as a dict.
 

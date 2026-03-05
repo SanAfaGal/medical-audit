@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from core.helpers import save_dataframe, write_lines_to_file
+from core.helpers import save_dataframe
 
 logger = logging.getLogger(__name__)
 
@@ -92,19 +92,6 @@ class BillingIngester:
             logger.info("Excel report saved to %s", dest)
         except (PermissionError, OSError, ValueError, KeyError) as exc:
             logger.error("Failed to save Excel report: %s", exc)
-
-    def export_invoice_list(self, df: pd.DataFrame, dest: Path) -> None:
-        """Export the invoice index to a plain-text file.
-
-        Args:
-            df: Processed DataFrame with invoice IDs as the index.
-            dest: Destination path for the text file.
-        """
-        try:
-            write_lines_to_file(df.index.tolist(), dest)
-            logger.info("Invoice list saved to %s", dest)
-        except (PermissionError, OSError) as exc:
-            logger.error("Failed to save invoice list: %s", exc)
 
     def _normalize_raw_rows(self) -> pd.DataFrame:
         """Produce the base working DataFrame from raw input.

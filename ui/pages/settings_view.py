@@ -58,11 +58,10 @@ def render(config_error: str | None) -> None:
     section_header("Key paths")
 
     path_attrs = [
-        ("Staging directory",    Settings.staging_dir),
-        ("Archive directory",    Settings.archive_dir),
-        ("Base download dir",    Settings.base_dir),
-        ("Docs directory",       Settings.docs_dir),
-        ("Audit database",       Settings.db_path),
+        ("Staging directory", Settings.staging_dir),
+        ("Archive directory", Settings.archive_dir),
+        ("Base download dir", Settings.base_dir),
+        ("Audit database",    Settings.db_path),
     ]
 
     for label, path in path_attrs:

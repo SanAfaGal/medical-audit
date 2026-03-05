@@ -3,11 +3,10 @@
 Run with:
     streamlit run app.py
 
-Four tabs:
-  - Pipeline  : Toggle and execute audit pipeline stages.
-  - Audit     : Browse invoices, manage findings, export report.
-  - Documents : View and edit .txt input/output files.
-  - Settings  : Read-only display of the active configuration.
+Three tabs:
+  - Pipeline : Toggle and execute audit pipeline stages.
+  - Audit    : Browse invoices, manage findings, export report.
+  - Settings : Read-only display of the active configuration.
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ from ui.theme import inject_css
 from ui.widgets import page_header
 import ui.pages.pipeline      as page_pipeline
 import ui.pages.audit         as page_audit
-import ui.pages.documents     as page_documents
 import ui.pages.settings_view as page_settings
 
 # ── Global CSS ─────────────────────────────────────────────────────────────────
@@ -47,18 +45,13 @@ except (EnvironmentError, OSError, KeyError) as exc:
 page_header(_period_map)
 
 # ── Tab layout ──────────────────────────────────────────────────────────────────
-t_pipeline, t_audit, t_documents, t_settings = st.tabs(
-    ["Pipeline", "Audit", "Documents", "Settings"]
-)
+t_pipeline, t_audit, t_settings = st.tabs(["Pipeline", "Audit", "Settings"])
 
 with t_pipeline:
     page_pipeline.render(_config_error)
 
 with t_audit:
     page_audit.render(_config_error)
-
-with t_documents:
-    page_documents.render(_config_error)
 
 with t_settings:
     page_settings.render(_config_error)
