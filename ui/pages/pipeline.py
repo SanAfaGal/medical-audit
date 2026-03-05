@@ -513,6 +513,11 @@ def render(config_error: str | None) -> None:
 
     section_header("Pipeline stages")
 
+    # Handle clear before checkboxes are instantiated
+    if st.session_state.pop("_clear_stages", False):
+        for key in _STAGE_LABELS:
+            st.session_state["stage_%s" % key] = False
+
     flags: dict[str, bool] = {}
     cols = st.columns(3)
 
@@ -530,8 +535,7 @@ def render(config_error: str | None) -> None:
     # Controls row
     c_clear, _, c_run = st.columns([1.5, 4.0, 1.5])
     if c_clear.button("Clear selection", width="stretch"):
-        for key in _STAGE_LABELS:
-            st.session_state["stage_%s" % key] = False
+        st.session_state["_clear_stages"] = True
         st.rerun()
 
     selected = [k for k, v in flags.items() if v]
