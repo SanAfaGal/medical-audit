@@ -29,8 +29,6 @@ _STAGE_LABELS: dict[str, str] = {
     "MARK_DIRS_MISSING_CUFE":            "Mark directories missing CUFE",
     "CHECK_INVALID_FILES":                "Detect unreadable PDF files",
     "CHECK_FOUR_MAIN_FILES":              "Verify four mandatory document types",
-    "CHECK_IF_FILES_NEED_OCR":            "Check whether signatures need OCR",
-    "CHECK_SIGNS":                        "Verify verification text in signatures",
     "CHECK_DIRS":                         "Detect missing directories",
     "MOVE_MISSING_FILES":                 "Relocate misplaced files",
     "MOVE_FOLDERS_FROM_MISSING_TO_STAGE": "Move recovered folders to staging",
@@ -63,8 +61,6 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
         "MARK_DIRS_MISSING_CUFE",
         "CHECK_INVALID_FILES",
         "CHECK_FOUR_MAIN_FILES",
-        "CHECK_IF_FILES_NEED_OCR",
-        "CHECK_SIGNS",
         "CHECK_DIRS",
     ]),
 ]
@@ -80,6 +76,14 @@ _SEARCH_POLYCLINIC  = "P909000"
 _SEARCH_EMERGENCY   = "URGENCIA"
 _SEARCH_SIGN_VERIFY = "COMPROB"
 
+# Mapping from search text → InvoiceType (imported lazily inside functions)
+_TEXT_TO_TIPO: dict[str, str] = {
+    _SEARCH_LABORATORY: "LABORATORIO",
+    _SEARCH_ECG:        "ECG",
+    _SEARCH_XRAY:       "RADIOGRAFIA",
+    _SEARCH_EMERGENCY:  "URGENCIAS",
+    _SEARCH_POLYCLINIC: "POLICLINICA",
+}
 
 def _run_check_four_main_files(
     scanner,
@@ -87,9 +91,13 @@ def _run_check_four_main_files(
     validator,
     invoices: list,
     skip_dirs: list,
-    lab_list_path,
+    repo,
+    hospital: str,
+    period: str,
 ) -> None:
     """Execute the four-mandatory-files audit check across invoice directories.
+
+    Detects invoice types via PDF text search and updates the repository.
 
     Args:
         scanner: DocumentScanner instance.
@@ -97,10 +105,12 @@ def _run_check_four_main_files(
         validator: InvoiceValidator instance.
         invoices: List of invoice PDF paths.
         skip_dirs: Directories to skip during checks.
-        lab_list_path: Path to the lab-folders text list.
+        repo: AuditRepository instance for updating invoice types.
+        hospital: Active hospital key.
+        period: Audit period string.
     """
     from config.settings import Settings
-    from core.helpers import read_lines_from_file
+    from db.schema import InvoiceType
 
     pipeline_logger = logging.getLogger("app.pipeline")
     all_dirs = scanner.list_dirs()
@@ -111,11 +121,29 @@ def _run_check_four_main_files(
     polyclinic_dirs = validator.find_files_with_text(invoices, _SEARCH_POLYCLINIC, return_parent=True)
     emergency_dirs  = validator.find_files_with_text(invoices, _SEARCH_EMERGENCY,  return_parent=True)
 
+    # Update invoice types in DB based on detected PDF content
+    for dirs, tipo in [
+        (dirs_lab,        InvoiceType.LABORATORIO),
+        (dirs_ecg,        InvoiceType.ECG),
+        (xray_dirs,       InvoiceType.RADIOGRAFIA),
+        (emergency_dirs,  InvoiceType.URGENCIAS),
+        (polyclinic_dirs, InvoiceType.POLICLINICA),
+    ]:
+        for d in dirs:
+            factura = d.name.upper()
+            try:
+                repo.update_tipo(hospital, period, factura, tipo)
+            except ValueError:
+                pass  # factura not in DB (normalised name mismatch) — skip silently
+
     results_dirs = list(set(dirs_lab + xray_dirs + dirs_ecg) - set(polyclinic_dirs))
     history_dirs = list(set(all_dirs) - set(polyclinic_dirs) - set(results_dirs))
 
-    lab_folders   = read_lines_from_file(lab_list_path)
-    dirs_lab_test = inspector.resolve_dir_paths(lab_folders)
+    # Replace lab.txt: derive lab directories from DB tipo
+    lab_facturas  = repo.fetch_by_tipo(hospital, period, [
+        InvoiceType.LABORATORIO, InvoiceType.ECG, InvoiceType.RADIOGRAFIA,
+    ])
+    dirs_lab_test = inspector.resolve_dir_paths(lab_facturas)
 
     missing_histories = inspector.find_dirs_missing_file(
         Settings.hospital["DOCUMENT_STANDARDS"]["HISTORIA"],
@@ -175,6 +203,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
     from core.standardizer import FilenameStandardizer
     from core.validator import InvoiceValidator
     from db.repository import AuditRepository
+    from db.schema import InvoiceType
 
     buf     = io.StringIO()
     handler = logging.StreamHandler(buf)
@@ -183,23 +212,16 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
     root.addHandler(handler)
 
     try:
-        docs_dir           = Settings.docs_dir
+        docs_dir      = Settings.docs_dir
+        invoices_list = docs_dir / "invoices.txt"
         missing_folders_list = docs_dir / "missing_folders.txt"
-        skip_soat_list       = docs_dir / "skip_soat.txt"
-        invoices_list        = docs_dir / "invoices.txt"
-        lab_folders_list     = docs_dir / "lab.txt"
 
-        scanner   = DocumentScanner(Settings.staging_dir)
-        inspector = FolderInspector(Settings.staging_dir)
-        ops_cls   = __import__("core.ops", fromlist=["DocumentOps"]).DocumentOps
+        scanner    = DocumentScanner(Settings.staging_dir)
+        inspector  = FolderInspector(Settings.staging_dir)
+        ops_cls    = __import__("core.ops", fromlist=["DocumentOps"]).DocumentOps
         operations = ops_cls(Settings.staging_dir)
-        validator = InvoiceValidator(Settings.staging_dir)
-
-        missing_folders: list[str] = (
-            read_lines_from_file(missing_folders_list)
-            if missing_folders_list.exists()
-            else []
-        )
+        validator  = InvoiceValidator(Settings.staging_dir)
+        repo       = AuditRepository(Settings.db_path)
 
         pipeline_logger = logging.getLogger("app.pipeline")
 
@@ -216,7 +238,6 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
                 return buf.getvalue()
 
             df_processed = ingester.build_invoice_dataframe()
-            repo = AuditRepository(Settings.db_path)
             inserted = repo.upsert_invoices(
                 df_processed,
                 hospital=Settings.active_hospital,
@@ -258,15 +279,16 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
         # ── Drive download ───────────────────────────────────────────────────
 
         if flags.get("DOWNLOAD_DRIVE"):
+            missing_folders = read_lines_from_file(missing_folders_list) if missing_folders_list.exists() else []
             drive = DriveSync(credentials_path=Settings.drive_credentials)
             drive.download_missing_dirs(missing_folders, Settings.missing_dirs_path)
 
-        # ── Skip list ────────────────────────────────────────────────────────
+        # ── Skip list (SOAT) — derived from DB ───────────────────────────────
 
-        skip_names = (
-            read_lines_from_file(skip_soat_list) if skip_soat_list.exists() else []
+        soat_facturas = repo.fetch_by_tipo(
+            Settings.active_hospital, Settings.audit_week, InvoiceType.SOAT
         )
-        skip_dirs = inspector.resolve_dir_paths(skip_names)
+        skip_dirs = inspector.resolve_dir_paths(soat_facturas)
 
         # ── Normalisation ────────────────────────────────────────────────────
 
@@ -336,9 +358,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
             pipeline_logger.info("Directories missing invoice files: %d", len(missing_invoice_files))
 
         if flags.get("CHECK_DIRS"):
-            all_folders = (
-                read_lines_from_file(invoices_list) if invoices_list.exists() else []
-            )
+            all_folders = read_lines_from_file(invoices_list) if invoices_list.exists() else []
             missing_dirs = inspector.find_missing_dirs(expected_folders=all_folders)
             pipeline_logger.info("Missing directories: %d", len(missing_dirs))
             write_lines_to_file(missing_dirs, missing_folders_list)
@@ -349,6 +369,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
             pipeline_logger.info("Unreadable PDF files: %d", len(invalid_pdfs))
 
         if flags.get("MOVE_FOLDERS_FROM_MISSING_TO_STAGE"):
+            missing_folders = read_lines_from_file(missing_folders_list) if missing_folders_list.exists() else []
             result = operations.move_or_copy_dirs(
                 dir_names=missing_folders,
                 source_dir=Settings.missing_dirs_path,
@@ -359,7 +380,8 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
 
         if flags.get("CHECK_FOUR_MAIN_FILES"):
             _run_check_four_main_files(
-                scanner, inspector, validator, invoices, skip_dirs, lab_folders_list
+                scanner, inspector, validator, invoices, skip_dirs,
+                repo, Settings.active_hospital, Settings.audit_week,
             )
 
         if flags.get("CHECK_IF_FILES_NEED_OCR"):

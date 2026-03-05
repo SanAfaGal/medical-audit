@@ -64,7 +64,7 @@ def render(config_error: str | None) -> None:
 
     from config.settings import Settings
     from db.repository import AuditRepository
-    from db.schema import FindingCode, FindingStatus
+    from db.schema import FindingCode, FindingStatus, InvoiceType
 
     db_path = Settings.db_path
     if not db_path.exists():
@@ -128,8 +128,13 @@ def render(config_error: str | None) -> None:
     # --- Invoice table ---
     section_header("Period invoices")
 
+    tipo_options = ["All"] + sorted(InvoiceType._ALL)
+    filter_col, *_ = st.columns([2, 6])
+    tipo_filter = filter_col.selectbox("Filter by type", tipo_options, key="tipo_filter")
+    display_df = df if tipo_filter == "All" else df[df["Tipo"] == tipo_filter]
+
     st.dataframe(
-        df.style.apply(_highlight_row, axis=1),
+        display_df.style.apply(_highlight_row, axis=1),
         width="stretch",
         height=320,
     )
@@ -192,7 +197,7 @@ def render(config_error: str | None) -> None:
 
         action = st.radio(
             "Action",
-            ["Add finding", "Edit finding", "Remove finding"],
+            ["Add finding", "Edit finding", "Remove finding", "Change type"],
             horizontal=False,
         )
 
@@ -225,6 +230,17 @@ def render(config_error: str | None) -> None:
             if st.button("Remove", type="primary", key="btn_del", width="stretch"):
                 repo.delete_finding(hospital, period, invoice_id, ft_del)
                 st.success("Removed.")
+                st.rerun()
+
+        elif action == "Change type":
+            current_tipo = df.at[invoice_id, "Tipo"] if invoice_id in df.index else "GENERAL"
+            all_tipos = sorted(InvoiceType._ALL)
+            cur_tipo_idx = all_tipos.index(current_tipo) if current_tipo in all_tipos else 0
+            new_tipo = st.selectbox("Invoice type", all_tipos, index=cur_tipo_idx, key="change_tipo")
+            st.caption("Set type to **SOAT** to exclude this invoice from document checks.")
+            if st.button("Apply", type="primary", key="btn_tipo", width="stretch"):
+                repo.update_tipo(hospital, period, invoice_id, new_tipo)
+                st.success("Type updated to %s." % new_tipo)
                 st.rerun()
 
         elif not existing_types and action in ("Edit finding", "Remove finding"):

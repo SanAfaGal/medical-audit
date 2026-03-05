@@ -1,4 +1,27 @@
-"""Finding code and status constants, plus the SQLite schema DDL."""
+"""Finding code, status, and invoice-type constants, plus the SQLite schema DDL."""
+
+# ---------------------------------------------------------------------------
+# Invoice types
+# ---------------------------------------------------------------------------
+
+
+class InvoiceType:
+    """String constants that classify the type of an invoice."""
+
+    GENERAL      = "GENERAL"
+    SOAT         = "SOAT"
+    LABORATORIO  = "LABORATORIO"
+    URGENCIAS    = "URGENCIAS"
+    POLICLINICA  = "POLICLINICA"
+    ECG          = "ECG"
+    RADIOGRAFIA  = "RADIOGRAFIA"
+
+    _ALL: frozenset[str] = frozenset()
+
+
+InvoiceType._ALL = frozenset(
+    v for k, v in vars(InvoiceType).items() if not k.startswith("_")
+)
 
 # ---------------------------------------------------------------------------
 # Finding codes
@@ -90,6 +113,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     contrato        TEXT,
     operario        TEXT,
     ruta            TEXT,
+    tipo            TEXT NOT NULL DEFAULT 'GENERAL',
     UNIQUE(hospital, period, factura)
 );
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from db.schema import FINDING_LABELS, SCHEMA_DDL, FindingCode, FindingStatus
+from db.schema import FINDING_LABELS, SCHEMA_DDL, FindingCode, FindingStatus, InvoiceType
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +40,16 @@ class AuditRepository:
         return conn
 
     def _init_schema(self) -> None:
-        """Create tables and indexes if they do not already exist."""
+        """Create tables and indexes if they do not already exist, and run migrations."""
         with self._connect() as conn:
             conn.executescript(SCHEMA_DDL)
+            # Migration: add tipo column if absent (idempotent)
+            try:
+                conn.execute(
+                    "ALTER TABLE invoices ADD COLUMN tipo TEXT NOT NULL DEFAULT 'GENERAL'"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
     # ------------------------------------------------------------------
     # Invoice loading
@@ -299,6 +306,55 @@ class AuditRepository:
             ).fetchall()
         return [r["factura"] for r in rows]
 
+    def update_tipo(
+        self, hospital: str, period: str, factura: str, tipo: str
+    ) -> None:
+        """Set the invoice type for a single invoice.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            factura: Invoice identifier.
+            tipo: One of the ``InvoiceType`` constants.
+
+        Raises:
+            ValueError: If ``tipo`` is not a recognised constant.
+        """
+        if tipo not in InvoiceType._ALL:
+            raise ValueError("Unknown tipo: %s" % tipo)
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE invoices SET tipo = ? WHERE hospital = ? AND period = ? AND factura = ?",
+                (tipo, hospital, period, factura),
+            )
+
+    def fetch_by_tipo(
+        self, hospital: str, period: str, tipos: str | list[str]
+    ) -> list[str]:
+        """Return invoice IDs whose tipo matches the given value(s).
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            tipos: A single ``InvoiceType`` constant or a list of them.
+
+        Returns:
+            Sorted list of factura identifiers.
+        """
+        if isinstance(tipos, str):
+            tipos = [tipos]
+        placeholders = ",".join("?" * len(tipos))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT factura FROM invoices
+                WHERE hospital = ? AND period = ? AND tipo IN (%s)
+                ORDER BY factura
+                """ % placeholders,
+                [hospital, period, *tipos],
+            ).fetchall()
+        return [r["factura"] for r in rows]
+
     def fetch_hospitals_and_periods(self) -> dict[str, list[str]]:
         """Return a mapping of hospital name to list of audit periods.
 
@@ -340,7 +396,7 @@ class AuditRepository:
             invoice_rows = conn.execute(
                 """
                 SELECT factura, fecha, documento, numero, paciente,
-                       administradora, contrato, operario
+                       administradora, contrato, operario, tipo
                 FROM invoices
                 WHERE hospital = ? AND period = ?
                 ORDER BY factura
@@ -388,6 +444,7 @@ class AuditRepository:
                     "Administradora": inv["administradora"],
                     "Contrato": inv["contrato"],
                     "Operario": inv["operario"],
+                    "Tipo": inv["tipo"],
                     "Comentario": _COMMENT_SEPARATOR.join(comment_parts),
                     "Nota": _COMMENT_SEPARATOR.join(
                         n for _, _, n in findings if n
