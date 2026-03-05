@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import Callable
 
 import streamlit as st
@@ -10,6 +12,19 @@ import streamlit as st
 from ui.widgets import log_viewer, section_header
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Pipeline run state (module-level so it survives Streamlit reruns)
+# ---------------------------------------------------------------------------
+
+_cancel_event = threading.Event()
+
+# Shared dict updated by the pipeline thread; read by the UI polling loop.
+_pipe: dict = {
+    "running": False,
+    "log":     "",
+    "error":   False,
+}
 
 
 class _LiveLogHandler(logging.Handler):
@@ -192,17 +207,21 @@ def _run_check_four_main_files(
 
 def _execute_pipeline(
     flags: dict[str, bool],
-    live_slot: st.delta_generator.DeltaGenerator | None = None,
+    live_slot: "st.delta_generator.DeltaGenerator | None" = None,
+    on_update: "Callable[[str], None] | None" = None,
 ) -> str:
     """Run the selected pipeline stages and return captured log output.
 
     Sets up a logging handler so all module loggers are captured.  When
     *live_slot* is provided, the accumulated log is pushed to it after
-    every log record so the user sees output in real time.
+    every log record (direct Streamlit update, main thread only).  When
+    *on_update* is provided instead, the callback is called with the
+    accumulated text — safe to use from a background thread.
 
     Args:
         flags: Mapping of stage key to enabled boolean.
         live_slot: Optional Streamlit placeholder updated on each log line.
+        on_update: Optional callback receiving the full accumulated log text.
 
     Returns:
         Multi-line string of all log output produced during the run.
@@ -224,6 +243,16 @@ def _execute_pipeline(
     def _update_slot(text: str) -> None:
         if live_slot is not None:
             live_slot.code(text, language=None)
+        if on_update is not None:
+            on_update(text)
+
+    pipeline_logger_early = logging.getLogger("app.pipeline")
+
+    def _cancelled() -> bool:
+        if _cancel_event.is_set():
+            pipeline_logger_early.warning("Pipeline cancelled by user.")
+            return True
+        return False
 
     handler = _LiveLogHandler(_update_slot)
     root = logging.getLogger()
@@ -289,6 +318,9 @@ def _execute_pipeline(
                 result = organizer.organize(dry_run=False)
                 pipeline_logger.info("Organise result: %s", result)
 
+        if _cancelled():
+            return handler.getvalue()
+
         # ── Drive download ───────────────────────────────────────────────────
 
         if flags.get("DOWNLOAD_DRIVE"):
@@ -311,6 +343,9 @@ def _execute_pipeline(
             Settings.active_hospital, Settings.audit_week, InvoiceType.SOAT
         )
         skip_dirs = inspector.resolve_dir_paths(soat_facturas)
+
+        if _cancelled():
+            return handler.getvalue()
 
         # ── Normalisation ────────────────────────────────────────────────────
 
@@ -356,6 +391,9 @@ def _execute_pipeline(
         if flags.get("NORMALIZE_DIR_NAMES"):
             renamed = operations.standardize_dir_names(dirs_with_extra_text)
             pipeline_logger.info("Directories renamed: %d", renamed)
+
+        if _cancelled():
+            return handler.getvalue()
 
         # ── Invoice audit ────────────────────────────────────────────────────
 
@@ -494,29 +532,74 @@ def render(config_error: str | None) -> None:
     else:
         st.caption("No stages selected.")
 
-    if st.button("Run pipeline", type="primary", disabled=not selected):
+    run_col, cancel_col, _ = st.columns([1.5, 1.5, 4])
+    run_btn    = run_col.button("Run pipeline", type="primary", disabled=not selected or _pipe["running"])
+    cancel_btn = cancel_col.button("Cancel", disabled=not _pipe["running"])
+
+    if cancel_btn:
+        _cancel_event.set()
+        st.rerun()
+
+    # ── While pipeline is running: poll and refresh ──────────────────────────
+
+    if _pipe["running"]:
         status_slot = st.empty()
         status_slot.markdown(
-            '<div class="status-bar info">Running %d stage(s)…</div>' % len(selected),
+            '<div class="status-bar info">Running — please wait…</div>',
             unsafe_allow_html=True,
         )
         section_header("Pipeline output")
         live_slot = st.empty()
-        log_output = _execute_pipeline(flags, live_slot=live_slot)
+        live_slot.code(_pipe["log"] or "Starting…", language=None)
+        time.sleep(0.4)
+        st.rerun()
 
-        # Replace the live code block with the styled log viewer
-        live_slot.empty()
-        has_error = "ERROR" in log_output or "CRITICAL" in log_output
-        if has_error:
-            status_slot.markdown(
+    # ── Show last run result if available ───────────────────────────────────
+
+    elif _pipe["log"]:
+        has_error = "ERROR" in _pipe["log"] or "CRITICAL" in _pipe["log"]
+        cancelled = "cancelled by user" in _pipe["log"]
+        if cancelled:
+            st.markdown(
+                '<div class="status-bar info">Pipeline cancelled.</div>',
+                unsafe_allow_html=True,
+            )
+        elif has_error:
+            st.markdown(
                 '<div class="status-bar error">Pipeline finished with errors. See log below.</div>',
                 unsafe_allow_html=True,
             )
         else:
-            status_slot.markdown(
+            st.markdown(
                 '<div class="status-bar success">Pipeline completed successfully.</div>',
                 unsafe_allow_html=True,
             )
+        section_header("Pipeline output")
+        log_viewer(_pipe["log"])
 
-        if log_output.strip():
-            log_viewer(log_output)
+    # ── Launch pipeline in background thread ─────────────────────────────────
+
+    if run_btn:
+        _cancel_event.clear()
+        _pipe["running"] = True
+        _pipe["log"]     = ""
+        _pipe["error"]   = False
+
+        # Capture flags now — the dict is evaluated at click time
+        _flags_snapshot = dict(flags)
+
+        def _run_thread() -> None:
+            try:
+                result = _execute_pipeline(
+                    _flags_snapshot,
+                    on_update=lambda text: _pipe.__setitem__("log", text),
+                )
+                _pipe["log"] = result
+            except Exception as exc:
+                _pipe["log"] += "\nERROR (thread): %s" % exc
+                _pipe["error"] = True
+            finally:
+                _pipe["running"] = False
+
+        threading.Thread(target=_run_thread, daemon=True).start()
+        st.rerun()
