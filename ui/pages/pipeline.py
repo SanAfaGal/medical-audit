@@ -314,7 +314,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
                 nit=hospital_cfg["NIT"],
                 valid_prefixes=prefixes_accepted,
                 suffix_const=hospital_cfg["INVOICE_IDENTIFIER_PREFIX"],
-                prefix_map=hospital_cfg["MISNAMED_FIXER_MAP"],
+                prefix_map=repo.fetch_filename_fixes(),
             )
             standardizer.run(invalid_files)
 

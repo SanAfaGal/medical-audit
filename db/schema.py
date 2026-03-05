@@ -151,4 +151,9 @@ CREATE TABLE IF NOT EXISTS audit_findings (
 
 CREATE INDEX IF NOT EXISTS idx_findings_invoice
     ON audit_findings(invoice_id);
+
+CREATE TABLE IF NOT EXISTS filename_fixes (
+    wrong_prefix   TEXT PRIMARY KEY,
+    correct_prefix TEXT NOT NULL
+);
 """

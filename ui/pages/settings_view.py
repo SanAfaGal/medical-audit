@@ -131,16 +131,9 @@ def render(config_error: str | None) -> None:
                 height=140,
                 key="hf_ds",
             )
-            f_mfm   = st.text_area(
-                "MISNAMED_FIXER_MAP (JSON)",
-                value=current.get("misnamed_fixer_map", "{}"),
-                height=100,
-                key="hf_mfm",
-            )
             if st.form_submit_button("Guardar hospital", type="primary"):
                 try:
-                    ds  = json.loads(f_ds)
-                    mfm = json.loads(f_mfm)
+                    ds = json.loads(f_ds)
                 except json.JSONDecodeError as exc:
                     st.error("JSON inválido: %s" % exc)
                 else:
@@ -151,7 +144,6 @@ def render(config_error: str | None) -> None:
                         "SIHOS_BASE_URL":            f_url,
                         "SIHOS_INVOICE_DOC_CODE":    f_code,
                         "DOCUMENT_STANDARDS":        ds,
-                        "MISNAMED_FIXER_MAP":        mfm,
                     })
                     st.success("Hospital '%s' guardado." % f_key)
                     st.rerun()
@@ -197,4 +189,43 @@ def render(config_error: str | None) -> None:
                         m_can_c or None,
                     )
                     st.success("Mapping agregado.")
+                    st.rerun()
+
+    # -----------------------------------------------------------------------
+    # Filename prefix fixes (global, not per-hospital)
+    # -----------------------------------------------------------------------
+
+    st.divider()
+    section_header("Correcciones de prefijos de archivo")
+    st.caption(
+        "Estos reemplazos aplican a todos los hospitales durante la etapa de "
+        "normalización de nombres. Ej: OPD → OPF corrige cualquier archivo cuyo "
+        "nombre empiece con OPD_."
+    )
+
+    fixes = repo.fetch_filename_fixes()
+
+    if fixes:
+        for wrong, correct in fixes.items():
+            col_w, col_arr, col_c, col_del = st.columns([2, 0.5, 2, 1])
+            col_w.markdown("`%s`" % wrong)
+            col_arr.markdown("→")
+            col_c.markdown("`%s`" % correct)
+            if col_del.button("✕", key="del_fix_%s" % wrong):
+                repo.delete_filename_fix(wrong)
+                st.rerun()
+    else:
+        st.caption("No hay correcciones registradas.")
+
+    with st.expander("Agregar corrección"):
+        with st.form("fix_form"):
+            fc1, fc2 = st.columns(2)
+            f_wrong   = fc1.text_input("Prefijo incorrecto", key="ff_wrong", placeholder="OPD")
+            f_correct = fc2.text_input("Prefijo correcto",   key="ff_correct", placeholder="OPF")
+            if st.form_submit_button("Agregar", type="primary"):
+                if not f_wrong or not f_correct:
+                    st.error("Ambos campos son obligatorios.")
+                else:
+                    repo.upsert_filename_fix(f_wrong, f_correct)
+                    st.success("Corrección '%s → %s' guardada." % (f_wrong.upper(), f_correct.upper()))
                     st.rerun()

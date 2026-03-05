@@ -86,6 +86,7 @@ class AuditRepository:
                     pass  # Column already exists
         # Seed hospital config from hardcoded dicts if tables are empty
         self._seed_hospitals_if_empty()
+        self._seed_filename_fixes_if_empty()
 
     # ------------------------------------------------------------------
     # Invoice loading
@@ -393,6 +394,59 @@ class AuditRepository:
         from config.mappings import ADMIN_CONTRACT_MAPS
         self.seed_hospitals_from_config(HOSPITALS, ADMIN_CONTRACT_MAPS)
 
+    def _seed_filename_fixes_if_empty(self) -> None:
+        """Seed filename_fixes table from all hospitals' MISNAMED_FIXER_MAP if empty."""
+        with self._connect() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM filename_fixes").fetchone()[0]
+        if count > 0:
+            return
+        from config.hospitals import HOSPITALS
+        fixes: dict[str, str] = {}
+        for cfg in HOSPITALS.values():
+            fixes.update(cfg.get("MISNAMED_FIXER_MAP", {}))
+        with self._connect() as conn:
+            for wrong, correct in fixes.items():
+                conn.execute(
+                    "INSERT OR IGNORE INTO filename_fixes (wrong_prefix, correct_prefix) VALUES (?, ?)",
+                    (wrong, correct),
+                )
+
+    def fetch_filename_fixes(self) -> dict[str, str]:
+        """Return all filename prefix fixes as a dict.
+
+        Returns:
+            ``{wrong_prefix: correct_prefix}`` mapping.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT wrong_prefix, correct_prefix FROM filename_fixes ORDER BY wrong_prefix"
+            ).fetchall()
+        return {r["wrong_prefix"]: r["correct_prefix"] for r in rows}
+
+    def upsert_filename_fix(self, wrong: str, correct: str) -> None:
+        """Insert or replace a filename prefix fix.
+
+        Args:
+            wrong: The misnamed prefix (e.g. ``"OPD"``).
+            correct: The correct replacement prefix (e.g. ``"OPF"``).
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO filename_fixes (wrong_prefix, correct_prefix) VALUES (?, ?)",
+                (wrong.strip().upper(), correct.strip().upper()),
+            )
+
+    def delete_filename_fix(self, wrong: str) -> None:
+        """Delete a filename prefix fix by its wrong_prefix key.
+
+        Args:
+            wrong: The misnamed prefix to remove.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM filename_fixes WHERE wrong_prefix = ?", (wrong,)
+            )
+
     def seed_hospitals_from_config(
         self, hospitals_dict: dict, mappings_dict: dict
     ) -> None:
@@ -411,8 +465,8 @@ class AuditRepository:
                     INSERT OR IGNORE INTO hospitals
                         (key, display_name, nit, invoice_identifier_prefix,
                          sihos_base_url, sihos_invoice_doc_code,
-                         document_standards, misnamed_fixer_map)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         document_standards)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         key,
@@ -422,7 +476,6 @@ class AuditRepository:
                         cfg.get("SIHOS_BASE_URL", ""),
                         cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
                         json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
-                        json.dumps(cfg.get("MISNAMED_FIXER_MAP", {})),
                     ),
                 )
             for hospital_key, mapping in mappings_dict.items():
@@ -445,7 +498,7 @@ class AuditRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT key, display_name, nit, invoice_identifier_prefix, "
-                "sihos_base_url, sihos_invoice_doc_code, document_standards, misnamed_fixer_map "
+                "sihos_base_url, sihos_invoice_doc_code, document_standards "
                 "FROM hospitals ORDER BY key"
             ).fetchall()
         return [dict(r) for r in rows]
@@ -472,7 +525,6 @@ class AuditRepository:
             "SIHOS_BASE_URL": row["sihos_base_url"],
             "SIHOS_INVOICE_DOC_CODE": row["sihos_invoice_doc_code"],
             "DOCUMENT_STANDARDS": json.loads(row["document_standards"]),
-            "MISNAMED_FIXER_MAP": json.loads(row["misnamed_fixer_map"]),
         }
 
     def fetch_admin_contract_map(self, hospital_key: str) -> dict:
@@ -504,25 +556,22 @@ class AuditRepository:
         Args:
             key: Hospital key.
             cfg: Dict with keys NIT, INVOICE_IDENTIFIER_PREFIX, SIHOS_BASE_URL,
-                SIHOS_INVOICE_DOC_CODE, DOCUMENT_STANDARDS, MISNAMED_FIXER_MAP,
-                and optionally display_name.
+                SIHOS_INVOICE_DOC_CODE, DOCUMENT_STANDARDS, and optionally display_name.
         """
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO hospitals
                     (key, display_name, nit, invoice_identifier_prefix,
-                     sihos_base_url, sihos_invoice_doc_code,
-                     document_standards, misnamed_fixer_map)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     sihos_base_url, sihos_invoice_doc_code, document_standards)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     display_name              = excluded.display_name,
                     nit                       = excluded.nit,
                     invoice_identifier_prefix = excluded.invoice_identifier_prefix,
                     sihos_base_url            = excluded.sihos_base_url,
                     sihos_invoice_doc_code    = excluded.sihos_invoice_doc_code,
-                    document_standards        = excluded.document_standards,
-                    misnamed_fixer_map        = excluded.misnamed_fixer_map
+                    document_standards        = excluded.document_standards
                 """,
                 (
                     key,
@@ -532,7 +581,6 @@ class AuditRepository:
                     cfg.get("SIHOS_BASE_URL", ""),
                     cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
                     json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
-                    json.dumps(cfg.get("MISNAMED_FIXER_MAP", {})),
                 ),
             )
 
