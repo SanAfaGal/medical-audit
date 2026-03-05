@@ -2,14 +2,31 @@
 
 from __future__ import annotations
 
-import io
 import logging
+from typing import Callable
 
 import streamlit as st
 
 from ui.widgets import log_viewer, section_header
 
 logger = logging.getLogger(__name__)
+
+
+class _LiveLogHandler(logging.Handler):
+    """Logging handler that streams records to a Streamlit placeholder in real time."""
+
+    def __init__(self, on_record: Callable[[str], None]) -> None:
+        super().__init__()
+        self._on_record = on_record
+        self._lines: list[str] = []
+        self.setFormatter(logging.Formatter("%(levelname)-8s %(name)s — %(message)s"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._lines.append(self.format(record))
+        self._on_record("\n".join(self._lines))
+
+    def getvalue(self) -> str:
+        return "\n".join(self._lines)
 
 # ---------------------------------------------------------------------------
 # Stage metadata
@@ -173,14 +190,19 @@ def _run_check_four_main_files(
     pipeline_logger.info("Directories missing authorization files: %d", len(missing_auths))
 
 
-def _execute_pipeline(flags: dict[str, bool]) -> str:
+def _execute_pipeline(
+    flags: dict[str, bool],
+    live_slot: st.delta_generator.DeltaGenerator | None = None,
+) -> str:
     """Run the selected pipeline stages and return captured log output.
 
-    Sets up an in-memory logging handler so all module loggers are captured,
-    runs each enabled stage in order, then removes the handler.
+    Sets up a logging handler so all module loggers are captured.  When
+    *live_slot* is provided, the accumulated log is pushed to it after
+    every log record so the user sees output in real time.
 
     Args:
         flags: Mapping of stage key to enabled boolean.
+        live_slot: Optional Streamlit placeholder updated on each log line.
 
     Returns:
         Multi-line string of all log output produced during the run.
@@ -199,9 +221,11 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
     from db.repository import AuditRepository
     from db.schema import InvoiceType
 
-    buf     = io.StringIO()
-    handler = logging.StreamHandler(buf)
-    handler.setFormatter(logging.Formatter("%(levelname)-8s %(name)s — %(message)s"))
+    def _update_slot(text: str) -> None:
+        if live_slot is not None:
+            live_slot.code(text, language=None)
+
+    handler = _LiveLogHandler(_update_slot)
     root = logging.getLogger()
     root.addHandler(handler)
 
@@ -238,7 +262,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
 
             if not ingester.validate_admin_contract_pairs():
                 pipeline_logger.warning("Halted: pre-audit validation failed.")
-                return buf.getvalue()
+                return handler.getvalue()
 
             df_processed = ingester.build_invoice_dataframe()
             inserted = repo.upsert_invoices(
@@ -404,7 +428,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
     finally:
         root.removeHandler(handler)
 
-    return buf.getvalue()
+    return handler.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -473,12 +497,15 @@ def render(config_error: str | None) -> None:
     if st.button("Run pipeline", type="primary", disabled=not selected):
         status_slot = st.empty()
         status_slot.markdown(
-            '<div class="status-bar info">Running %d stage(s)...</div>' % len(selected),
+            '<div class="status-bar info">Running %d stage(s)…</div>' % len(selected),
             unsafe_allow_html=True,
         )
-        with st.spinner("Pipeline is running — please wait..."):
-            log_output = _execute_pipeline(flags)
+        section_header("Pipeline output")
+        live_slot = st.empty()
+        log_output = _execute_pipeline(flags, live_slot=live_slot)
 
+        # Replace the live code block with the styled log viewer
+        live_slot.empty()
         has_error = "ERROR" in log_output or "CRITICAL" in log_output
         if has_error:
             status_slot.markdown(
@@ -492,5 +519,4 @@ def render(config_error: str | None) -> None:
             )
 
         if log_output.strip():
-            section_header("Pipeline output")
             log_viewer(log_output)
