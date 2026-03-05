@@ -150,91 +150,6 @@ def render(config_error: str | None) -> None:
         width="stretch",
     )
 
-    st.divider()
-
-    # --- Invoice detail ---
-    section_header("Invoice detail and finding management")
-
-    detail_col, action_col = st.columns([5, 3])
-
-    with detail_col:
-        invoice_id = st.text_input(
-            "Invoice number",
-            placeholder="e.g. FE12345 — type and press Enter",
-        )
-        if not invoice_id:
-            st.caption("Enter an invoice number to view and manage its findings.")
-            return
-
-        if invoice_id not in df.index:
-            st.error("Invoice `%s` not found in this period." % invoice_id)
-            return
-
-        findings = repo.fetch_findings(hospital, period, invoice_id)
-
-        if findings:
-            st.markdown("**Archivos faltantes:**")
-            cards_html = "".join(finding_row(ft) for ft in findings)
-            st.markdown(cards_html, unsafe_allow_html=True)
-        else:
-            st.success("Esta carpeta no tiene archivos faltantes.")
-
-        # Folder-level note
-        section_header("Nota de carpeta")
-        current_nota = df.at[invoice_id, "Nota"] if invoice_id in df.index else ""
-        new_nota = st.text_area(
-            "Nota",
-            value=current_nota,
-            height=100,
-            key="nota_input",
-            label_visibility="collapsed",
-        )
-        if st.button("Guardar nota", key="btn_nota"):
-            repo.update_nota(hospital, period, invoice_id, new_nota)
-            st.success("Nota guardada.")
-            st.rerun()
-
-    all_finding_codes = sorted(FindingCode._ALL)
-    existing_types    = findings
-
-    with action_col:
-        if not invoice_id or invoice_id not in df.index:
-            return
-
-        action = st.radio(
-            "Action",
-            ["Add finding", "Remove finding", "Change type"],
-            horizontal=False,
-        )
-
-        if action == "Add finding":
-            ft_add = st.selectbox("Missing document type", all_finding_codes, key="add_ft")
-            if st.button("Add", type="primary", key="btn_add", width="stretch"):
-                repo.record_finding(hospital, period, invoice_id, ft_add)
-                st.success("Finding added.")
-                st.rerun()
-
-        elif action == "Remove finding" and existing_types:
-            ft_del = st.selectbox("Finding to remove", existing_types, key="del_ft")
-            if st.button("Remove", type="primary", key="btn_del", width="stretch"):
-                repo.delete_finding(hospital, period, invoice_id, ft_del)
-                st.success("Removed.")
-                st.rerun()
-
-        elif action == "Change type":
-            current_tipo = df.at[invoice_id, "Tipo"] if invoice_id in df.index else "GENERAL"
-            all_tipos = sorted(InvoiceType._ALL)
-            cur_tipo_idx = all_tipos.index(current_tipo) if current_tipo in all_tipos else 0
-            new_tipo = st.selectbox("Invoice type", all_tipos, index=cur_tipo_idx, key="change_tipo")
-            st.caption("Set type to **SOAT** to exclude this invoice from document checks.")
-            if st.button("Apply", type="primary", key="btn_tipo", width="stretch"):
-                repo.update_tipo(hospital, period, invoice_id, new_tipo)
-                st.success("Type updated to %s." % new_tipo)
-                st.rerun()
-
-        elif not existing_types and action == "Remove finding":
-            st.caption("This invoice has no findings to remove.")
-
     # -----------------------------------------------------------------------
     # Batch operations
     # -----------------------------------------------------------------------
@@ -292,3 +207,84 @@ def render(config_error: str | None) -> None:
                 lambda f: repo.update_tipo(hospital, period, f, nuevo_tp),
                 "Tipo '%s'" % nuevo_tp,
             )
+
+    st.divider()
+
+    # --- Invoice detail ---
+    section_header("Invoice detail and finding management")
+
+    detail_col, action_col = st.columns([5, 3])
+
+    with detail_col:
+        invoice_id = st.text_input(
+            "Invoice number",
+            placeholder="e.g. FE12345 — type and press Enter",
+        )
+        if not invoice_id:
+            st.caption("Enter an invoice number to view and manage its findings.")
+        elif invoice_id not in df.index:
+            st.error("Invoice `%s` not found in this period." % invoice_id)
+        else:
+            findings = repo.fetch_findings(hospital, period, invoice_id)
+
+            if findings:
+                st.markdown("**Archivos faltantes:**")
+                cards_html = "".join(finding_row(ft) for ft in findings)
+                st.markdown(cards_html, unsafe_allow_html=True)
+            else:
+                st.success("Esta carpeta no tiene archivos faltantes.")
+
+            # Folder-level note
+            section_header("Nota de carpeta")
+            current_nota = df.at[invoice_id, "Nota"]
+            new_nota = st.text_area(
+                "Nota",
+                value=current_nota,
+                height=100,
+                key="nota_input",
+                label_visibility="collapsed",
+            )
+            if st.button("Guardar nota", key="btn_nota"):
+                repo.update_nota(hospital, period, invoice_id, new_nota)
+                st.success("Nota guardada.")
+                st.rerun()
+
+    with action_col:
+        if invoice_id and invoice_id in df.index:
+            findings = repo.fetch_findings(hospital, period, invoice_id)
+            all_finding_codes = sorted(FindingCode._ALL)
+            existing_types    = findings
+
+            action = st.radio(
+                "Action",
+                ["Add finding", "Remove finding", "Change type"],
+                horizontal=False,
+            )
+
+            if action == "Add finding":
+                ft_add = st.selectbox("Missing document type", all_finding_codes, key="add_ft")
+                if st.button("Add", type="primary", key="btn_add", width="stretch"):
+                    repo.record_finding(hospital, period, invoice_id, ft_add)
+                    st.success("Finding added.")
+                    st.rerun()
+
+            elif action == "Remove finding" and existing_types:
+                ft_del = st.selectbox("Finding to remove", existing_types, key="del_ft")
+                if st.button("Remove", type="primary", key="btn_del", width="stretch"):
+                    repo.delete_finding(hospital, period, invoice_id, ft_del)
+                    st.success("Removed.")
+                    st.rerun()
+
+            elif action == "Change type":
+                current_tipo = df.at[invoice_id, "Tipo"]
+                all_tipos = sorted(InvoiceType._ALL)
+                cur_tipo_idx = all_tipos.index(current_tipo) if current_tipo in all_tipos else 0
+                new_tipo = st.selectbox("Invoice type", all_tipos, index=cur_tipo_idx, key="change_tipo")
+                st.caption("Set type to **SOAT** to exclude this invoice from document checks.")
+                if st.button("Apply", type="primary", key="btn_tipo", width="stretch"):
+                    repo.update_tipo(hospital, period, invoice_id, new_tipo)
+                    st.success("Type updated to %s." % new_tipo)
+                    st.rerun()
+
+            elif not existing_types and action == "Remove finding":
+                st.caption("This invoice has no findings to remove.")
