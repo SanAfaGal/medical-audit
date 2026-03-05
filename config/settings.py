@@ -8,6 +8,7 @@ The audit working directory (``audit_path``) is user-configurable and persisted 
 ``~/.medical-audit/config.json``.
 """
 
+import contextlib
 import json
 import logging
 import logging.handlers
@@ -91,10 +92,8 @@ class Settings:
         """
         _APP_DIR.mkdir(parents=True, exist_ok=True)
         data: dict = {}
-        try:
+        with contextlib.suppress(FileNotFoundError, ValueError):
             data = json.loads(_CONFIG_FILE.read_text())
-        except (FileNotFoundError, ValueError):
-            pass
         data["audit_path"] = str(path)
         _CONFIG_FILE.write_text(json.dumps(data, indent=2))
         cls.audit_path = path
@@ -112,4 +111,4 @@ class Settings:
         Returns:
             Path object (may not exist yet).
         """
-        return _APP_DIR / "credentials" / ("%s.json" % hospital_key)
+        return _APP_DIR / "credentials" / (f"{hospital_key}.json")

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
 import traceback
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import streamlit as st
 
 from ui.widgets import log_viewer, section_header
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -161,10 +165,8 @@ def _run_check_four_main_files(
     ]:
         for d in dirs:
             factura = d.name.upper()
-            try:
+            with contextlib.suppress(ValueError):
                 repo.update_tipo(hospital, period, factura, tipo)
-            except ValueError:
-                pass  # factura not in DB (normalised name mismatch) — skip silently
 
     results_dirs = list(set(dirs_lab + xray_dirs + dirs_ecg) - set(polyclinic_dirs))
     history_dirs = list(set(all_dirs) - set(polyclinic_dirs) - set(results_dirs))
@@ -213,8 +215,8 @@ def _execute_pipeline(
     flags: dict[str, bool],
     hospital: str,
     period: str,
-    live_slot: "st.delta_generator.DeltaGenerator | None" = None,
-    on_update: "Callable[[str], None] | None" = None,
+    live_slot: st.delta_generator.DeltaGenerator | None = None,
+    on_update: Callable[[str], None] | None = None,
 ) -> str:
     """Run the selected pipeline stages and return captured log output.
 
@@ -234,7 +236,6 @@ def _execute_pipeline(
     Returns:
         Multi-line string of all log output produced during the run.
     """
-    from pathlib import Path
 
     from config.settings import Settings
     from core.billing import BillingIngester
@@ -286,7 +287,7 @@ def _execute_pipeline(
         staging_dir  = base_path / "STAGE"
         archive_dir  = base_path / "AUDIT"
         base_dir     = base_path / "BASE"
-        sihos_report = base_path / ("%s_SIHOS.xlsx" % period)
+        sihos_report = base_path / (f"{period}_SIHOS.xlsx")
 
         scanner    = DocumentScanner(staging_dir)
         inspector  = FolderInspector(staging_dir, id_prefix=id_prefix)
@@ -524,7 +525,7 @@ def render(config_error: str | None) -> None:
     # Handle clear before checkboxes are instantiated
     if st.session_state.pop("_clear_stages", False):
         for key in _STAGE_LABELS:
-            st.session_state["stage_%s" % key] = False
+            st.session_state[f"stage_{key}"] = False
 
     flags: dict[str, bool] = {}
     cols = st.columns(3)
@@ -537,7 +538,7 @@ def render(config_error: str | None) -> None:
                 unsafe_allow_html=True,
             )
             for key in group_keys:
-                flags[key] = st.checkbox(_STAGE_LABELS[key], key="stage_%s" % key)
+                flags[key] = st.checkbox(_STAGE_LABELS[key], key=f"stage_{key}")
             st.markdown("</div>", unsafe_allow_html=True)
 
     # Controls row
@@ -563,15 +564,16 @@ def render(config_error: str | None) -> None:
     if selected:
         joined = ", ".join(_STAGE_LABELS[k] for k in selected)
         st.markdown(
-            '<div class="run-summary"><b>%d stage(s) selected:</b> %s</div>'
-            % (len(selected), joined),
+            f'<div class="run-summary"><b>{len(selected)} stage(s) selected:</b> {joined}</div>',
             unsafe_allow_html=True,
         )
     else:
         st.caption("No stages selected.")
 
     run_col, cancel_col, _ = st.columns([1.5, 1.5, 4])
-    run_btn    = run_col.button("Run pipeline", type="primary", disabled=not selected or bool(_pipe[_PIPE_RUNNING]))
+    run_btn = run_col.button(
+        "Run pipeline", type="primary", disabled=not selected or bool(_pipe[_PIPE_RUNNING])
+    )
     cancel_btn = cancel_col.button("Cancel", disabled=not _pipe[_PIPE_RUNNING])
 
     if cancel_btn:
@@ -641,7 +643,7 @@ def render(config_error: str | None) -> None:
                 tb = traceback.format_exc()
                 _pipe[_PIPE_LOG] = (
                     str(_pipe[_PIPE_LOG])
-                    + "\nERROR (thread): %s: %s\n%s" % (type(exc).__name__, exc, tb)
+                    + f"\nERROR (thread): {type(exc).__name__}: {exc}\n{tb}"
                 )
             finally:
                 _pipe[_PIPE_RUNNING] = False

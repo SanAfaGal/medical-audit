@@ -68,7 +68,7 @@ def render(config_error: str | None) -> None:
 
     db_path = Settings.db_path
     if not db_path.exists():
-        st.warning("Audit database not found: `%s`" % db_path)
+        st.warning(f"Audit database not found: `{db_path}`")
         st.info(
             "Run the **Load and process SIHOS report** pipeline stage "
             "to initialise the database."
@@ -103,18 +103,18 @@ def render(config_error: str | None) -> None:
     with m2:
         color_wf = "amber" if with_findings else ""
         st.markdown(
-            metric_card("With findings", with_findings, "%d%% of total" % (100 - pct_clean), color=color_wf),
+            metric_card("With findings", with_findings, f"{100 - pct_clean}% of total", color=color_wf),
             unsafe_allow_html=True,
         )
     with m3:
         st.markdown(
-            metric_card("Without findings", clean, "%d%% of total" % pct_clean, color="green"),
+            metric_card("Without findings", clean, f"{pct_clean}% of total", color="green"),
             unsafe_allow_html=True,
         )
     with m4:
         color_rate = "green" if pct_clean >= 80 else "amber"
         st.markdown(
-            metric_card("Approval rate", "%d%%" % pct_clean, "invoices with no findings", color=color_rate),
+            metric_card("Approval rate", f"{pct_clean}%", "invoices with no findings", color=color_rate),
             unsafe_allow_html=True,
         )
     with m5:
@@ -145,7 +145,7 @@ def render(config_error: str | None) -> None:
     dl_col.download_button(
         label="Export to Excel",
         data=excel_bytes,
-        file_name="%s_%s_AUDIT.xlsx" % (hospital, period),
+        file_name=f"{hospital}_{period}_AUDIT.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
     )
@@ -172,9 +172,9 @@ def render(config_error: str | None) -> None:
             else:
                 missing.append(f)
         if ok:
-            st.success("%s aplicado a %d factura(s)." % (label, len(ok)))
+            st.success(f"{label} aplicado a {len(ok)} factura(s).")
         if missing:
-            st.warning("%d factura(s) no encontradas: %s" % (len(missing), ", ".join(missing)))
+            st.warning(f"{len(missing)} factura(s) no encontradas: {', '.join(missing)}")
         if ok:
             st.rerun()
 
@@ -185,7 +185,7 @@ def render(config_error: str | None) -> None:
             _apply_batch(
                 raw_fs,
                 lambda f: repo.update_folder_status(hospital, period, f, nuevo_fs),
-                "Estado '%s'" % nuevo_fs,
+                f"Estado '{nuevo_fs}'",
             )
 
     with st.expander("Hallazgos en lote"):
@@ -195,7 +195,7 @@ def render(config_error: str | None) -> None:
             _apply_batch(
                 raw_hf,
                 lambda f: repo.record_finding(hospital, period, f, nuevo_hf),
-                "Hallazgo '%s'" % nuevo_hf,
+                f"Hallazgo '{nuevo_hf}'",
             )
 
     with st.expander("Tipo de factura en lote"):
@@ -205,7 +205,7 @@ def render(config_error: str | None) -> None:
             _apply_batch(
                 raw_tp,
                 lambda f: repo.update_tipo(hospital, period, f, nuevo_tp),
-                "Tipo '%s'" % nuevo_tp,
+                f"Tipo '{nuevo_tp}'",
             )
 
     st.divider()
@@ -223,7 +223,7 @@ def render(config_error: str | None) -> None:
         if not invoice_id:
             st.caption("Enter an invoice number to view and manage its findings.")
         elif invoice_id not in df.index:
-            st.error("Invoice `%s` not found in this period." % invoice_id)
+            st.error(f"Invoice `{invoice_id}` not found in this period.")
         else:
             findings = repo.fetch_findings(hospital, period, invoice_id)
 
@@ -283,7 +283,7 @@ def render(config_error: str | None) -> None:
                 st.caption("Set type to **SOAT** to exclude this invoice from document checks.")
                 if st.button("Apply", type="primary", key="btn_tipo", width="stretch"):
                     repo.update_tipo(hospital, period, invoice_id, new_tipo)
-                    st.success("Type updated to %s." % new_tipo)
+                    st.success(f"Type updated to {new_tipo}.")
                     st.rerun()
 
             elif not existing_types and action == "Remove finding":

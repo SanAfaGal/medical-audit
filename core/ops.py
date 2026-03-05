@@ -120,7 +120,7 @@ class DocumentOps:
             if len(parts) > 1:
                 current = parts[0].upper()
                 if current in prefix_map:
-                    new_name = "%s_%s" % (prefix_map[current], parts[1])
+                    new_name = f"{prefix_map[current]}_{parts[1]}"
                     try:
                         f.rename(f.with_name(new_name))
                         count += 1
@@ -145,7 +145,7 @@ class DocumentOps:
                 if current_nit and current_nit != correct_nit:
                     parts = f.name.split("_", 2)
                     if len(parts) == 3:
-                        new_name = "%s_%s_%s" % (parts[0], correct_nit, parts[2])
+                        new_name = f"{parts[0]}_{correct_nit}_{parts[2]}"
                         f.rename(f.with_name(new_name))
                         count += 1
             except OSError as exc:
@@ -182,14 +182,14 @@ class DocumentOps:
 
         if not source_dir.is_dir():
             logger.error("Invalid source directory: %s", source_dir)
-            result["errors"].append("Invalid source: %s" % source_dir)
+            result["errors"].append(f"Invalid source: {source_dir}")
             return result
 
         try:
             destination_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             logger.error("Cannot create destination %s: %s", destination_dir, exc)
-            result["errors"].append("Cannot create destination: %s" % exc)
+            result["errors"].append(f"Cannot create destination: {exc}")
             return result
 
         for name in dir_names:
@@ -199,14 +199,14 @@ class DocumentOps:
             if not src.is_dir():
                 logger.warning("Source folder not found: %s", src)
                 result["not_found"] += 1
-                result["errors"].append("Folder not found: %s" % name)
+                result["errors"].append(f"Folder not found: {name}")
                 continue
 
             try:
                 if dst.exists():
                     logger.warning("Destination already exists, skipping: %s", dst)
                     result["failed"] += 1
-                    result["errors"].append("Already exists: %s" % name)
+                    result["errors"].append(f"Already exists: {name}")
                 elif action == "copy":
                     shutil.copytree(src, dst)
                     result["success"] += 1
@@ -214,11 +214,11 @@ class DocumentOps:
                     shutil.move(str(src), str(dst))
                     result["success"] += 1
                 else:
-                    raise ValueError("Invalid action: %s" % action)
+                    raise ValueError(f"Invalid action: {action}")
             except (shutil.Error, OSError) as exc:
                 logger.error("Error processing %s: %s", name, exc)
                 result["failed"] += 1
-                result["errors"].append("Error on %s: %s" % (name, exc))
+                result["errors"].append(f"Error on {name}: {exc}")
 
         return result
 
@@ -246,7 +246,7 @@ class DocumentOps:
             if parent.name.upper().endswith(" CUFE"):
                 continue
 
-            new_path = parent.parent / ("%s CUFE" % parent.name)
+            new_path = parent.parent / (f"{parent.name} CUFE")
             if new_path.exists():
                 logger.warning(
                     "Cannot tag %s: target already exists: %s",

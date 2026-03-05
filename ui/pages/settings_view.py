@@ -51,7 +51,7 @@ def render(config_error: str | None) -> None:
         if st.form_submit_button("Guardar", type="primary"):
             p = Path(new_audit_path.strip())
             Settings.save_audit_path(p)
-            st.success("Directorio guardado: `%s`" % p)
+            st.success(f"Directorio guardado: `{p}`")
             st.rerun()
 
     # -----------------------------------------------------------------------
@@ -66,7 +66,7 @@ def render(config_error: str | None) -> None:
         _render_global_sections(repo)
         return
 
-    section_header("Hospital — %s" % hospital)
+    section_header(f"Hospital — {hospital}")
 
     hospitals = repo.fetch_all_hospitals()
     current = next((h for h in hospitals if h["key"] == hospital), {})
@@ -74,25 +74,44 @@ def render(config_error: str | None) -> None:
     # ── Hospital config form ─────────────────────────────────────────────────
     with st.expander("Editar configuración técnica", expanded=False):
         h = hospital  # shorthand for key suffix
-        with st.form("hosp_form_%s" % h):
-            f_name  = st.text_input("Nombre para mostrar", value=current.get("display_name", ""), key="hf_name_%s" % h)
-            f_nit   = st.text_input("NIT", value=current.get("nit", ""), key="hf_nit_%s" % h)
-            f_inv   = st.text_input("Prefijo factura (INVOICE_IDENTIFIER_PREFIX)", value=current.get("invoice_identifier_prefix", ""), key="hf_inv_%s" % h)
-            f_url   = st.text_input("SIHOS base URL", value=current.get("sihos_base_url", ""), key="hf_url_%s" % h)
-            f_code  = st.text_input("SIHOS doc code", value=current.get("sihos_invoice_doc_code", ""), key="hf_code_%s" % h)
-            f_sihos_user = st.text_input("Usuario SIHOS", value=current.get("sihos_user", ""), key="hf_sihos_user_%s" % h)
-            f_sihos_pass = st.text_input("Contraseña SIHOS", value=current.get("sihos_password", ""), type="password", key="hf_sihos_pass_%s" % h)
+        with st.form(f"hosp_form_{h}"):
+            f_name = st.text_input(
+                "Nombre para mostrar", value=current.get("display_name", ""), key=f"hf_name_{h}"
+            )
+            f_nit = st.text_input("NIT", value=current.get("nit", ""), key=f"hf_nit_{h}")
+            f_inv = st.text_input(
+                "Prefijo factura (INVOICE_IDENTIFIER_PREFIX)",
+                value=current.get("invoice_identifier_prefix", ""),
+                key=f"hf_inv_{h}",
+            )
+            f_url = st.text_input(
+                "SIHOS base URL", value=current.get("sihos_base_url", ""), key=f"hf_url_{h}"
+            )
+            f_code = st.text_input(
+                "SIHOS doc code",
+                value=current.get("sihos_invoice_doc_code", ""),
+                key=f"hf_code_{h}",
+            )
+            f_sihos_user = st.text_input(
+                "Usuario SIHOS", value=current.get("sihos_user", ""), key=f"hf_sihos_user_{h}"
+            )
+            f_sihos_pass = st.text_input(
+                "Contraseña SIHOS",
+                value=current.get("sihos_password", ""),
+                type="password",
+                key=f"hf_sihos_pass_{h}",
+            )
             f_ds = st.text_area(
                 "DOCUMENT_STANDARDS (JSON)",
                 value=current.get("document_standards", "{}"),
                 height=140,
-                key="hf_ds_%s" % h,
+                key=f"hf_ds_{h}",
             )
             if st.form_submit_button("Guardar configuración", type="primary"):
                 try:
                     ds = json.loads(f_ds)
                 except json.JSONDecodeError as exc:
-                    st.error("JSON inválido: %s" % exc)
+                    st.error(f"JSON inválido: {exc}")
                 else:
                     repo.upsert_hospital(hospital, {
                         "display_name":              f_name,
@@ -104,7 +123,7 @@ def render(config_error: str | None) -> None:
                         "sihos_password":            f_sihos_pass,
                         "DOCUMENT_STANDARDS":        ds,
                     })
-                    st.success("Configuración de '%s' guardada." % hospital)
+                    st.success(f"Configuración de '{hospital}' guardada.")
                     st.rerun()
 
     # ── Credenciales Drive ───────────────────────────────────────────────────
@@ -115,25 +134,25 @@ def render(config_error: str | None) -> None:
     if cred_path.exists():
         st.markdown(
             "<span style='color:#16A34A;font-weight:600;'>✓ drive.json configurado</span> "
-            "&nbsp; `%s`" % cred_path,
+            f"&nbsp; `{cred_path}`",
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
             "<span style='color:#DC2626;font-weight:600;'>✗ No encontrado</span> "
-            "&nbsp; `%s`" % cred_path,
+            f"&nbsp; `{cred_path}`",
             unsafe_allow_html=True,
         )
 
     uploaded_cred = st.file_uploader(
         "Subir drive.json (service account de Google Drive)",
         type=["json"],
-        key="drive_cred_upload_%s" % hospital,
+        key=f"drive_cred_upload_{hospital}",
     )
     if uploaded_cred is not None:
         cred_path.parent.mkdir(parents=True, exist_ok=True)
         cred_path.write_bytes(uploaded_cred.read())
-        st.success("Credenciales guardadas en `%s`" % cred_path)
+        st.success(f"Credenciales guardadas en `{cred_path}`")
         st.rerun()
 
     # ── Nuevo período ────────────────────────────────────────────────────────
@@ -145,16 +164,16 @@ def render(config_error: str | None) -> None:
         "Formato recomendado: `22-28_MARZO`"
     )
 
-    with st.form("new_period_form_%s" % hospital):
+    with st.form(f"new_period_form_{hospital}"):
         period_name = st.text_input(
             "Nombre del período",
             placeholder="22-28_MARZO",
-            key="new_period_name_%s" % hospital,
+            key=f"new_period_name_{hospital}",
         )
         sihos_file = st.file_uploader(
             "Reporte SIHOS (.xlsx)",
             type=["xlsx"],
-            key="sihos_upload_%s" % hospital,
+            key=f"sihos_upload_{hospital}",
         )
         if st.form_submit_button("Crear período", type="primary"):
             period_name = period_name.strip()
@@ -166,10 +185,10 @@ def render(config_error: str | None) -> None:
                 period_dir = Settings.audit_path / hospital / period_name
                 for sub in ("BASE", "STAGE", "AUDIT"):
                     (period_dir / sub).mkdir(parents=True, exist_ok=True)
-                sihos_dest = period_dir / ("%s_SIHOS.xlsx" % period_name)
+                sihos_dest = period_dir / (f"{period_name}_SIHOS.xlsx")
                 sihos_dest.write_bytes(sihos_file.read())
                 st.success(
-                    "Período `%s` creado en `%s`" % (period_name, period_dir)
+                    f"Período `{period_name}` creado en `{period_dir}`"
                 )
                 st.rerun()
 
@@ -193,7 +212,7 @@ def _render_delete_period_section(repo, hospital: str, period: str) -> None:
         hospital: Currently selected hospital key.
         period: Currently selected period string.
     """
-    _CONFIRM_KEY = "_confirm_delete_period"
+    _confirm_key = "_confirm_delete_period"
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(
@@ -216,21 +235,21 @@ def _render_delete_period_section(repo, hospital: str, period: str) -> None:
         unsafe_allow_html=True,
     )
 
-    pending = st.session_state.get(_CONFIRM_KEY)
+    pending = st.session_state.get(_confirm_key)
 
     # Stale confirmation — user switched hospital/period
     if pending and pending != (hospital, period):
-        del st.session_state[_CONFIRM_KEY]
+        del st.session_state[_confirm_key]
         pending = None
 
     if not pending:
         col_info, col_btn = st.columns([4, 1])
         col_info.caption(
-            "Elimina todas las facturas y hallazgos de **%s / %s** de la base de datos. "
-            "Las carpetas físicas no se modifican. Esta acción no se puede deshacer." % (hospital, period)
+            f"Elimina todas las facturas y hallazgos de **{hospital} / {period}** de la base de datos. "
+            "Las carpetas físicas no se modifican. Esta acción no se puede deshacer."
         )
         if col_btn.button("Eliminar período…", key="danger_delete_period", type="secondary"):
-            st.session_state[_CONFIRM_KEY] = (hospital, period)
+            st.session_state[_confirm_key] = (hospital, period)
             st.rerun()
     else:
         invoice_count = len(repo.fetch_invoice_ids(hospital, period))
@@ -239,25 +258,25 @@ def _render_delete_period_section(repo, hospital: str, period: str) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            "Se borrarán **%d factura(s)** y todos sus hallazgos asociados "
-            "del hospital **%s**, período **%s**. No se puede deshacer." % (invoice_count, hospital, period)
+            f"Se borrarán **{invoice_count} factura(s)** y todos sus hallazgos asociados "
+            f"del hospital **{hospital}**, período **{period}**. No se puede deshacer."
         )
         col_cancel, col_confirm = st.columns(2)
         if col_cancel.button("Cancelar", key="danger_cancel", use_container_width=True):
-            del st.session_state[_CONFIRM_KEY]
+            del st.session_state[_confirm_key]
             st.rerun()
         if col_confirm.button(
-            "Sí, eliminar %d factura(s)" % invoice_count,
+            f"Sí, eliminar {invoice_count} factura(s)",
             key="danger_confirm",
             type="primary",
             use_container_width=True,
         ):
             deleted = repo.delete_period(hospital, period)
-            del st.session_state[_CONFIRM_KEY]
+            del st.session_state[_confirm_key]
             logger.info(
                 "Period deleted via UI: hospital=%s period=%s rows=%d", hospital, period, deleted
             )
-            st.success("Período **%s / %s** eliminado — %d factura(s) borradas." % (hospital, period, deleted))
+            st.success(f"Período **{hospital} / {period}** eliminado — {deleted} factura(s) borradas.")
             st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -273,7 +292,7 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
     # ── Admin/contract mappings ───────────────────────────────────────────────
     if hospital:
         st.divider()
-        section_header("Mappings admin/contrato — %s" % hospital)
+        section_header(f"Mappings admin/contrato — {hospital}")
 
         mappings = repo.fetch_admin_contract_mappings(hospital)
         if mappings:
@@ -283,12 +302,12 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
             if pending:
                 st.caption("Pares sin mapear — completa los campos canónicos:")
                 for m in pending:
-                    with st.form("edit_map_%d" % m["id"]):
+                    with st.form(f"edit_map_{m['id']}"):
                         ec1, ec2 = st.columns(2)
-                        ec1.markdown("**Raw:** `%s` / `%s`" % (m["raw_admin"], m["raw_contract"] or "—"))
+                        ec1.markdown("**Raw:** `{}` / `{}`".format(m["raw_admin"], m["raw_contract"] or "—"))
                         ec3, ec4 = st.columns(2)
-                        new_can_a = ec3.text_input("Administradora (canónica)", key="can_a_%d" % m["id"])
-                        new_can_c = ec4.text_input("Contrato (canónico)", key="can_c_%d" % m["id"])
+                        new_can_a = ec3.text_input("Administradora (canónica)", key=f"can_a_{m['id']}")
+                        new_can_c = ec4.text_input("Contrato (canónico)", key=f"can_c_{m['id']}")
                         sb1, sb2 = st.columns([3, 1])
                         if sb1.form_submit_button("Guardar", type="primary"):
                             repo.upsert_admin_contract_mapping(
@@ -308,29 +327,30 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
                     st.caption("Pares ya mapeados:")
                 for m in mapped:
                     col_raw, col_arrow, col_can, col_del = st.columns([3, 0.5, 3, 1])
-                    col_raw.markdown("`%s` / `%s`" % (m["raw_admin"], m["raw_contract"] or "—"))
+                    col_raw.markdown("`{}` / `{}`".format(m["raw_admin"], m["raw_contract"] or "—"))
                     col_arrow.markdown("→")
-                    col_can.markdown("`%s` / `%s`" % (m["canonical_admin"], m["canonical_contract"] or "—"))
-                    if col_del.button("✕", key="del_map_%d" % m["id"]):
+                    can_a = m["canonical_admin"]
+                    can_c = m["canonical_contract"] or "—"
+                    col_can.markdown(f"`{can_a}` / `{can_c}`")
+                    if col_del.button("✕", key=f"del_map_{m['id']}"):
                         repo.delete_admin_contract_mapping(m["id"])
                         st.rerun()
         else:
             st.caption("No hay mappings para este hospital.")
 
-        with st.expander("Agregar mapping"):
-            with st.form("map_form_%s" % hospital):
-                mc1, mc2 = st.columns(2)
-                m_raw_a = mc1.text_input("Administradora (raw)", key="mf_raw_a")
-                m_raw_c = mc2.text_input("Contrato (raw)", key="mf_raw_c")
-                mc3, mc4 = st.columns(2)
-                m_can_a = mc3.text_input("Administradora (canónica)", key="mf_can_a")
-                m_can_c = mc4.text_input("Contrato (canónico)", key="mf_can_c")
-                if st.form_submit_button("Agregar", type="primary"):
-                    repo.upsert_admin_contract_mapping(
-                        hospital, m_raw_a, m_raw_c or None, m_can_a or None, m_can_c or None,
-                    )
-                    st.success("Mapping agregado.")
-                    st.rerun()
+        with st.expander("Agregar mapping"), st.form(f"map_form_{hospital}"):
+            mc1, mc2 = st.columns(2)
+            m_raw_a = mc1.text_input("Administradora (raw)", key="mf_raw_a")
+            m_raw_c = mc2.text_input("Contrato (raw)", key="mf_raw_c")
+            mc3, mc4 = st.columns(2)
+            m_can_a = mc3.text_input("Administradora (canónica)", key="mf_can_a")
+            m_can_c = mc4.text_input("Contrato (canónico)", key="mf_can_c")
+            if st.form_submit_button("Agregar", type="primary"):
+                repo.upsert_admin_contract_mapping(
+                    hospital, m_raw_a, m_raw_c or None, m_can_a or None, m_can_c or None,
+                )
+                st.success("Mapping agregado.")
+                st.rerun()
 
     # ── Filename prefix fixes (global) ────────────────────────────────────────
     st.divider()
@@ -344,27 +364,26 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
     if fixes:
         for wrong, correct in fixes.items():
             col_w, col_arr, col_c, col_del = st.columns([2, 0.5, 2, 1])
-            col_w.markdown("`%s`" % wrong)
+            col_w.markdown(f"`{wrong}`")
             col_arr.markdown("→")
-            col_c.markdown("`%s`" % correct)
-            if col_del.button("✕", key="del_fix_%s" % wrong):
+            col_c.markdown(f"`{correct}`")
+            if col_del.button("✕", key=f"del_fix_{wrong}"):
                 repo.delete_filename_fix(wrong)
                 st.rerun()
     else:
         st.caption("No hay correcciones registradas.")
 
-    with st.expander("Agregar corrección"):
-        with st.form("fix_form"):
-            fc1, fc2 = st.columns(2)
-            f_wrong   = fc1.text_input("Prefijo incorrecto", key="ff_wrong", placeholder="OPD")
-            f_correct = fc2.text_input("Prefijo correcto",   key="ff_correct", placeholder="OPF")
-            if st.form_submit_button("Agregar", type="primary"):
-                if not f_wrong or not f_correct:
-                    st.error("Ambos campos son obligatorios.")
-                else:
-                    repo.upsert_filename_fix(f_wrong, f_correct)
-                    st.success("Corrección '%s → %s' guardada." % (f_wrong.upper(), f_correct.upper()))
-                    st.rerun()
+    with st.expander("Agregar corrección"), st.form("fix_form"):
+        fc1, fc2 = st.columns(2)
+        f_wrong   = fc1.text_input("Prefijo incorrecto", key="ff_wrong", placeholder="OPD")
+        f_correct = fc2.text_input("Prefijo correcto",   key="ff_correct", placeholder="OPF")
+        if st.form_submit_button("Agregar", type="primary"):
+            if not f_wrong or not f_correct:
+                st.error("Ambos campos son obligatorios.")
+            else:
+                repo.upsert_filename_fix(f_wrong, f_correct)
+                st.success(f"Corrección '{f_wrong.upper()} → {f_correct.upper()}' guardada.")
+                st.rerun()
 
     # ── Gestión de hospitales ─────────────────────────────────────────────────
     st.divider()
@@ -374,57 +393,56 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
     hospitals = repo.fetch_all_hospitals()
     hosp_keys = [h["key"] for h in hospitals]
 
-    with st.expander("Agregar hospital"):
-        with st.form("new_hosp_form"):
-            fn_key  = st.text_input("Clave (key)", placeholder="SANTA_LUCIA", key="nh_key")
-            fn_name = st.text_input("Nombre para mostrar", key="nh_name")
-            fn_nit  = st.text_input("NIT", key="nh_nit")
-            if st.form_submit_button("Crear hospital", type="primary"):
-                fn_key = fn_key.strip().upper()
-                if not fn_key:
-                    st.error("La clave es obligatoria.")
-                elif fn_key in hosp_keys:
-                    st.error("Ya existe un hospital con esa clave.")
-                else:
-                    repo.upsert_hospital(fn_key, {
-                        "display_name": fn_name or fn_key,
-                        "NIT":          fn_nit,
-                    })
-                    st.success("Hospital '%s' creado." % fn_key)
-                    st.rerun()
+    with st.expander("Agregar hospital"), st.form("new_hosp_form"):
+        fn_key  = st.text_input("Clave (key)", placeholder="SANTA_LUCIA", key="nh_key")
+        fn_name = st.text_input("Nombre para mostrar", key="nh_name")
+        fn_nit  = st.text_input("NIT", key="nh_nit")
+        if st.form_submit_button("Crear hospital", type="primary"):
+            fn_key = fn_key.strip().upper()
+            if not fn_key:
+                st.error("La clave es obligatoria.")
+            elif fn_key in hosp_keys:
+                st.error("Ya existe un hospital con esa clave.")
+            else:
+                repo.upsert_hospital(fn_key, {
+                    "display_name": fn_name or fn_key,
+                    "NIT":          fn_nit,
+                })
+                st.success(f"Hospital '{fn_key}' creado.")
+                st.rerun()
 
     # ── Base de datos ──────────────────────────────────────────────────────────
     st.divider()
     section_header("Base de datos")
 
-    from config.settings import Settings as _S
-    db = Path(_S.db_path)
+    from config.settings import Settings as _Settings
+    db = Path(_Settings.db_path)
     if db.exists():
         size_kb = db.stat().st_size / 1024
-        st.markdown("**Ruta** &nbsp; `%s`" % db, unsafe_allow_html=True)
-        st.markdown("**Tamaño** &nbsp; `%.1f KB`" % size_kb, unsafe_allow_html=True)
+        st.markdown(f"**Ruta** &nbsp; `{db}`", unsafe_allow_html=True)
+        st.markdown(f"**Tamaño** &nbsp; `{size_kb:.1f} KB`", unsafe_allow_html=True)
     else:
         st.caption("Base de datos aún no creada.")
 
-    backup_dir = Path(_S.backup_dir)
+    backup_dir = Path(_Settings.backup_dir)
     backups = sorted(backup_dir.glob("audit_*.db")) if backup_dir.exists() else []
     if backups:
         latest = backups[-1]
         st.markdown(
-            "**Último backup** &nbsp; `%s` &nbsp; `%.1f KB`" % (latest.name, latest.stat().st_size / 1024),
+            f"**Último backup** &nbsp; `{latest.name}` &nbsp; `{latest.stat().st_size / 1024:.1f} KB`",
             unsafe_allow_html=True,
         )
-        st.caption("%d backup(s) en `%s`" % (len(backups), backup_dir))
+        st.caption(f"{len(backups)} backup(s) en `{backup_dir}`")
     else:
         st.caption("Sin backups. Ejecuta cualquier etapa del pipeline para crear uno.")
 
-    log_file = Path(_S.logs_dir) / "app.log"
+    log_file = Path(_Settings.logs_dir) / "app.log"
     st.markdown("<br>", unsafe_allow_html=True)
     section_header("Logs")
     if log_file.exists():
         size_kb = log_file.stat().st_size / 1024
-        st.markdown("**Archivo** &nbsp; `%s`" % log_file, unsafe_allow_html=True)
-        st.markdown("**Tamaño** &nbsp; `%.1f KB`" % size_kb, unsafe_allow_html=True)
+        st.markdown(f"**Archivo** &nbsp; `{log_file}`", unsafe_allow_html=True)
+        st.markdown(f"**Tamaño** &nbsp; `{size_kb:.1f} KB`", unsafe_allow_html=True)
         st.caption("Rotación automática a los 5 MB · se conservan 5 archivos (app.log.1 … app.log.5).")
     else:
         st.caption("Aún no hay archivo de log. Se crea al iniciar la aplicación.")

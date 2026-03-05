@@ -51,7 +51,7 @@ class FolderCopier:
             Full destination path inside target_root.
         """
         name = (
-            "%s_%s" % (folder.parent.name, folder.name)
+            f"{folder.parent.name}_{folder.name}"
             if use_prefix
             else folder.name
         )
@@ -191,7 +191,7 @@ class InvoiceOrganizer:
             logger.info("Moved invoice %s successfully", invoice_id)
         else:
             stats.failed += 1
-            stats.errors.append("Failed to move %s" % invoice_id)
+            stats.errors.append(f"Failed to move {invoice_id}")
 
     def organize(self, dry_run: bool = False) -> TransferSummary:
         """Execute the migration of invoice folders to the final hierarchy.

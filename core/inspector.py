@@ -142,10 +142,7 @@ class FolderInspector:
         )
 
         criteria: str | tuple[str, ...]
-        if isinstance(prefixes, list):
-            criteria = tuple(p.upper() for p in prefixes)
-        else:
-            criteria = prefixes.upper()
+        criteria = tuple(p.upper() for p in prefixes) if isinstance(prefixes, list) else prefixes.upper()
 
         return [
             d

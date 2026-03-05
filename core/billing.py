@@ -38,7 +38,7 @@ class BillingIngester:
         """
         path = Path(file_path)
         if not path.exists():
-            raise FileNotFoundError("File not found: %s" % path)
+            raise FileNotFoundError(f"File not found: {path}")
 
         self._raw_df = pd.read_excel(path, usecols=columns, dtype=str)
         logger.info("File loaded: %d rows detected.", len(self._raw_df))
@@ -60,7 +60,7 @@ class BillingIngester:
             self._raw_df["Administradora"].notna() & self._raw_df["Contrato"].notna()
         ]
         raw_pairs: set[tuple[str, str]] = set(
-            zip(valid["Administradora"], valid["Contrato"])
+            zip(valid["Administradora"], valid["Contrato"], strict=False)
         )
         unknown = raw_pairs - set(self.admin_contract_map.keys())
         self._log_mapping_report(unknown)

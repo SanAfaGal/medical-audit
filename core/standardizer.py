@@ -100,9 +100,9 @@ class FilenameStandardizer:
 
         prefix = self._sanitize_prefix(file_path.name)
         if prefix not in self.valid_prefixes:
-            return None, "Prefix '%s' is not recognised or invalid." % prefix
+            return None, f"Prefix '{prefix}' is not recognised or invalid."
 
-        name = "%s_%s_%s%s.pdf" % (prefix, self.nit, self.suffix_const, file_id)
+        name = f"{prefix}_{self.nit}_{self.suffix_const}{file_id}.pdf"
         return name, "Ok"
 
     def run(self, files: list[Path]) -> list[RenameResult]:

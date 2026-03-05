@@ -94,7 +94,7 @@ class SihosDownloader:
                 page.goto(self._base_url)
                 page.fill(_USERNAME_SELECTOR, self._user)
                 page.fill(_PASSWORD_SELECTOR, self._password)
-                page.click("text=%s" % _LOGIN_BUTTON_TEXT)
+                page.click(f"text={_LOGIN_BUTTON_TEXT}")
                 page.wait_for_url(_LOGIN_URL_PATTERN)
             except (PlaywrightTimeoutError, PlaywrightError) as exc:
                 logger.error("SIHOS login failed: %s", exc)
@@ -103,22 +103,15 @@ class SihosDownloader:
 
             for invoice_number in invoice_list:
                 url = (
-                    "%s/modulos/facturacion/imprifact.php"
-                    "?CodiDocu=%s&NumeDocu=%s&MostSubCeCo=1"
-                    % (
+                    "{}/modulos/facturacion/imprifact.php"
+                    "?CodiDocu={}&NumeDocu={}&MostSubCeCo=1".format(
                         self._base_url.rstrip("/"),
                         self._invoice_doc_code,
                         invoice_number,
                     )
                 )
                 out_path = self._output_dir / (
-                    "%s_%s_%s%s.pdf"
-                    % (
-                        self._invoice_prefix,
-                        self._hospital_nit,
-                        self._invoice_id_prefix,
-                        invoice_number,
-                    )
+                    f"{self._invoice_prefix}_{self._hospital_nit}_{self._invoice_id_prefix}{invoice_number}.pdf"
                 )
                 try:
                     page.goto(url)

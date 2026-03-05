@@ -4,8 +4,8 @@ import logging
 import re
 from pathlib import Path
 
-from core.reader import DocumentReader
 from core.helpers import remove_accents
+from core.reader import DocumentReader
 
 logger = logging.getLogger(__name__)
 

@@ -11,17 +11,9 @@ import streamlit as st
 from ui.theme import (
     AMBER,
     AMBER_LIGHT,
-    BLUE,
-    BLUE_BORDER,
-    BLUE_LIGHT,
-    BORDER,
-    BG,
-    BG_CARD,
     GREEN,
     GREEN_LIGHT,
-    NAVY,
     NAVY_LIGHT,
-    NAVY_MID,
     RED,
     RED_LIGHT,
     SLATE,
@@ -257,7 +249,7 @@ def run_summary(label: str, items: list[str], collapsed: bool = True) -> None:
                 st.markdown(f"- `{item}`")
         else:
             st.markdown(
-                '<span style="color:%s;font-size:.82rem;">No items.</span>' % SLATE_LIGHT,
+                f'<span style="color:{SLATE_LIGHT};font-size:.82rem;">No items.</span>',
                 unsafe_allow_html=True,
             )
 

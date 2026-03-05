@@ -46,9 +46,9 @@ class DriveSync:
             List of Drive file resource dicts (id, name, parents).
         """
         query = (
-            "name contains '%s' "
-            "and mimeType = '%s' "
-            "and trashed = false" % (folder_name, _DRIVE_FOLDER_MIME)
+            f"name contains '{folder_name}' "
+            f"and mimeType = '{_DRIVE_FOLDER_MIME}' "
+            "and trashed = false"
         )
         results = (
             self.service.files()
@@ -88,7 +88,7 @@ class DriveSync:
                 while not done:
                     _status, done = downloader.next_chunk()
             logger.info("Downloaded file: %s", file_name)
-        except (IOError, OSError, HttpError) as exc:
+        except (OSError, HttpError) as exc:
             logger.error("Failed to download file %s: %s", file_name, exc)
 
     def _list_folder_contents(
@@ -103,7 +103,7 @@ class DriveSync:
         Returns:
             Raw Drive API response dict.
         """
-        query = "'%s' in parents and trashed = false" % folder_id
+        query = f"'{folder_id}' in parents and trashed = false"
         return (
             self.service.files()
             .list(
@@ -202,9 +202,9 @@ class DriveSync:
 
         for name in file_names:
             query = (
-                "name = '%s' "
-                "and mimeType != '%s' "
-                "and trashed = false" % (name, _DRIVE_FOLDER_MIME)
+                f"name = '{name}' "
+                f"and mimeType != '{_DRIVE_FOLDER_MIME}' "
+                "and trashed = false"
             )
             results = (
                 self.service.files()

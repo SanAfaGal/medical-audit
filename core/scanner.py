@@ -26,7 +26,7 @@ class DocumentScanner:
         Returns:
             List of matching file paths.
         """
-        return list(self.base_dir.rglob("*.%s" % ext))
+        return list(self.base_dir.rglob(f"*.{ext}"))
 
     def find_in_folders(
         self, folder_names: list[str], ext: str = "pdf"
@@ -44,7 +44,7 @@ class DocumentScanner:
         for name in folder_names:
             folder = self.base_dir / name
             if folder.is_dir():
-                found.extend(folder.rglob("*.%s" % ext))
+                found.extend(folder.rglob(f"*.{ext}"))
             else:
                 logger.warning(
                     "Folder not found or is not a directory: %s", folder
@@ -63,7 +63,7 @@ class DocumentScanner:
         return [
             f
             for f in self.base_dir.rglob("*")
-            if f.is_file() and f.suffix.lower() != ".%s" % allowed_ext
+            if f.is_file() and f.suffix.lower() != f".{allowed_ext}"
         ]
 
     def find_by_prefix(self, prefixes: str | list[str]) -> list[Path]:

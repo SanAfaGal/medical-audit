@@ -86,7 +86,7 @@ def write_lines_to_file(
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     with dest.open("w", encoding="utf-8") as fh:
-        fh.writelines("%s\n" % v for v in values)
+        fh.writelines(f"{v}\n" for v in values)
 
 
 def flatten_prefixes(prefixes_dict: dict[str, str | list[str]]) -> list[str]:

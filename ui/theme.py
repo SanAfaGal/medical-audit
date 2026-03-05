@@ -438,4 +438,4 @@ hr {{
 
 def inject_css() -> None:
     """Inject global CSS into the Streamlit page."""
-    st.markdown("<style>%s</style>" % _CSS, unsafe_allow_html=True)
+    st.markdown(f"<style>{_CSS}</style>", unsafe_allow_html=True)

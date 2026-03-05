@@ -21,17 +21,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+import ui.pages.audit as page_audit
+import ui.pages.pipeline as page_pipeline
+import ui.pages.settings_view as page_settings
 from ui.theme import inject_css
 from ui.widgets import page_header
-import ui.pages.pipeline      as page_pipeline
-import ui.pages.audit         as page_audit
-import ui.pages.settings_view as page_settings
 
 # ── Global CSS ─────────────────────────────────────────────────────────────────
 inject_css()
 
 # ── Persistent file logging ─────────────────────────────────────────────────────
 from config.settings import Settings as _Settings
+
 _Settings.setup_file_logging()
 
 # ── Settings — loaded once; errors are surfaced per-page ──────────────────────
@@ -39,7 +40,6 @@ _config_error: str | None = None
 _period_map: dict = {}
 
 try:
-    from pathlib import Path
     from config.settings import Settings
     from db.repository import AuditRepository
 
@@ -57,7 +57,7 @@ try:
         _combined = sorted(set(_fs_periods) | set(_db_periods.get(_key, [])))
         _period_map[_key] = _combined
 
-except (EnvironmentError, OSError, KeyError) as exc:
+except (OSError, KeyError) as exc:
     _config_error = str(exc)
 
 # ── App header ──────────────────────────────────────────────────────────────────

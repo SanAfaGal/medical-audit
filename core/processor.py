@@ -91,12 +91,12 @@ class DocumentProcessor:
         cmd = [
             gs,
             "-sDEVICE=pdfwrite",
-            "-dCompatibilityLevel=%s" % _GS_COMPAT_LEVEL,
-            "-dPDFSETTINGS=/%s" % quality,
+            f"-dCompatibilityLevel={_GS_COMPAT_LEVEL}",
+            f"-dPDFSETTINGS=/{quality}",
             "-dNOPAUSE",
             "-dQUIET",
             "-dBATCH",
-            "-sOutputFile=%s" % temp,
+            f"-sOutputFile={temp}",
             str(file_path),
         ]
         try:
@@ -137,18 +137,17 @@ class DocumentProcessor:
             desc="OCR batch processing",
             unit="doc",
             colour="cyan",
-        ) as pbar:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(cls.apply_ocr, f): f for f in files}
+        ) as pbar, ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(cls.apply_ocr, f): f for f in files}
 
-                for future in as_completed(futures):
-                    f = futures[future]
-                    if future.result():
-                        results["success"] += 1
-                    else:
-                        results["failed"] += 1
+            for future in as_completed(futures):
+                f = futures[future]
+                if future.result():
+                    results["success"] += 1
+                else:
+                    results["failed"] += 1
 
-                    pbar.set_postfix_str(f.name[:15])
-                    pbar.update(1)
+                pbar.set_postfix_str(f.name[:15])
+                pbar.update(1)
 
         return results

@@ -50,7 +50,7 @@ class AuditRepository:
             logger.warning("Cannot backup: database file not found at %s", self.db_path)
             return None
         backup_dir.mkdir(parents=True, exist_ok=True)
-        dest = backup_dir / ("audit_%s.db" % date.today().isoformat())
+        dest = backup_dir / (f"audit_{date.today().isoformat()}.db")
         shutil.copy2(self.db_path, dest)
         logger.info("Database backed up to %s", dest)
         backups = sorted(backup_dir.glob("audit_*.db"))
@@ -176,7 +176,7 @@ class AuditRepository:
             ValueError: If ``finding_type`` is not recognised.
         """
         if finding_type not in set(FindingCode):
-            raise ValueError("Unknown finding_type: %s" % finding_type)
+            raise ValueError(f"Unknown finding_type: {finding_type}")
 
         with self._connect() as conn:
             conn.execute(
@@ -287,7 +287,7 @@ class AuditRepository:
             ValueError: If ``tipo`` is not a recognised constant.
         """
         if tipo not in set(InvoiceType):
-            raise ValueError("Unknown tipo: %s" % tipo)
+            raise ValueError(f"Unknown tipo: {tipo}")
         with self._connect() as conn:
             conn.execute(
                 "UPDATE invoices SET tipo = ? WHERE hospital = ? AND period = ? AND factura = ?",
@@ -312,11 +312,11 @@ class AuditRepository:
         placeholders = ",".join("?" * len(tipos))
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT factura FROM invoices
-                WHERE hospital = ? AND period = ? AND tipo IN (%s)
+                WHERE hospital = ? AND period = ? AND tipo IN ({placeholders})
                 ORDER BY factura
-                """ % placeholders,
+                """,
                 [hospital, period, *tipos],
             ).fetchall()
         return [r["factura"] for r in rows]
@@ -336,7 +336,7 @@ class AuditRepository:
             ValueError: If ``status`` is not a recognised constant.
         """
         if status not in set(FolderStatus):
-            raise ValueError("Unknown folder_status: %s" % status)
+            raise ValueError(f"Unknown folder_status: {status}")
         with self._connect() as conn:
             conn.execute(
                 "UPDATE invoices SET folder_status = ? WHERE hospital = ? AND period = ? AND factura = ?",
@@ -361,11 +361,11 @@ class AuditRepository:
         placeholders = ",".join("?" * len(statuses))
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT factura FROM invoices
-                WHERE hospital = ? AND period = ? AND folder_status IN (%s)
+                WHERE hospital = ? AND period = ? AND folder_status IN ({placeholders})
                 ORDER BY factura
-                """ % placeholders,
+                """,
                 [hospital, period, *statuses],
             ).fetchall()
         return [r["factura"] for r in rows]
