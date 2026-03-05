@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from db.schema import FINDING_LABELS, SCHEMA_DDL, FindingCode, FindingStatus, FolderStatus, InvoiceType
+from db.schema import FINDING_LABELS, SCHEMA_DDL, FindingCode, FolderStatus, InvoiceType
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +16,10 @@ _COMMENT_SEPARATOR = "; "
 
 
 class AuditRepository:
-    """SQLite-backed store for audit findings.
+    """SQLite-backed store for audit findings per invoice folder.
 
-    One row in ``audit_findings`` represents one active issue for an invoice.
-    Deleting the row marks the issue as resolved.
+    One row in ``audit_findings`` represents one missing document type for a
+    folder.  Deleting the row means the document has been supplied.
 
     Args:
         db_path: Path to the SQLite database file. Created if it does not exist.
@@ -73,20 +73,16 @@ class AuditRepository:
         """Create tables and indexes if they do not already exist, and run migrations."""
         with self._connect() as conn:
             conn.executescript(SCHEMA_DDL)
-            # Migration: add tipo column if absent (idempotent)
-            try:
-                conn.execute(
-                    "ALTER TABLE invoices ADD COLUMN tipo TEXT NOT NULL DEFAULT 'GENERAL'"
-                )
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            # Migration: add folder_status column if absent (idempotent)
-            try:
-                conn.execute(
-                    "ALTER TABLE invoices ADD COLUMN folder_status TEXT NOT NULL DEFAULT 'PRESENTE'"
-                )
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            # Idempotent column migrations for existing databases
+            for stmt in (
+                "ALTER TABLE invoices ADD COLUMN tipo TEXT NOT NULL DEFAULT 'GENERAL'",
+                "ALTER TABLE invoices ADD COLUMN folder_status TEXT NOT NULL DEFAULT 'PRESENTE'",
+                "ALTER TABLE invoices ADD COLUMN nota TEXT NOT NULL DEFAULT ''",
+            ):
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
 
     # ------------------------------------------------------------------
     # Invoice loading
@@ -156,10 +152,8 @@ class AuditRepository:
         period: str,
         factura: str,
         finding_type: str,
-        status: str = FindingStatus.PENDING,
-        note: str = "",
     ) -> None:
-        """Record an audit finding for an invoice.
+        """Record a missing document finding for an invoice folder.
 
         Idempotent — no-op if the same finding type is already recorded.
 
@@ -168,26 +162,22 @@ class AuditRepository:
             period: Audit period string.
             factura: Invoice identifier (e.g. ``"FE12345"``).
             finding_type: One of the ``FindingCode`` constants.
-            status: One of the ``FindingStatus`` constants. Defaults to PENDING.
-            note: Optional observation text.
 
         Raises:
-            ValueError: If ``finding_type`` or ``status`` is not recognised.
+            ValueError: If ``finding_type`` is not recognised.
         """
         if finding_type not in FindingCode._ALL:
             raise ValueError("Unknown finding_type: %s" % finding_type)
-        if status not in FindingStatus._ALL:
-            raise ValueError("Unknown status: %s" % status)
 
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO audit_findings (invoice_id, finding_type, status, note)
-                SELECT id, ?, ?, ?
+                INSERT OR IGNORE INTO audit_findings (invoice_id, finding_type)
+                SELECT id, ?
                 FROM invoices
                 WHERE hospital = ? AND period = ? AND factura = ?
                 """,
-                (finding_type, status, note, hospital, period, factura),
+                (finding_type, hospital, period, factura),
             )
 
     def delete_finding(
@@ -197,7 +187,7 @@ class AuditRepository:
         factura: str,
         finding_type: str,
     ) -> None:
-        """Remove a finding, marking the issue as resolved.
+        """Remove a missing-document finding (document has been supplied).
 
         No-op if the finding is not present.
 
@@ -220,82 +210,12 @@ class AuditRepository:
                 (hospital, period, factura, finding_type),
             )
 
-    def update_status(
-        self,
-        hospital: str,
-        period: str,
-        factura: str,
-        finding_type: str,
-        status: str,
-    ) -> None:
-        """Update the status of an existing finding.
-
-        Args:
-            hospital: Hospital key.
-            period: Audit period string.
-            factura: Invoice identifier.
-            finding_type: One of the ``FindingCode`` constants.
-            status: One of the ``FindingStatus`` constants.
-
-        Raises:
-            ValueError: If ``status`` is not a recognised constant.
-        """
-        if status not in FindingStatus._ALL:
-            raise ValueError("Unknown status: %s" % status)
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE audit_findings
-                SET status = ?
-                WHERE invoice_id = (
-                    SELECT id FROM invoices
-                    WHERE hospital = ? AND period = ? AND factura = ?
-                )
-                AND finding_type = ?
-                """,
-                (status, hospital, period, factura, finding_type),
-            )
-
-    def update_note(
-        self,
-        hospital: str,
-        period: str,
-        factura: str,
-        finding_type: str,
-        note: str,
-    ) -> None:
-        """Update the note text on an existing finding.
-
-        Args:
-            hospital: Hospital key.
-            period: Audit period string.
-            factura: Invoice identifier.
-            finding_type: One of the ``FindingCode`` constants.
-            note: New note text.
-        """
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE audit_findings
-                SET note = ?
-                WHERE invoice_id = (
-                    SELECT id FROM invoices
-                    WHERE hospital = ? AND period = ? AND factura = ?
-                )
-                AND finding_type = ?
-                """,
-                (note, hospital, period, factura, finding_type),
-            )
-
     # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
 
-    def fetch_findings(
-        self, hospital: str, period: str, factura: str
-    ) -> list[dict[str, str]]:
-        """Return all active findings for a single invoice.
+    def fetch_findings(self, hospital: str, period: str, factura: str) -> list[str]:
+        """Return all recorded finding types for a single invoice folder.
 
         Args:
             hospital: Hospital key.
@@ -303,12 +223,12 @@ class AuditRepository:
             factura: Invoice identifier.
 
         Returns:
-            List of dicts with keys ``finding_type``, ``status``, and ``note``.
+            List of ``FindingCode`` strings, ordered by insertion time.
         """
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT f.finding_type, f.status, f.note
+                SELECT f.finding_type
                 FROM audit_findings f
                 JOIN invoices i ON i.id = f.invoice_id
                 WHERE i.hospital = ? AND i.period = ? AND i.factura = ?
@@ -316,7 +236,7 @@ class AuditRepository:
                 """,
                 (hospital, period, factura),
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [r["finding_type"] for r in rows]
 
     def fetch_invoices_with_findings(
         self, hospital: str, period: str
@@ -441,6 +361,21 @@ class AuditRepository:
             ).fetchall()
         return [r["factura"] for r in rows]
 
+    def update_nota(self, hospital: str, period: str, factura: str, nota: str) -> None:
+        """Set the folder-level note for a single invoice.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            factura: Invoice identifier.
+            nota: Free-text note for the folder.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE invoices SET nota = ? WHERE hospital = ? AND period = ? AND factura = ?",
+                (nota, hospital, period, factura),
+            )
+
     def fetch_hospitals_and_periods(self) -> dict[str, list[str]]:
         """Return a mapping of hospital name to list of audit periods.
 
@@ -465,11 +400,11 @@ class AuditRepository:
 
         Each row includes the invoice metadata plus:
 
-        - ``Comentario`` — semicolon-joined human-readable finding labels
-          with their current status (e.g. ``"Historia clinica faltante (REVISAR)"``).
-        - ``Nota`` — semicolon-joined non-empty note strings.
+        - ``Comentario`` — semicolon-joined human-readable labels of missing
+          document types (e.g. ``"Firma faltante; CUFE faltante"``).
+        - ``Nota`` — free-text note stored at the folder (invoice) level.
 
-        Invoices with no findings have empty strings in both columns.
+        Invoices with no findings have an empty string in ``Comentario``.
 
         Args:
             hospital: Hospital key.
@@ -482,7 +417,7 @@ class AuditRepository:
             invoice_rows = conn.execute(
                 """
                 SELECT factura, fecha, documento, numero, paciente,
-                       administradora, contrato, operario, tipo, folder_status
+                       administradora, contrato, operario, tipo, folder_status, nota
                 FROM invoices
                 WHERE hospital = ? AND period = ?
                 ORDER BY factura
@@ -492,7 +427,7 @@ class AuditRepository:
 
             finding_rows = conn.execute(
                 """
-                SELECT i.factura, f.finding_type, f.status, f.note
+                SELECT i.factura, f.finding_type
                 FROM audit_findings f
                 JOIN invoices i ON i.id = f.invoice_id
                 WHERE i.hospital = ? AND i.period = ?
@@ -501,24 +436,22 @@ class AuditRepository:
                 (hospital, period),
             ).fetchall()
 
-        findings_index: dict[str, list[tuple[str, str, str]]] = {}
+        findings_index: dict[str, list[str]] = {}
         for row in finding_rows:
-            findings_index.setdefault(row["factura"], []).append(
-                (row["finding_type"], row["status"], row["note"])
-            )
+            findings_index.setdefault(row["factura"], []).append(row["finding_type"])
 
         records = []
         for inv in invoice_rows:
             factura = inv["factura"]
-            findings = findings_index.get(factura, [])
+            finding_types = findings_index.get(factura, [])
 
             comment_parts = []
-            for ft, st, _ in findings:
+            for ft in finding_types:
                 label = FINDING_LABELS.get(ft)
                 if label is None:
                     logger.warning("Unknown finding_type in DB: %s", ft)
                     label = ft
-                comment_parts.append("%s (%s)" % (label, st))
+                comment_parts.append(label)
 
             records.append(
                 {
@@ -533,9 +466,7 @@ class AuditRepository:
                     "Tipo": inv["tipo"],
                     "Estado carpeta": inv["folder_status"],
                     "Comentario": _COMMENT_SEPARATOR.join(comment_parts),
-                    "Nota": _COMMENT_SEPARATOR.join(
-                        n for _, _, n in findings if n
-                    ),
+                    "Nota": inv["nota"],
                 }
             )
 

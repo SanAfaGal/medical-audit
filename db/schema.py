@@ -1,4 +1,4 @@
-"""Finding code, status, and invoice-type constants, plus the SQLite schema DDL."""
+"""Finding code, folder-status constants, plus the SQLite schema DDL."""
 
 # ---------------------------------------------------------------------------
 # Invoice types
@@ -95,27 +95,6 @@ FolderStatus._ALL = frozenset(
 
 
 # ---------------------------------------------------------------------------
-# Finding status
-# ---------------------------------------------------------------------------
-
-
-class FindingStatus:
-    """String constants for the lifecycle status of an audit finding."""
-
-    PENDING = "PENDIENTE"
-    REVIEW = "REVISAR"
-    VOID = "ANULAR"
-    RESOLVED = "EXITOSO"
-
-    _ALL: frozenset[str] = frozenset()
-
-
-FindingStatus._ALL = frozenset(
-    v for k, v in vars(FindingStatus).items() if not k.startswith("_")
-)
-
-
-# ---------------------------------------------------------------------------
 # SQLite schema DDL
 # ---------------------------------------------------------------------------
 
@@ -135,6 +114,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     ruta            TEXT,
     tipo            TEXT NOT NULL DEFAULT 'GENERAL',
     folder_status   TEXT NOT NULL DEFAULT 'PRESENTE',
+    nota            TEXT NOT NULL DEFAULT '',
     UNIQUE(hospital, period, factura)
 );
 
@@ -145,8 +125,6 @@ CREATE TABLE IF NOT EXISTS audit_findings (
     id           INTEGER PRIMARY KEY,
     invoice_id   INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
     finding_type TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'PENDIENTE',
-    note         TEXT NOT NULL DEFAULT '',
     UNIQUE(invoice_id, finding_type)
 );
 

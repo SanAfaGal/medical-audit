@@ -8,7 +8,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from ui.widgets import finding_row, metric_card, section_header, status_badge
+from ui.widgets import finding_row, metric_card, section_header
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def render(config_error: str | None) -> None:
 
     from config.settings import Settings
     from db.repository import AuditRepository
-    from db.schema import FindingCode, FindingStatus, FolderStatus, InvoiceType
+    from db.schema import FindingCode, FolderStatus, InvoiceType
 
     db_path = Settings.db_path
     if not db_path.exists():
@@ -179,24 +179,29 @@ def render(config_error: str | None) -> None:
         findings = repo.fetch_findings(hospital, period, invoice_id)
 
         if findings:
-            st.markdown("**Recorded findings:**")
-            cards_html = ""
-            for f in findings:
-                badge = status_badge(f["status"])
-                cards_html += (
-                    f'<div class="finding-card">'
-                    f'<span class="finding-type">{f["finding_type"]}</span>'
-                    f"{badge}"
-                    f'{"<span class=finding-note>" + f["note"] + "</span>" if f.get("note") else ""}'
-                    f"</div>"
-                )
+            st.markdown("**Archivos faltantes:**")
+            cards_html = "".join(finding_row(ft) for ft in findings)
             st.markdown(cards_html, unsafe_allow_html=True)
         else:
-            st.success("This invoice has no recorded findings.")
+            st.success("Esta carpeta no tiene archivos faltantes.")
 
-    all_finding_codes  = sorted(FindingCode._ALL)
-    all_statuses       = sorted(FindingStatus._ALL)
-    existing_types     = [f["finding_type"] for f in findings] if findings else []
+        # Folder-level note
+        section_header("Nota de carpeta")
+        current_nota = df.at[invoice_id, "Nota"] if invoice_id in df.index else ""
+        new_nota = st.text_area(
+            "Nota",
+            value=current_nota,
+            height=100,
+            key="nota_input",
+            label_visibility="collapsed",
+        )
+        if st.button("Guardar nota", key="btn_nota"):
+            repo.update_nota(hospital, period, invoice_id, new_nota)
+            st.success("Nota guardada.")
+            st.rerun()
+
+    all_finding_codes = sorted(FindingCode._ALL)
+    existing_types    = findings
 
     with action_col:
         if not invoice_id or invoice_id not in df.index:
@@ -204,32 +209,15 @@ def render(config_error: str | None) -> None:
 
         action = st.radio(
             "Action",
-            ["Add finding", "Edit finding", "Remove finding", "Change type"],
+            ["Add finding", "Remove finding", "Change type"],
             horizontal=False,
         )
 
         if action == "Add finding":
-            ft_add     = st.selectbox("Type",            all_finding_codes, key="add_ft")
-            status_add = st.selectbox("Status",          all_statuses,      key="add_status")
-            note_add   = st.text_input("Note (optional)",                   key="add_note")
+            ft_add = st.selectbox("Missing document type", all_finding_codes, key="add_ft")
             if st.button("Add", type="primary", key="btn_add", width="stretch"):
-                repo.record_finding(
-                    hospital, period, invoice_id, ft_add,
-                    status=status_add, note=note_add,
-                )
+                repo.record_finding(hospital, period, invoice_id, ft_add)
                 st.success("Finding added.")
-                st.rerun()
-
-        elif action == "Edit finding" and existing_types:
-            ft_edit  = st.selectbox("Finding", existing_types, key="edit_ft")
-            current  = next(f for f in findings if f["finding_type"] == ft_edit)
-            cur_idx  = all_statuses.index(current["status"]) if current["status"] in all_statuses else 0
-            new_status = st.selectbox("Status", all_statuses, index=cur_idx, key="edit_status")
-            new_note   = st.text_input("Note", value=current.get("note", ""), key="edit_note")
-            if st.button("Save", type="primary", key="btn_edit", width="stretch"):
-                repo.update_status(hospital, period, invoice_id, ft_edit, new_status)
-                repo.update_note(hospital, period, invoice_id, ft_edit, new_note)
-                st.success("Updated.")
                 st.rerun()
 
         elif action == "Remove finding" and existing_types:
@@ -250,5 +238,5 @@ def render(config_error: str | None) -> None:
                 st.success("Type updated to %s." % new_tipo)
                 st.rerun()
 
-        elif not existing_types and action in ("Edit finding", "Remove finding"):
-            st.caption("This invoice has no findings to edit or remove.")
+        elif not existing_types and action == "Remove finding":
+            st.caption("This invoice has no findings to remove.")
