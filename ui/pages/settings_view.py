@@ -189,14 +189,43 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
 
         mappings = repo.fetch_admin_contract_mappings(hospital)
         if mappings:
-            for m in mappings:
-                col_raw, col_arrow, col_can, col_del = st.columns([3, 0.5, 3, 1])
-                col_raw.markdown("`%s` / `%s`" % (m["raw_admin"], m["raw_contract"] or "—"))
-                col_arrow.markdown("→")
-                col_can.markdown("`%s` / `%s`" % (m["canonical_admin"] or "—", m["canonical_contract"] or "—"))
-                if col_del.button("✕", key="del_map_%d" % m["id"]):
-                    repo.delete_admin_contract_mapping(m["id"])
-                    st.rerun()
+            pending = [m for m in mappings if not m["canonical_admin"]]
+            mapped  = [m for m in mappings if m["canonical_admin"]]
+
+            if pending:
+                st.caption("Pares sin mapear — completa los campos canónicos:")
+                for m in pending:
+                    with st.form("edit_map_%d" % m["id"]):
+                        ec1, ec2 = st.columns(2)
+                        ec1.markdown("**Raw:** `%s` / `%s`" % (m["raw_admin"], m["raw_contract"] or "—"))
+                        ec3, ec4 = st.columns(2)
+                        new_can_a = ec3.text_input("Administradora (canónica)", key="can_a_%d" % m["id"])
+                        new_can_c = ec4.text_input("Contrato (canónico)", key="can_c_%d" % m["id"])
+                        sb1, sb2 = st.columns([3, 1])
+                        if sb1.form_submit_button("Guardar", type="primary"):
+                            repo.upsert_admin_contract_mapping(
+                                hospital,
+                                m["raw_admin"],
+                                m["raw_contract"],
+                                new_can_a or None,
+                                new_can_c or None,
+                            )
+                            st.rerun()
+                        if sb2.form_submit_button("Eliminar"):
+                            repo.delete_admin_contract_mapping(m["id"])
+                            st.rerun()
+
+            if mapped:
+                if pending:
+                    st.caption("Pares ya mapeados:")
+                for m in mapped:
+                    col_raw, col_arrow, col_can, col_del = st.columns([3, 0.5, 3, 1])
+                    col_raw.markdown("`%s` / `%s`" % (m["raw_admin"], m["raw_contract"] or "—"))
+                    col_arrow.markdown("→")
+                    col_can.markdown("`%s` / `%s`" % (m["canonical_admin"], m["canonical_contract"] or "—"))
+                    if col_del.button("✕", key="del_map_%d" % m["id"]):
+                        repo.delete_admin_contract_mapping(m["id"])
+                        st.rerun()
         else:
             st.caption("No hay mappings para este hospital.")
 

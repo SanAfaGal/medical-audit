@@ -678,6 +678,45 @@ class AuditRepository:
                 (hospital_key, raw_admin, raw_contract, canonical_admin, canonical_contract),
             )
 
+    def register_unknown_mappings(
+        self,
+        hospital_key: str,
+        unknown_pairs: set[tuple[str, str]],
+    ) -> int:
+        """Persist unknown (raw_admin, raw_contract) pairs as unmapped placeholders.
+
+        Uses ``INSERT OR IGNORE`` so that rows already in the table — including
+        those whose canonical values the user has already filled in — are never
+        overwritten.
+
+        Args:
+            hospital_key: Hospital key to associate the new rows with.
+            unknown_pairs: Set of (raw_admin, raw_contract) tuples found in the
+                SIHOS report but absent from the current mapping.
+
+        Returns:
+            Number of rows newly inserted.
+        """
+        if not unknown_pairs:
+            return 0
+        with self._connect() as conn:
+            cursor = conn.executemany(
+                """
+                INSERT OR IGNORE INTO admin_contract_mappings
+                    (hospital_key, raw_admin, raw_contract, canonical_admin, canonical_contract)
+                VALUES (?, ?, ?, NULL, NULL)
+                """,
+                [(hospital_key, admin, contract) for admin, contract in sorted(unknown_pairs)],
+            )
+            inserted = cursor.rowcount
+        logger.info(
+            "register_unknown_mappings: hospital=%s — %d unknown pairs, %d newly registered",
+            hospital_key,
+            len(unknown_pairs),
+            inserted,
+        )
+        return inserted
+
     def delete_admin_contract_mapping(self, mapping_id: int) -> None:
         """Delete a single admin/contract mapping row by its primary key.
 

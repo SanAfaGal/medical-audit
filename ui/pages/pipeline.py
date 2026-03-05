@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import traceback
 from typing import Callable
 
 import streamlit as st
@@ -309,9 +310,15 @@ def _execute_pipeline(
             ingester = BillingIngester(admin_map)
             ingester.load_excel(sihos_report, Settings.raw_schema_columns)
 
-            if not ingester.validate_admin_contract_pairs():
-                pipeline_logger.warning("Halted: pre-audit validation failed.")
-                return handler.getvalue()
+            unknown_pairs = ingester.find_unknown_pairs()
+            if unknown_pairs:
+                saved = repo.register_unknown_mappings(hospital, unknown_pairs)
+                pipeline_logger.warning(
+                    "%d unmapped admin/contract pair(s) auto-registered in DB "
+                    "(%d new). Go to Settings → Mapeos to fill in canonical values.",
+                    len(unknown_pairs),
+                    saved,
+                )
 
             df_processed = ingester.build_invoice_dataframe()
             inserted = repo.upsert_invoices(
@@ -426,7 +433,9 @@ def _execute_pipeline(
 
         # ── Invoice audit ────────────────────────────────────────────────────
 
-        invoices = scanner.find_by_prefix(hospital_cfg["DOCUMENT_STANDARDS"]["FACTURA"])
+        doc_standards  = hospital_cfg.get("DOCUMENT_STANDARDS", {})
+        invoice_prefix = doc_standards.get("FACTURA", "")
+        invoices       = scanner.find_by_prefix(invoice_prefix) if invoice_prefix else []
 
         if flags.get("CHECK_INVOICES"):
             needing_ocr = DocumentReader.find_needing_ocr(invoices)
@@ -472,7 +481,6 @@ def _execute_pipeline(
             raw_text = st.session_state.get("invoices_to_download", "")
             invoice_numbers = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
             if invoice_numbers:
-                doc_standards = hospital_cfg.get("DOCUMENT_STANDARDS", {})
                 downloader = SihosDownloader(
                     user=hospital_cfg["sihos_user"],
                     password=hospital_cfg["sihos_password"],
@@ -630,7 +638,11 @@ def render(config_error: str | None) -> None:
                 )
                 _pipe[_PIPE_LOG] = result
             except Exception as exc:  # noqa: BLE001
-                _pipe[_PIPE_LOG] = str(_pipe[_PIPE_LOG]) + "\nERROR (thread): %s" % exc
+                tb = traceback.format_exc()
+                _pipe[_PIPE_LOG] = (
+                    str(_pipe[_PIPE_LOG])
+                    + "\nERROR (thread): %s: %s\n%s" % (type(exc).__name__, exc, tb)
+                )
             finally:
                 _pipe[_PIPE_RUNNING] = False
 

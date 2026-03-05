@@ -43,11 +43,12 @@ class BillingIngester:
         self._raw_df = pd.read_excel(path, usecols=columns, dtype=str)
         logger.info("File loaded: %d rows detected.", len(self._raw_df))
 
-    def validate_admin_contract_pairs(self) -> bool:
-        """Audit the raw data for unmapped administrator/contract pairs.
+    def find_unknown_pairs(self) -> set[tuple[str, str]]:
+        """Return (admin, contract) pairs from the raw data absent from the mapping.
 
         Returns:
-            True if all (admin, contract) pairs are present in the mapping.
+            Set of (raw_admin, raw_contract) tuples not present in the mapping.
+            An empty set means all pairs are mapped.
 
         Raises:
             ValueError: If no data has been loaded yet.
@@ -61,9 +62,9 @@ class BillingIngester:
                 self._raw_df["Contrato"].dropna(),
             )
         )
-        missing = raw_pairs - set(self.admin_contract_map.keys())
-        self._log_mapping_report(missing)
-        return len(missing) == 0
+        unknown = raw_pairs - set(self.admin_contract_map.keys())
+        self._log_mapping_report(unknown)
+        return unknown
 
     def _log_mapping_report(self, missing_pairs: set[tuple[str, str]]) -> None:
         """Log the pre-audit mapping validation results.
