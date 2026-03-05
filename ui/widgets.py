@@ -198,34 +198,49 @@ def config_error_banner(error: str) -> None:
     st.stop()
 
 
-def page_header(hospital: str, period: str) -> None:
-    """Render the top application header banner.
+def page_header(period_map: dict[str, list[str]]) -> None:
+    """Render the top application header with hospital/period selectors.
 
-    Displays the application title, subtitle, and two info chips showing the
-    active hospital and audit period.
+    The selected values are stored in ``st.session_state["sel_hospital"]``
+    and ``st.session_state["sel_period"]`` so all pages can read them.
 
     Args:
-        hospital: Display name of the active hospital.
-        period: Audit period string (e.g. ``"2025-W04"``).
+        period_map: Mapping of hospital key → list of available period strings,
+            as returned by ``AuditRepository.fetch_hospitals_and_periods()``.
     """
-    st.markdown(
-        f"""
-        <div class="app-header">
-            <div class="header-brand">
-                <div class="header-dot"></div>
-                <div>
-                    <div class="header-title">Medical Audit</div>
-                    <div class="header-subtitle">Document management &amp; invoice validation</div>
+    brand_col, sel_col = st.columns([3, 2])
+    with brand_col:
+        st.markdown(
+            """
+            <div class="app-header" style="margin-bottom:0;">
+                <div class="header-brand">
+                    <div class="header-dot"></div>
+                    <div>
+                        <div class="header-title">Medical Audit</div>
+                        <div class="header-subtitle">Document management &amp; invoice validation</div>
+                    </div>
                 </div>
             </div>
-            <div class="header-chips">
-                <div class="chip"><b>Hospital</b> &nbsp;{html.escape(hospital)}</div>
-                <div class="chip"><b>Period</b> &nbsp;{html.escape(period)}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+    with sel_col:
+        hospital_options = sorted(period_map.keys()) if period_map else []
+        hospital = st.selectbox(
+            "Hospital",
+            options=hospital_options,
+            key="sel_hospital",
+            label_visibility="collapsed",
+            placeholder="— seleccionar hospital —",
+        )
+        period_options = period_map.get(hospital, []) if hospital else []
+        st.selectbox(
+            "Period",
+            options=period_options,
+            key="sel_period",
+            label_visibility="collapsed",
+            placeholder="— seleccionar período —",
+        )
 
 
 def run_summary(label: str, items: list[str], collapsed: bool = True) -> None:

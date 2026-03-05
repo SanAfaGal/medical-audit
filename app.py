@@ -34,18 +34,17 @@ inject_css()
 
 # ── Settings — loaded once; errors are surfaced per-page ──────────────────────
 _config_error: str | None = None
+_period_map: dict = {}
 
 try:
     from config.settings import Settings
-    _hospital = Settings.active_hospital
-    _period   = Settings.audit_week
+    from db.repository import AuditRepository
+    _period_map = AuditRepository(Settings.db_path).fetch_hospitals_and_periods()
 except (EnvironmentError, OSError, KeyError) as exc:
     _config_error = str(exc)
-    _hospital = "—"
-    _period   = "—"
 
 # ── App header ──────────────────────────────────────────────────────────────────
-page_header(_hospital, _period)
+page_header(_period_map)
 
 # ── Tab layout ──────────────────────────────────────────────────────────────────
 t_pipeline, t_audit, t_documents, t_settings = st.tabs(
