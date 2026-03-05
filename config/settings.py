@@ -84,7 +84,7 @@ class Settings:
     def drive_credentials_path(hospital_key: str) -> Path:
         """Return the path to the Drive service-account JSON for a hospital.
 
-        The file is stored under ``~/.medical-audit/.drive-credentials/``.
+        The file is stored under ``~/.medical-audit/credentials/``.
 
         Args:
             hospital_key: Hospital identifier key (e.g. ``"SANTA_LUCIA"``).
@@ -92,4 +92,4 @@ class Settings:
         Returns:
             Path object (may not exist yet).
         """
-        return _APP_DIR / ".drive-credentials" / ("%s.json" % hospital_key)
+        return _APP_DIR / "credentials" / ("%s.json" % hospital_key)
