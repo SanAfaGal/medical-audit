@@ -8,6 +8,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from ui.theme import RED, RED_LIGHT
 from ui.widgets import section_header
 
 logger = logging.getLogger(__name__)
@@ -172,7 +173,94 @@ def render(config_error: str | None) -> None:
                 )
                 st.rerun()
 
+    # ── Zona de peligro: eliminar período ────────────────────────────────────
+    period = st.session_state.get("sel_period")
+    if period:
+        _render_delete_period_section(repo, hospital, period)
+
     _render_global_sections(repo, hospital=hospital)
+
+
+def _render_delete_period_section(repo, hospital: str, period: str) -> None:
+    """Render the danger-zone block for deleting all DB rows of a period.
+
+    Uses a two-step confirmation pattern via session state to prevent
+    accidental deletion. The confirmation is automatically invalidated if the
+    user switches hospital or period between the two steps.
+
+    Args:
+        repo: AuditRepository instance.
+        hospital: Currently selected hospital key.
+        period: Currently selected period string.
+    """
+    _CONFIRM_KEY = "_confirm_delete_period"
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div style="
+            border: 1px solid {RED};
+            border-radius: 8px;
+            padding: 1rem 1.25rem 0.75rem;
+            background: {RED_LIGHT}22;
+        ">
+            <div style="
+                font-size: .7rem;
+                font-weight: 600;
+                letter-spacing: .08em;
+                color: {RED};
+                text-transform: uppercase;
+                margin-bottom: .5rem;
+            ">Zona de peligro</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    pending = st.session_state.get(_CONFIRM_KEY)
+
+    # Stale confirmation — user switched hospital/period
+    if pending and pending != (hospital, period):
+        del st.session_state[_CONFIRM_KEY]
+        pending = None
+
+    if not pending:
+        col_info, col_btn = st.columns([4, 1])
+        col_info.caption(
+            "Elimina todas las facturas y hallazgos de **%s / %s** de la base de datos. "
+            "Las carpetas físicas no se modifican. Esta acción no se puede deshacer." % (hospital, period)
+        )
+        if col_btn.button("Eliminar período…", key="danger_delete_period", type="secondary"):
+            st.session_state[_CONFIRM_KEY] = (hospital, period)
+            st.rerun()
+    else:
+        invoice_count = len(repo.fetch_invoice_ids(hospital, period))
+        st.markdown(
+            f'<p style="color:{RED};font-weight:600;margin:0 0 .5rem;">¿Confirmar eliminación?</p>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Se borrarán **%d factura(s)** y todos sus hallazgos asociados "
+            "del hospital **%s**, período **%s**. No se puede deshacer." % (invoice_count, hospital, period)
+        )
+        col_cancel, col_confirm = st.columns(2)
+        if col_cancel.button("Cancelar", key="danger_cancel", use_container_width=True):
+            del st.session_state[_CONFIRM_KEY]
+            st.rerun()
+        if col_confirm.button(
+            "Sí, eliminar %d factura(s)" % invoice_count,
+            key="danger_confirm",
+            type="primary",
+            use_container_width=True,
+        ):
+            deleted = repo.delete_period(hospital, period)
+            del st.session_state[_CONFIRM_KEY]
+            logger.info(
+                "Period deleted via UI: hospital=%s period=%s rows=%d", hospital, period, deleted
+            )
+            st.success("Período **%s / %s** eliminado — %d factura(s) borradas." % (hospital, period, deleted))
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _render_global_sections(repo, hospital: str | None = None) -> None:

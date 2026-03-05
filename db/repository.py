@@ -728,6 +728,33 @@ class AuditRepository:
                 "DELETE FROM admin_contract_mappings WHERE id = ?", (mapping_id,)
             )
 
+    def delete_period(self, hospital: str, period: str) -> int:
+        """Delete all invoices and their findings for a hospital/period pair.
+
+        ``audit_findings`` rows are removed automatically via the
+        ``ON DELETE CASCADE`` foreign key constraint.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string (e.g. ``"22-28"``).
+
+        Returns:
+            Number of invoice rows deleted.
+        """
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM invoices WHERE hospital = ? AND period = ?",
+                (hospital, period),
+            )
+            deleted = cursor.rowcount
+        logger.info(
+            "delete_period: hospital=%s period=%s — %d invoice rows deleted",
+            hospital,
+            period,
+            deleted,
+        )
+        return deleted
+
     def fetch_hospitals_and_periods(self) -> dict[str, list[str]]:
         """Return a mapping of hospital name to list of audit periods.
 
