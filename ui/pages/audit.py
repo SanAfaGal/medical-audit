@@ -76,18 +76,12 @@ def render(config_error: str | None) -> None:
         return
 
     repo = AuditRepository(db_path)
-    hp_map = repo.fetch_hospitals_and_periods()
 
-    if not hp_map:
-        st.info("The audit database is empty. Load a SIHOS report first.")
-        return
-
-    # --- Selectors ---
-    sel1, sel2, *_ = st.columns([2, 2, 4])
-    hospital = sel1.selectbox("Hospital", options=sorted(hp_map.keys()))
-    period   = sel2.selectbox("Period",   options=hp_map.get(hospital, []))
+    hospital = st.session_state.get("sel_hospital")
+    period   = st.session_state.get("sel_period")
 
     if not hospital or not period:
+        st.info("Select a hospital and period in the header to view audit data.")
         return
 
     df = repo.to_dataframe(hospital, period)
@@ -240,3 +234,61 @@ def render(config_error: str | None) -> None:
 
         elif not existing_types and action == "Remove finding":
             st.caption("This invoice has no findings to remove.")
+
+    # -----------------------------------------------------------------------
+    # Batch operations
+    # -----------------------------------------------------------------------
+
+    st.divider()
+    section_header("Operaciones en lote")
+
+    known_facturas = set(df.index)
+
+    def _apply_batch(raw: str, fn, label: str) -> None:
+        facturas = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        if not facturas:
+            st.warning("Ingresa al menos una factura.")
+            return
+        ok, missing = [], []
+        for f in facturas:
+            if f in known_facturas:
+                fn(f)
+                ok.append(f)
+            else:
+                missing.append(f)
+        if ok:
+            st.success("%s aplicado a %d factura(s)." % (label, len(ok)))
+        if missing:
+            st.warning("%d factura(s) no encontradas: %s" % (len(missing), ", ".join(missing)))
+        if ok:
+            st.rerun()
+
+    with st.expander("Estado de carpeta en lote"):
+        raw_fs   = st.text_area("Facturas (una por línea)", key="batch_fs_list", height=120)
+        nuevo_fs = st.selectbox("Nuevo estado", sorted(FolderStatus._ALL), key="batch_fs_val")
+        if st.button("Aplicar estado", key="btn_batch_fs", type="primary"):
+            _apply_batch(
+                raw_fs,
+                lambda f: repo.update_folder_status(hospital, period, f, nuevo_fs),
+                "Estado '%s'" % nuevo_fs,
+            )
+
+    with st.expander("Hallazgos en lote"):
+        raw_hf   = st.text_area("Facturas (una por línea)", key="batch_hf_list", height=120)
+        nuevo_hf = st.selectbox("Tipo de hallazgo", sorted(FindingCode._ALL), key="batch_hf_val")
+        if st.button("Agregar hallazgo", key="btn_batch_hf", type="primary"):
+            _apply_batch(
+                raw_hf,
+                lambda f: repo.record_finding(hospital, period, f, nuevo_hf),
+                "Hallazgo '%s'" % nuevo_hf,
+            )
+
+    with st.expander("Tipo de factura en lote"):
+        raw_tp   = st.text_area("Facturas (una por línea)", key="batch_tp_list", height=120)
+        nuevo_tp = st.selectbox("Nuevo tipo", sorted(InvoiceType._ALL), key="batch_tp_val")
+        if st.button("Aplicar tipo", key="btn_batch_tp", type="primary"):
+            _apply_batch(
+                raw_tp,
+                lambda f: repo.update_tipo(hospital, period, f, nuevo_tp),
+                "Tipo '%s'" % nuevo_tp,
+            )
