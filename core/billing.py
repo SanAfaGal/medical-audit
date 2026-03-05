@@ -190,9 +190,26 @@ class BillingIngester:
 
         df = self._normalize_raw_rows()
         df = self._apply_canonical_mapping(df)
+
+        # Rows with NULL canonical Administradora are intentionally excluded:
+        # they belong to pairs that have not yet been mapped (canonical = None
+        # means "do not load into the audit DB until the user fills in the
+        # canonical values via Settings → Mapeos").
+        before_drop = len(df)
+        df = df[df["Administradora"].notna()]
+        excluded = before_drop - len(df)
+        if excluded:
+            logger.warning(
+                "build_invoice_dataframe: %d row(s) excluded — "
+                "Administradora is NULL (unmapped admin/contract pair). "
+                "Fill in canonical values in Settings → Mapeos.",
+                excluded,
+            )
+
         df = self._compute_storage_paths(df)
-        df = df.dropna(subset=["Administradora", "Ruta"])
+        df = df.dropna(subset=["Ruta"])
         df.set_index("Factura", inplace=True)
 
         self._processed_df = df
+        logger.info("build_invoice_dataframe: %d invoices ready for upsert", len(df))
         return self._processed_df
