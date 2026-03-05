@@ -1,7 +1,9 @@
 """SQLite-backed repository for audit findings per invoice."""
 
 import logging
+import shutil
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +29,34 @@ class AuditRepository:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
+
+    def backup(self, backup_dir: Path, keep: int = 7) -> Path | None:
+        """Copy the database to *backup_dir* and prune old backups.
+
+        The backup file is named ``audit_{YYYY-MM-DD}.db``.  If a file with
+        today's date already exists it is overwritten.  After copying, the
+        oldest files beyond *keep* are deleted.
+
+        Args:
+            backup_dir: Directory where backup files are stored.
+            keep: Maximum number of backup files to retain.
+
+        Returns:
+            Path of the newly created backup, or ``None`` if the database
+            file does not yet exist.
+        """
+        if not self.db_path.exists():
+            logger.warning("Cannot backup: database file not found at %s", self.db_path)
+            return None
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        dest = backup_dir / ("audit_%s.db" % date.today().isoformat())
+        shutil.copy2(self.db_path, dest)
+        logger.info("Database backed up to %s", dest)
+        backups = sorted(backup_dir.glob("audit_*.db"))
+        for old in backups[:-keep]:
+            old.unlink()
+            logger.info("Removed old backup: %s", old)
+        return dest
 
     # ------------------------------------------------------------------
     # Internal helpers

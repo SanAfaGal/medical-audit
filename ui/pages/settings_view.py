@@ -82,3 +82,27 @@ def render(config_error: str | None) -> None:
             ),
             unsafe_allow_html=True,
         )
+
+    st.divider()
+    section_header("Database")
+
+    db = Path(Settings.db_path)
+    if db.exists():
+        size_kb = db.stat().st_size / 1024
+        st.markdown("**Path** &nbsp; `%s`" % db, unsafe_allow_html=True)
+        st.markdown("**Size** &nbsp; `%.1f KB`" % size_kb, unsafe_allow_html=True)
+    else:
+        st.caption("Database not yet created.")
+
+    backup_dir = Path(Settings.backup_dir)
+    backups = sorted(backup_dir.glob("audit_*.db")) if backup_dir.exists() else []
+    if backups:
+        latest = backups[-1]
+        latest_kb = latest.stat().st_size / 1024
+        st.markdown(
+            "**Last backup** &nbsp; `%s` &nbsp; `%.1f KB`" % (latest.name, latest_kb),
+            unsafe_allow_html=True,
+        )
+        st.caption("%d backup(s) stored in `%s`" % (len(backups), backup_dir))
+    else:
+        st.caption("No backups found. Run any pipeline stage to create one.")

@@ -218,6 +218,12 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
 
         pipeline_logger = logging.getLogger("app.pipeline")
 
+        # ── Backup ───────────────────────────────────────────────────────────
+
+        backup_path = repo.backup(Settings.backup_dir)
+        if backup_path:
+            pipeline_logger.info("Database backed up to: %s", backup_path)
+
         # ── Ingestion ────────────────────────────────────────────────────────
 
         df_processed = None

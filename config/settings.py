@@ -92,6 +92,7 @@ class Settings:
 
     # --- Audit database (accumulates across all audit weeks) ---
     db_path: Path = root_path / "audit.db"
+    backup_dir: Path = root_path / "backups"
 
     # --- Report paths ---
     sihos_report_path: Path = base_path / ("%s_SIHOS.xlsx" % audit_week)
