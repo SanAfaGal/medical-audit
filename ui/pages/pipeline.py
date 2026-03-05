@@ -269,15 +269,15 @@ def _execute_pipeline(
 
         # Load hospital config from DB
         hospital_cfg = repo.fetch_hospital_config(hospital)
-        if not hospital_cfg.get("base_path"):
+
+        if not Settings.audit_path:
             logging.getLogger("app.pipeline").error(
-                "Base path not configured for hospital '%s'. "
-                "Set it in Settings → hospital form.", hospital
+                "Audit path not configured. Set it in Settings → Directorio de auditoría."
             )
             return handler.getvalue()
 
         id_prefix    = hospital_cfg.get("INVOICE_IDENTIFIER_PREFIX", "")
-        base_path    = Path(hospital_cfg["base_path"]) / period
+        base_path    = Settings.audit_path / hospital / period
         staging_dir  = base_path / "STAGE"
         archive_dir  = base_path / "AUDIT"
         base_dir     = base_path / "BASE"
@@ -344,7 +344,7 @@ def _execute_pipeline(
             missing_folders = repo.fetch_by_folder_status(
                 hospital, period, FolderStatus.MISSING
             )
-            drive = DriveSync(credentials_path=Path(hospital_cfg["drive_credentials_path"]))
+            drive = DriveSync(credentials_path=Settings.drive_credentials_path(hospital))
             drive.download_missing_dirs(missing_folders, base_dir)
             leaf_finder = LeafFolderFinder()
             leaf_folders = leaf_finder.find_leaf_folders(base_dir)

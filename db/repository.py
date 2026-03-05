@@ -704,6 +704,22 @@ class AuditRepository:
             result.setdefault(row["hospital"], []).append(row["period"])
         return result
 
+    def fetch_periods_for_hospital(self, hospital: str) -> list[str]:
+        """Return sorted list of periods that have invoices for a hospital.
+
+        Args:
+            hospital: Hospital key.
+
+        Returns:
+            Sorted list of period strings.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT period FROM invoices WHERE hospital = ? ORDER BY period",
+                (hospital,),
+            ).fetchall()
+        return [row["period"] for row in rows]
+
     # ------------------------------------------------------------------
     # Report builder
     # ------------------------------------------------------------------
