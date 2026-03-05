@@ -99,6 +99,27 @@ FolderStatus._ALL = frozenset(
 # ---------------------------------------------------------------------------
 
 SCHEMA_DDL = """
+CREATE TABLE IF NOT EXISTS hospitals (
+    key                       TEXT PRIMARY KEY,
+    display_name              TEXT NOT NULL DEFAULT '',
+    nit                       TEXT NOT NULL DEFAULT '',
+    invoice_identifier_prefix TEXT NOT NULL DEFAULT '',
+    sihos_base_url            TEXT NOT NULL DEFAULT '',
+    sihos_invoice_doc_code    TEXT NOT NULL DEFAULT '',
+    document_standards        TEXT NOT NULL DEFAULT '{}',
+    misnamed_fixer_map        TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS admin_contract_mappings (
+    id                 INTEGER PRIMARY KEY,
+    hospital_key       TEXT NOT NULL REFERENCES hospitals(key) ON DELETE CASCADE,
+    raw_admin          TEXT NOT NULL,
+    raw_contract       TEXT,
+    canonical_admin    TEXT,
+    canonical_contract TEXT,
+    UNIQUE(hospital_key, raw_admin, raw_contract)
+);
+
 CREATE TABLE IF NOT EXISTS invoices (
     id              INTEGER PRIMARY KEY,
     hospital        TEXT NOT NULL,

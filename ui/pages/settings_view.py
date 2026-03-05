@@ -1,7 +1,8 @@
-"""Settings page: read-only display of the active Settings values."""
+"""Settings page: configuration display, hospital management, and DB info."""
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -32,6 +33,9 @@ def render(config_error: str | None) -> None:
         return
 
     from config.settings import Settings
+    from db.repository import AuditRepository
+
+    repo = AuditRepository(Settings.db_path)
 
     section_header("Active configuration")
 
@@ -50,14 +54,6 @@ def render(config_error: str | None) -> None:
     else:
         st.caption("No configuration parameters to display.")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        with st.expander("DOCUMENT_STANDARDS"):
-            st.json(Settings.hospital.get("DOCUMENT_STANDARDS", {}))
-    with c2:
-        with st.expander("MISNAMED_FIXER_MAP"):
-            st.json(Settings.hospital.get("MISNAMED_FIXER_MAP", {}))
-
     st.divider()
     section_header("Key paths")
 
@@ -74,12 +70,7 @@ def render(config_error: str | None) -> None:
         indicator = "exists" if exists else "not found"
         st.markdown(
             "**%s** &nbsp; `%s` &nbsp; <span style='font-size:.75rem;color:%s;'>%s</span>"
-            % (
-                label,
-                path,
-                "#16A34A" if exists else "#DC2626",
-                indicator,
-            ),
+            % (label, path, "#16A34A" if exists else "#DC2626", indicator),
             unsafe_allow_html=True,
         )
 
@@ -106,3 +97,104 @@ def render(config_error: str | None) -> None:
         st.caption("%d backup(s) stored in `%s`" % (len(backups), backup_dir))
     else:
         st.caption("No backups found. Run any pipeline stage to create one.")
+
+    # -----------------------------------------------------------------------
+    # Hospital management
+    # -----------------------------------------------------------------------
+
+    st.divider()
+    section_header("Gestión de hospitales")
+
+    hospitals = repo.fetch_all_hospitals()
+    hosp_keys = [h["key"] for h in hospitals]
+
+    if not hosp_keys:
+        st.info("No hay hospitales registrados en la BD.")
+        hosp_keys = []
+        sel_hosp = None
+    else:
+        sel_hosp = st.selectbox("Hospital", hosp_keys, key="settings_hosp_sel")
+
+    # ── Hospital form ────────────────────────────────────────────────────────
+    with st.expander("Agregar / editar hospital", expanded=False):
+        current = next((h for h in hospitals if h["key"] == sel_hosp), {})
+        with st.form("hosp_form"):
+            f_key   = st.text_input("Clave (key)", value=sel_hosp or "", key="hf_key")
+            f_name  = st.text_input("Nombre para mostrar", value=current.get("display_name", ""), key="hf_name")
+            f_nit   = st.text_input("NIT", value=current.get("nit", ""), key="hf_nit")
+            f_inv   = st.text_input("Prefijo factura (INVOICE_IDENTIFIER_PREFIX)", value=current.get("invoice_identifier_prefix", ""), key="hf_inv")
+            f_url   = st.text_input("SIHOS base URL", value=current.get("sihos_base_url", ""), key="hf_url")
+            f_code  = st.text_input("SIHOS doc code", value=current.get("sihos_invoice_doc_code", ""), key="hf_code")
+            f_ds    = st.text_area(
+                "DOCUMENT_STANDARDS (JSON)",
+                value=current.get("document_standards", "{}"),
+                height=140,
+                key="hf_ds",
+            )
+            f_mfm   = st.text_area(
+                "MISNAMED_FIXER_MAP (JSON)",
+                value=current.get("misnamed_fixer_map", "{}"),
+                height=100,
+                key="hf_mfm",
+            )
+            if st.form_submit_button("Guardar hospital", type="primary"):
+                try:
+                    ds  = json.loads(f_ds)
+                    mfm = json.loads(f_mfm)
+                except json.JSONDecodeError as exc:
+                    st.error("JSON inválido: %s" % exc)
+                else:
+                    repo.upsert_hospital(f_key, {
+                        "display_name":              f_name,
+                        "NIT":                       f_nit,
+                        "INVOICE_IDENTIFIER_PREFIX": f_inv,
+                        "SIHOS_BASE_URL":            f_url,
+                        "SIHOS_INVOICE_DOC_CODE":    f_code,
+                        "DOCUMENT_STANDARDS":        ds,
+                        "MISNAMED_FIXER_MAP":        mfm,
+                    })
+                    st.success("Hospital '%s' guardado." % f_key)
+                    st.rerun()
+
+    # ── Admin/contract mappings ───────────────────────────────────────────────
+
+    if sel_hosp:
+        st.markdown("<br>", unsafe_allow_html=True)
+        section_header("Mappings admin/contrato — %s" % sel_hosp)
+
+        mappings = repo.fetch_admin_contract_mappings(sel_hosp)
+
+        if mappings:
+            for m in mappings:
+                col_raw, col_arrow, col_can, col_del = st.columns([3, 0.5, 3, 1])
+                col_raw.markdown(
+                    "`%s` / `%s`" % (m["raw_admin"], m["raw_contract"] or "—")
+                )
+                col_arrow.markdown("→")
+                col_can.markdown(
+                    "`%s` / `%s`" % (m["canonical_admin"] or "—", m["canonical_contract"] or "—")
+                )
+                if col_del.button("✕", key="del_map_%d" % m["id"]):
+                    repo.delete_admin_contract_mapping(m["id"])
+                    st.rerun()
+        else:
+            st.caption("No hay mappings para este hospital.")
+
+        with st.expander("Agregar mapping"):
+            with st.form("map_form_%s" % sel_hosp):
+                mc1, mc2 = st.columns(2)
+                m_raw_a  = mc1.text_input("Administradora (raw)", key="mf_raw_a")
+                m_raw_c  = mc2.text_input("Contrato (raw)", key="mf_raw_c")
+                mc3, mc4 = st.columns(2)
+                m_can_a  = mc3.text_input("Administradora (canónica)", key="mf_can_a")
+                m_can_c  = mc4.text_input("Contrato (canónico)", key="mf_can_c")
+                if st.form_submit_button("Agregar", type="primary"):
+                    repo.upsert_admin_contract_mapping(
+                        sel_hosp,
+                        m_raw_a,
+                        m_raw_c or None,
+                        m_can_a or None,
+                        m_can_c or None,
+                    )
+                    st.success("Mapping agregado.")
+                    st.rerun()

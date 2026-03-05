@@ -140,33 +140,33 @@ def _run_check_four_main_files(
     dirs_lab_test = inspector.resolve_dir_paths(lab_facturas)
 
     missing_histories = inspector.find_dirs_missing_file(
-        Settings.hospital["DOCUMENT_STANDARDS"]["HISTORIA"],
+        hospital_cfg["DOCUMENT_STANDARDS"]["HISTORIA"],
         skip=skip_dirs + dirs_lab_test,
         target_dirs=history_dirs,
     )
     pipeline_logger.info("Directories missing medical history files: %d", len(missing_histories))
 
     missing_results = inspector.find_dirs_missing_file(
-        Settings.hospital["DOCUMENT_STANDARDS"]["RESULTADOS"],
+        hospital_cfg["DOCUMENT_STANDARDS"]["RESULTADOS"],
         skip=skip_dirs + emergency_dirs,
         target_dirs=results_dirs,
     )
     pipeline_logger.info("Directories missing results files: %d", len(missing_results))
 
     missing_signatures = inspector.find_dirs_missing_file(
-        Settings.hospital["DOCUMENT_STANDARDS"]["FIRMA"],
+        hospital_cfg["DOCUMENT_STANDARDS"]["FIRMA"],
         skip=skip_dirs,
     )
     pipeline_logger.info("Directories missing signature files: %d", len(missing_signatures))
 
     missing_validations = inspector.find_dirs_missing_file(
-        Settings.hospital["DOCUMENT_STANDARDS"]["VALIDACION"],
+        hospital_cfg["DOCUMENT_STANDARDS"]["VALIDACION"],
         skip=skip_dirs + emergency_dirs,
     )
     pipeline_logger.info("Directories missing validation files: %d", len(missing_validations))
 
     missing_auths = inspector.find_dirs_missing_file(
-        Settings.hospital["DOCUMENT_STANDARDS"]["AUTORIZACION"],
+        hospital_cfg["DOCUMENT_STANDARDS"]["AUTORIZACION"],
         skip=skip_dirs,
         target_dirs=emergency_dirs,
     )
@@ -216,6 +216,10 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
         validator  = InvoiceValidator(Settings.staging_dir)
         repo       = AuditRepository(Settings.db_path)
 
+        # Load hospital config from DB (falls back to empty dict if not seeded yet)
+        hospital_cfg = repo.fetch_hospital_config(Settings.active_hospital)
+        admin_map    = repo.fetch_admin_contract_map(Settings.active_hospital)
+
         pipeline_logger = logging.getLogger("app.pipeline")
 
         # ── Backup ───────────────────────────────────────────────────────────
@@ -229,7 +233,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
         df_processed = None
 
         if flags.get("LOAD_AND_PROCESS"):
-            ingester = BillingIngester(Settings.admin_contract_map)
+            ingester = BillingIngester(admin_map)
             ingester.load_excel(Settings.sihos_report_path, Settings.raw_schema_columns)
 
             if not ingester.validate_admin_contract_pairs():
@@ -295,22 +299,22 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
             non_pdf = [f for f in scanner.find_non_pdf() if not _is_skipped(f)]
             pipeline_logger.info("Non-PDF files removed: %d", len(operations.remove_files(non_pdf)))
 
-            prefixes_accepted = flatten_prefixes(Settings.hospital["DOCUMENT_STANDARDS"])
+            prefixes_accepted = flatten_prefixes(hospital_cfg["DOCUMENT_STANDARDS"])
             invalid_files = [
                 f for f in scanner.find_invalid_names(
                     valid_prefixes=prefixes_accepted,
-                    suffix=Settings.hospital["INVOICE_IDENTIFIER_PREFIX"],
-                    nit=Settings.hospital["NIT"],
+                    suffix=hospital_cfg["INVOICE_IDENTIFIER_PREFIX"],
+                    nit=hospital_cfg["NIT"],
                 )
                 if not _is_skipped(f)
             ]
             pipeline_logger.info("Files with invalid naming structure: %d", len(invalid_files))
 
             standardizer = FilenameStandardizer(
-                nit=Settings.hospital["NIT"],
+                nit=hospital_cfg["NIT"],
                 valid_prefixes=prefixes_accepted,
-                suffix_const=Settings.hospital["INVOICE_IDENTIFIER_PREFIX"],
-                prefix_map=Settings.hospital["MISNAMED_FIXER_MAP"],
+                suffix_const=hospital_cfg["INVOICE_IDENTIFIER_PREFIX"],
+                prefix_map=hospital_cfg["MISNAMED_FIXER_MAP"],
             )
             standardizer.run(invalid_files)
 
@@ -331,7 +335,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
 
         # ── Invoice audit ────────────────────────────────────────────────────
 
-        invoices = scanner.find_by_prefix(Settings.hospital["DOCUMENT_STANDARDS"]["FACTURA"])
+        invoices = scanner.find_by_prefix(hospital_cfg["DOCUMENT_STANDARDS"]["FACTURA"])
 
         if flags.get("CHECK_INVOICES"):
             needing_ocr = DocumentReader.find_needing_ocr(invoices)
@@ -347,7 +351,7 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
                 pipeline_logger.info("Directories marked as missing CUFE: %d", marked)
 
             missing_invoice_files = inspector.find_dirs_missing_file(
-                Settings.hospital["DOCUMENT_STANDARDS"]["FACTURA"], skip=skip_dirs
+                hospital_cfg["DOCUMENT_STANDARDS"]["FACTURA"], skip=skip_dirs
             )
             pipeline_logger.info("Directories missing invoice files: %d", len(missing_invoice_files))
 
@@ -373,13 +377,13 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
             )
 
         if flags.get("CHECK_IF_FILES_NEED_OCR"):
-            signatures = scanner.find_by_prefix(Settings.hospital["DOCUMENT_STANDARDS"]["FIRMA"])
+            signatures = scanner.find_by_prefix(hospital_cfg["DOCUMENT_STANDARDS"]["FIRMA"])
             sigs_needing_ocr = DocumentReader.find_needing_ocr(signatures)
             ocr_result = DocumentProcessor.batch_ocr(files=sigs_needing_ocr, max_workers=10)
             pipeline_logger.info("OCR batch completed for signatures: %s", ocr_result)
 
         if flags.get("CHECK_SIGNS"):
-            signatures = scanner.find_by_prefix(Settings.hospital["DOCUMENT_STANDARDS"]["FIRMA"])
+            signatures = scanner.find_by_prefix(hospital_cfg["DOCUMENT_STANDARDS"]["FIRMA"])
             files_with_text = validator.find_files_with_text(
                 files=signatures, search_text=_SEARCH_SIGN_VERIFY, return_parent=False
             )

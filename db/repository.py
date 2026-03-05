@@ -1,5 +1,6 @@
 """SQLite-backed repository for audit findings per invoice."""
 
+import json
 import logging
 import shutil
 import sqlite3
@@ -83,6 +84,8 @@ class AuditRepository:
                     conn.execute(stmt)
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+        # Seed hospital config from hardcoded dicts if tables are empty
+        self._seed_hospitals_if_empty()
 
     # ------------------------------------------------------------------
     # Invoice loading
@@ -374,6 +377,223 @@ class AuditRepository:
             conn.execute(
                 "UPDATE invoices SET nota = ? WHERE hospital = ? AND period = ? AND factura = ?",
                 (nota, hospital, period, factura),
+            )
+
+    # ------------------------------------------------------------------
+    # Hospital configuration
+    # ------------------------------------------------------------------
+
+    def _seed_hospitals_if_empty(self) -> None:
+        """Seed hospital and mapping tables from hardcoded config if they are empty."""
+        with self._connect() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM hospitals").fetchone()[0]
+        if count > 0:
+            return
+        from config.hospitals import HOSPITALS
+        from config.mappings import ADMIN_CONTRACT_MAPS
+        self.seed_hospitals_from_config(HOSPITALS, ADMIN_CONTRACT_MAPS)
+
+    def seed_hospitals_from_config(
+        self, hospitals_dict: dict, mappings_dict: dict
+    ) -> None:
+        """Insert hospital config and admin/contract mappings from dicts.
+
+        Uses ``INSERT OR IGNORE`` so existing rows are not overwritten.
+
+        Args:
+            hospitals_dict: Dict matching the structure of ``config.hospitals.HOSPITALS``.
+            mappings_dict: Dict matching the structure of ``config.mappings.ADMIN_CONTRACT_MAPS``.
+        """
+        with self._connect() as conn:
+            for key, cfg in hospitals_dict.items():
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO hospitals
+                        (key, display_name, nit, invoice_identifier_prefix,
+                         sihos_base_url, sihos_invoice_doc_code,
+                         document_standards, misnamed_fixer_map)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        key,
+                        key.replace("_", " ").title(),
+                        cfg.get("NIT", ""),
+                        cfg.get("INVOICE_IDENTIFIER_PREFIX", ""),
+                        cfg.get("SIHOS_BASE_URL", ""),
+                        cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
+                        json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
+                        json.dumps(cfg.get("MISNAMED_FIXER_MAP", {})),
+                    ),
+                )
+            for hospital_key, mapping in mappings_dict.items():
+                for (raw_admin, raw_contract), (canonical_admin, canonical_contract) in mapping.items():
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO admin_contract_mappings
+                            (hospital_key, raw_admin, raw_contract, canonical_admin, canonical_contract)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (hospital_key, raw_admin, raw_contract, canonical_admin, canonical_contract),
+                    )
+
+    def fetch_all_hospitals(self) -> list[dict]:
+        """Return all hospitals as a list of dicts.
+
+        Returns:
+            List of dicts with keys matching the ``hospitals`` table columns.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT key, display_name, nit, invoice_identifier_prefix, "
+                "sihos_base_url, sihos_invoice_doc_code, document_standards, misnamed_fixer_map "
+                "FROM hospitals ORDER BY key"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def fetch_hospital_config(self, key: str) -> dict:
+        """Return hospital config dict compatible with ``config.hospitals.HOSPITALS[key]``.
+
+        Args:
+            key: Hospital key (e.g. ``"RAMON_MARIA_ARANA"``).
+
+        Returns:
+            Dict with NIT, INVOICE_IDENTIFIER_PREFIX, SIHOS_BASE_URL, etc.
+            Returns an empty dict if the key is not found.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM hospitals WHERE key = ?", (key,)
+            ).fetchone()
+        if row is None:
+            return {}
+        return {
+            "NIT": row["nit"],
+            "INVOICE_IDENTIFIER_PREFIX": row["invoice_identifier_prefix"],
+            "SIHOS_BASE_URL": row["sihos_base_url"],
+            "SIHOS_INVOICE_DOC_CODE": row["sihos_invoice_doc_code"],
+            "DOCUMENT_STANDARDS": json.loads(row["document_standards"]),
+            "MISNAMED_FIXER_MAP": json.loads(row["misnamed_fixer_map"]),
+        }
+
+    def fetch_admin_contract_map(self, hospital_key: str) -> dict:
+        """Return admin/contract mapping dict for a hospital.
+
+        Returns a dict in the format used by ``BillingIngester``:
+        ``{(raw_admin, raw_contract): (canonical_admin, canonical_contract)}``.
+
+        Args:
+            hospital_key: Hospital key.
+
+        Returns:
+            Mapping dict. Returns an empty dict if no mappings are found.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT raw_admin, raw_contract, canonical_admin, canonical_contract "
+                "FROM admin_contract_mappings WHERE hospital_key = ?",
+                (hospital_key,),
+            ).fetchall()
+        return {
+            (r["raw_admin"], r["raw_contract"]): (r["canonical_admin"], r["canonical_contract"])
+            for r in rows
+        }
+
+    def upsert_hospital(self, key: str, cfg: dict) -> None:
+        """Insert or replace a hospital record.
+
+        Args:
+            key: Hospital key.
+            cfg: Dict with keys NIT, INVOICE_IDENTIFIER_PREFIX, SIHOS_BASE_URL,
+                SIHOS_INVOICE_DOC_CODE, DOCUMENT_STANDARDS, MISNAMED_FIXER_MAP,
+                and optionally display_name.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO hospitals
+                    (key, display_name, nit, invoice_identifier_prefix,
+                     sihos_base_url, sihos_invoice_doc_code,
+                     document_standards, misnamed_fixer_map)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    display_name              = excluded.display_name,
+                    nit                       = excluded.nit,
+                    invoice_identifier_prefix = excluded.invoice_identifier_prefix,
+                    sihos_base_url            = excluded.sihos_base_url,
+                    sihos_invoice_doc_code    = excluded.sihos_invoice_doc_code,
+                    document_standards        = excluded.document_standards,
+                    misnamed_fixer_map        = excluded.misnamed_fixer_map
+                """,
+                (
+                    key,
+                    cfg.get("display_name", key.replace("_", " ").title()),
+                    cfg.get("NIT", ""),
+                    cfg.get("INVOICE_IDENTIFIER_PREFIX", ""),
+                    cfg.get("SIHOS_BASE_URL", ""),
+                    cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
+                    json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
+                    json.dumps(cfg.get("MISNAMED_FIXER_MAP", {})),
+                ),
+            )
+
+    def fetch_admin_contract_mappings(self, hospital_key: str) -> list[dict]:
+        """Return all admin/contract mapping rows for a hospital.
+
+        Args:
+            hospital_key: Hospital key.
+
+        Returns:
+            List of dicts with keys id, raw_admin, raw_contract,
+            canonical_admin, canonical_contract.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, raw_admin, raw_contract, canonical_admin, canonical_contract "
+                "FROM admin_contract_mappings WHERE hospital_key = ? "
+                "ORDER BY raw_admin, raw_contract",
+                (hospital_key,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_admin_contract_mapping(
+        self,
+        hospital_key: str,
+        raw_admin: str,
+        raw_contract: str | None,
+        canonical_admin: str | None,
+        canonical_contract: str | None,
+    ) -> None:
+        """Insert or update a single admin/contract mapping row.
+
+        Args:
+            hospital_key: Hospital key.
+            raw_admin: Raw administrator name from SIHOS.
+            raw_contract: Raw contract name from SIHOS (may be None).
+            canonical_admin: Normalised administrator name (may be None).
+            canonical_contract: Normalised contract name (may be None).
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO admin_contract_mappings
+                    (hospital_key, raw_admin, raw_contract, canonical_admin, canonical_contract)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(hospital_key, raw_admin, raw_contract) DO UPDATE SET
+                    canonical_admin    = excluded.canonical_admin,
+                    canonical_contract = excluded.canonical_contract
+                """,
+                (hospital_key, raw_admin, raw_contract, canonical_admin, canonical_contract),
+            )
+
+    def delete_admin_contract_mapping(self, mapping_id: int) -> None:
+        """Delete a single admin/contract mapping row by its primary key.
+
+        Args:
+            mapping_id: Row id from ``admin_contract_mappings``.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM admin_contract_mappings WHERE id = ?", (mapping_id,)
             )
 
     def fetch_hospitals_and_periods(self) -> dict[str, list[str]]:
