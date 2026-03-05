@@ -129,7 +129,7 @@ def render(config_error: str | None) -> None:
     # --- Invoice table ---
     section_header("Period invoices")
 
-    tipo_options = ["All"] + sorted(InvoiceType._ALL)
+    tipo_options = ["All"] + sorted(set(InvoiceType))
     filter_col, *_ = st.columns([2, 6])
     tipo_filter = filter_col.selectbox("Filter by type", tipo_options, key="tipo_filter")
     display_df = df if tipo_filter == "All" else df[df["Tipo"] == tipo_filter]
@@ -180,7 +180,7 @@ def render(config_error: str | None) -> None:
 
     with st.expander("Estado de carpeta en lote"):
         raw_fs   = st.text_area("Facturas (una por línea)", key="batch_fs_list", height=120)
-        nuevo_fs = st.selectbox("Nuevo estado", sorted(FolderStatus._ALL), key="batch_fs_val")
+        nuevo_fs = st.selectbox("Nuevo estado", sorted(set(FolderStatus)), key="batch_fs_val")
         if st.button("Aplicar estado", key="btn_batch_fs", type="primary"):
             _apply_batch(
                 raw_fs,
@@ -190,7 +190,7 @@ def render(config_error: str | None) -> None:
 
     with st.expander("Hallazgos en lote"):
         raw_hf   = st.text_area("Facturas (una por línea)", key="batch_hf_list", height=120)
-        nuevo_hf = st.selectbox("Tipo de hallazgo", sorted(FindingCode._ALL), key="batch_hf_val")
+        nuevo_hf = st.selectbox("Tipo de hallazgo", sorted(set(FindingCode)), key="batch_hf_val")
         if st.button("Agregar hallazgo", key="btn_batch_hf", type="primary"):
             _apply_batch(
                 raw_hf,
@@ -200,7 +200,7 @@ def render(config_error: str | None) -> None:
 
     with st.expander("Tipo de factura en lote"):
         raw_tp   = st.text_area("Facturas (una por línea)", key="batch_tp_list", height=120)
-        nuevo_tp = st.selectbox("Nuevo tipo", sorted(InvoiceType._ALL), key="batch_tp_val")
+        nuevo_tp = st.selectbox("Nuevo tipo", sorted(set(InvoiceType)), key="batch_tp_val")
         if st.button("Aplicar tipo", key="btn_batch_tp", type="primary"):
             _apply_batch(
                 raw_tp,
@@ -252,7 +252,7 @@ def render(config_error: str | None) -> None:
     with action_col:
         if invoice_id and invoice_id in df.index:
             findings = repo.fetch_findings(hospital, period, invoice_id)
-            all_finding_codes = sorted(FindingCode._ALL)
+            all_finding_codes = sorted(set(FindingCode))
             existing_types    = findings
 
             action = st.radio(
@@ -277,7 +277,7 @@ def render(config_error: str | None) -> None:
 
             elif action == "Change type":
                 current_tipo = df.at[invoice_id, "Tipo"]
-                all_tipos = sorted(InvoiceType._ALL)
+                all_tipos = sorted(set(InvoiceType))
                 cur_tipo_idx = all_tipos.index(current_tipo) if current_tipo in all_tipos else 0
                 new_tipo = st.selectbox("Invoice type", all_tipos, index=cur_tipo_idx, key="change_tipo")
                 st.caption("Set type to **SOAT** to exclude this invoice from document checks.")

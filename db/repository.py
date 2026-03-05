@@ -86,8 +86,9 @@ class AuditRepository:
             ):
                 try:
                     conn.execute(stmt)
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
         # Seed hospital config from hardcoded dicts if tables are empty
         self._seed_hospitals_if_empty()
         self._seed_filename_fixes_if_empty()
@@ -174,7 +175,7 @@ class AuditRepository:
         Raises:
             ValueError: If ``finding_type`` is not recognised.
         """
-        if finding_type not in FindingCode._ALL:
+        if finding_type not in set(FindingCode):
             raise ValueError("Unknown finding_type: %s" % finding_type)
 
         with self._connect() as conn:
@@ -285,7 +286,7 @@ class AuditRepository:
         Raises:
             ValueError: If ``tipo`` is not a recognised constant.
         """
-        if tipo not in InvoiceType._ALL:
+        if tipo not in set(InvoiceType):
             raise ValueError("Unknown tipo: %s" % tipo)
         with self._connect() as conn:
             conn.execute(
@@ -334,7 +335,7 @@ class AuditRepository:
         Raises:
             ValueError: If ``status`` is not a recognised constant.
         """
-        if status not in FolderStatus._ALL:
+        if status not in set(FolderStatus):
             raise ValueError("Unknown folder_status: %s" % status)
         with self._connect() as conn:
             conn.execute(

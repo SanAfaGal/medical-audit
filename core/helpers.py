@@ -5,14 +5,13 @@ import shutil
 import unicodedata
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-def remove_accents(text: Any) -> str:
+def remove_accents(text: str | object) -> str:
     """Strip accent marks and normalise text to plain ASCII-equivalent.
 
     Safe for non-string inputs such as ``None``, ``float`` (NaN), or ``int``.
@@ -47,7 +46,7 @@ def safe_move(src: Path, dest: Path) -> bool:
         shutil.move(str(src), str(dest))
         return True
     except (shutil.Error, OSError) as exc:
-        logger.error("Error moving %s: %s", src.name, exc)
+        logger.error("Error moving %s: %s", src, exc)
         return False
 
 

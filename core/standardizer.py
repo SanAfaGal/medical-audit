@@ -4,6 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ class RenameResult:
 
     original_path: str
     new_name: str
-    status: str   # SUCCESS, REJECTED, or ERROR
+    status: Literal["SUCCESS", "REJECTED", "ERROR"]
     reason: str
 
 

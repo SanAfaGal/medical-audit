@@ -56,11 +56,11 @@ class BillingIngester:
         if self._raw_df is None:
             raise ValueError("No data loaded — call load_excel first.")
 
+        valid = self._raw_df[
+            self._raw_df["Administradora"].notna() & self._raw_df["Contrato"].notna()
+        ]
         raw_pairs: set[tuple[str, str]] = set(
-            zip(
-                self._raw_df["Administradora"].dropna(),
-                self._raw_df["Contrato"].dropna(),
-            )
+            zip(valid["Administradora"], valid["Contrato"])
         )
         unknown = raw_pairs - set(self.admin_contract_map.keys())
         self._log_mapping_report(unknown)
@@ -146,7 +146,11 @@ class BillingIngester:
 
         resolved = df.apply(
             lambda row: self.admin_contract_map.get(
-                (row["Administradora"], row["Contrato"]), (None, None)
+                (
+                    row["Administradora"],
+                    row["Contrato"] if pd.notna(row["Contrato"]) else None,
+                ),
+                (None, None),
             ),
             axis=1,
             result_type="expand",

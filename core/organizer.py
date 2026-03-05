@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
@@ -85,9 +86,19 @@ class LeafFolderFinder:
         """
         return [
             folder
-            for folder in Path(source_root).rglob("**/")
-            if self.has_files(folder)
+            for folder in Path(source_root).rglob("*")
+            if folder.is_dir() and self.has_files(folder)
         ]
+
+
+@dataclass
+class _OrganizeStats:
+    """Mutable counters accumulated during a single organize run."""
+
+    moved: int = 0
+    failed: int = 0
+    not_found: int = 0
+    errors: list[str] = field(default_factory=list)
 
 
 class TransferSummary(NamedTuple):
@@ -132,17 +143,23 @@ class InvoiceOrganizer:
     def _find_source_in_staging(self, invoice_id: str) -> Path | None:
         """Return the staging path for the given invoice ID, or None if not found.
 
+        Tries an exact key match first, then falls back to an ``endswith``
+        suffix match to tolerate folder names with extra prefixes.
+
         Args:
             invoice_id: Invoice identifier to look up.
 
         Returns:
             Matching :class:`~pathlib.Path`, or ``None``.
         """
+        key = invoice_id.upper()
+        if key in self._staging_cache:
+            return self._staging_cache[key]
         return next(
             (
                 path
                 for name, path in self._staging_cache.items()
-                if str(invoice_id) in name
+                if name.upper().endswith(key)
             ),
             None,
         )
@@ -153,7 +170,7 @@ class InvoiceOrganizer:
         source_path: Path,
         destination_path: Path,
         dry_run: bool,
-        stats: dict[str, int | list[str]],
+        stats: _OrganizeStats,
     ) -> None:
         """Move a single invoice folder from staging to its final location.
 
@@ -162,19 +179,19 @@ class InvoiceOrganizer:
             source_path: Current location of the folder in staging.
             destination_path: Target location in the final hierarchy.
             dry_run: When True, only log the intended move without executing it.
-            stats: Mutable statistics dictionary updated in place.
+            stats: Mutable statistics accumulator updated in place.
         """
         if dry_run:
             logger.info("[DRY RUN] %s -> %s", source_path.name, destination_path)
-            stats["moved"] = int(stats["moved"]) + 1  # type: ignore[arg-type]
+            stats.moved += 1
             return
 
         if safe_move(source_path, destination_path):
-            stats["moved"] = int(stats["moved"]) + 1  # type: ignore[arg-type]
+            stats.moved += 1
             logger.info("Moved invoice %s successfully", invoice_id)
         else:
-            stats["failed"] = int(stats["failed"]) + 1  # type: ignore[arg-type]
-            stats["errors"].append("Failed to move %s" % invoice_id)  # type: ignore[union-attr]
+            stats.failed += 1
+            stats.errors.append("Failed to move %s" % invoice_id)
 
     def organize(self, dry_run: bool = False) -> TransferSummary:
         """Execute the migration of invoice folders to the final hierarchy.
@@ -186,19 +203,14 @@ class InvoiceOrganizer:
             :class:`TransferSummary` with counts of moved, failed, and not-found folders.
         """
         self._index_staging_area()
-        stats: dict[str, int | list[str]] = {
-            "moved": 0,
-            "failed": 0,
-            "not_found": 0,
-            "errors": [],
-        }
+        stats = _OrganizeStats()
 
         for invoice_id, row in self.df.iterrows():
             source_path = self._find_source_in_staging(str(invoice_id))
 
             if not source_path:
                 logger.warning("Invoice not found in staging: %s", invoice_id)
-                stats["not_found"] = int(stats["not_found"]) + 1  # type: ignore[arg-type]
+                stats.not_found += 1
                 continue
 
             destination_path = self.archive_dir / row["Ruta"]
@@ -207,8 +219,8 @@ class InvoiceOrganizer:
             )
 
         return TransferSummary(
-            moved=int(stats["moved"]),  # type: ignore[arg-type]
-            failed=int(stats["failed"]),  # type: ignore[arg-type]
-            not_found=int(stats["not_found"]),  # type: ignore[arg-type]
-            errors=list(stats["errors"]),  # type: ignore[arg-type]
+            moved=stats.moved,
+            failed=stats.failed,
+            not_found=stats.not_found,
+            errors=stats.errors,
         )

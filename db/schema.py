@@ -1,11 +1,13 @@
 """Finding code, folder-status constants, plus the SQLite schema DDL."""
 
+from enum import StrEnum
+
 # ---------------------------------------------------------------------------
 # Invoice types
 # ---------------------------------------------------------------------------
 
 
-class InvoiceType:
+class InvoiceType(StrEnum):
     """String constants that classify the type of an invoice."""
 
     GENERAL      = "GENERAL"
@@ -16,55 +18,43 @@ class InvoiceType:
     ECG          = "ECG"
     RADIOGRAFIA  = "RADIOGRAFIA"
 
-    _ALL: frozenset[str] = frozenset()
-
-
-InvoiceType._ALL = frozenset(
-    v for k, v in vars(InvoiceType).items() if not k.startswith("_")
-)
 
 # ---------------------------------------------------------------------------
 # Finding codes
 # ---------------------------------------------------------------------------
 
 
-class FindingCode:
+class FindingCode(StrEnum):
     """String constants that identify the type of an audit finding."""
 
-    MISSING_FOLDER = "MISSING_FOLDER"
-    MISSING_INVOICE = "MISSING_INVOICE"
-    MISSING_HISTORIA = "MISSING_HISTORIA"
-    MISSING_FIRMA = "MISSING_FIRMA"
-    MISSING_VALIDACION = "MISSING_VALIDACION"
-    MISSING_RESULTADOS = "MISSING_RESULTADOS"
-    MISSING_BITACORA = "MISSING_BITACORA"
-    MISSING_RESOLUCION = "MISSING_RESOLUCION"
+    MISSING_FOLDER       = "MISSING_FOLDER"
+    MISSING_INVOICE      = "MISSING_INVOICE"
+    MISSING_HISTORIA     = "MISSING_HISTORIA"
+    MISSING_FIRMA        = "MISSING_FIRMA"
+    MISSING_VALIDACION   = "MISSING_VALIDACION"
+    MISSING_RESULTADOS   = "MISSING_RESULTADOS"
+    MISSING_BITACORA     = "MISSING_BITACORA"
+    MISSING_RESOLUCION   = "MISSING_RESOLUCION"
     MISSING_AUTORIZACION = "MISSING_AUTORIZACION"
-    MISSING_ORDEN = "MISSING_ORDEN"
-    MISSING_FURIPS = "MISSING_FURIPS"
-    MISSING_CUFE = "MISSING_CUFE"
+    MISSING_ORDEN        = "MISSING_ORDEN"
+    MISSING_FURIPS       = "MISSING_FURIPS"
+    MISSING_CUFE         = "MISSING_CUFE"
 
-    _ALL: frozenset[str] = frozenset()
-
-
-FindingCode._ALL = frozenset(
-    v for k, v in vars(FindingCode).items() if not k.startswith("_")
-)
 
 # Human-readable labels for the "Comentario" column in exported reports.
 FINDING_LABELS: dict[str, str] = {
-    FindingCode.MISSING_FOLDER: "Carpeta",
-    FindingCode.MISSING_INVOICE: "Factura",
-    FindingCode.MISSING_HISTORIA: "Historia clinica",
-    FindingCode.MISSING_FIRMA: "Firma",
-    FindingCode.MISSING_VALIDACION: "Validacion",
-    FindingCode.MISSING_RESULTADOS: "Resultados",
-    FindingCode.MISSING_BITACORA: "Bitacora",
-    FindingCode.MISSING_RESOLUCION: "Resolucion",
+    FindingCode.MISSING_FOLDER:       "Carpeta",
+    FindingCode.MISSING_INVOICE:      "Factura",
+    FindingCode.MISSING_HISTORIA:     "Historia clinica",
+    FindingCode.MISSING_FIRMA:        "Firma",
+    FindingCode.MISSING_VALIDACION:   "Validacion",
+    FindingCode.MISSING_RESULTADOS:   "Resultados",
+    FindingCode.MISSING_BITACORA:     "Bitacora",
+    FindingCode.MISSING_RESOLUCION:   "Resolucion",
     FindingCode.MISSING_AUTORIZACION: "Autorizacion",
-    FindingCode.MISSING_ORDEN: "Orden",
-    FindingCode.MISSING_FURIPS: "Furips",
-    FindingCode.MISSING_CUFE: "Cufe",
+    FindingCode.MISSING_ORDEN:        "Orden",
+    FindingCode.MISSING_FURIPS:       "Furips",
+    FindingCode.MISSING_CUFE:         "Cufe",
 }
 
 
@@ -73,19 +63,12 @@ FINDING_LABELS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-class FolderStatus:
+class FolderStatus(StrEnum):
     """String constants for the physical presence state of an invoice folder."""
 
     PRESENT  = "PRESENTE"
     PENDING  = "PENDIENTE"
     MISSING  = "FALTANTE"
-
-    _ALL: frozenset[str] = frozenset()
-
-
-FolderStatus._ALL = frozenset(
-    v for k, v in vars(FolderStatus).items() if not k.startswith("_")
-)
 
 
 # ---------------------------------------------------------------------------

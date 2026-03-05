@@ -88,6 +88,26 @@ class DocumentScanner:
         """Return all directories under base_dir recursively."""
         return [d for d in self.base_dir.rglob("*") if d.is_dir()]
 
+    @staticmethod
+    def _build_name_pattern(
+        valid_prefixes: list[str], suffix: str, nit: str
+    ) -> re.Pattern[str]:
+        """Compile the expected filename regex from hospital-specific parameters.
+
+        Args:
+            valid_prefixes: Allowed document type prefixes (e.g. ``["FEV", "CRC"]``).
+            suffix: Invoice identifier prefix (e.g. ``"HSL"``).
+            nit: Hospital NIT number.
+
+        Returns:
+            Compiled regex pattern for ``{PREFIX}_{NIT}_{SUFFIX}{digits}.pdf``.
+        """
+        prefixes_group = "|".join(re.escape(p) for p in valid_prefixes)
+        return re.compile(
+            rf"^({prefixes_group})_{re.escape(nit)}_{re.escape(suffix)}\d+\.pdf$",
+            re.IGNORECASE,
+        )
+
     def find_invalid_names(
         self, valid_prefixes: list[str], suffix: str, nit: str
     ) -> list[Path]:
@@ -103,11 +123,7 @@ class DocumentScanner:
         Returns:
             Files that fail the naming validation.
         """
-        prefixes_group = "|".join(re.escape(p) for p in valid_prefixes)
-        pattern = re.compile(
-            rf"^({prefixes_group})_{re.escape(nit)}_{re.escape(suffix)}\d+\.pdf$",
-            re.IGNORECASE,
-        )
+        pattern = self._build_name_pattern(valid_prefixes, suffix, nit)
         return [
             f
             for f in self.find_by_extension("pdf")

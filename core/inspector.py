@@ -150,8 +150,7 @@ class FolderInspector:
         return [
             d
             for d in dirs_to_scan
-            if d.is_dir()
-            and d not in skip_set
+            if d not in skip_set
             and not any(
                 f.is_file() and f.name.upper().startswith(criteria)
                 for f in d.iterdir()
