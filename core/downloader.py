@@ -39,8 +39,17 @@ class SihosDownloader:
         self._invoice_id_prefix: str = Settings.hospital["INVOICE_IDENTIFIER_PREFIX"]
         self._invoice_doc_code: str = Settings.hospital["SIHOS_INVOICE_DOC_CODE"]
         self._output_dir: Path = (
-            output_dir if output_dir is not None else Settings.missing_files_path
+            output_dir if output_dir is not None else Settings.staging_dir
         )
+
+    def run_from_list(self, invoice_numbers: list[str]) -> None:
+        """Download invoices from a list of invoice numbers.
+
+        Args:
+            invoice_numbers: List of invoice number strings.
+        """
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        self._download_invoices(invoice_numbers)
 
     def run(self, list_path: str | Path) -> None:
         """Download invoices listed in a text file.
@@ -50,6 +59,14 @@ class SihosDownloader:
         """
         self._output_dir.mkdir(parents=True, exist_ok=True)
         invoice_list = read_lines_from_file(list_path)
+        self._download_invoices(invoice_list)
+
+    def _download_invoices(self, invoice_list: list[str]) -> None:
+        """Open a browser session and download each invoice.
+
+        Args:
+            invoice_list: List of invoice number strings.
+        """
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=False)

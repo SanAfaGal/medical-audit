@@ -64,9 +64,7 @@ def render(config_error: str | None) -> None:
     path_attrs = [
         ("Staging directory",    Settings.staging_dir),
         ("Archive directory",    Settings.archive_dir),
-        ("Drive download root",  Settings.drive_dir),
-        ("Missing dirs path",    Settings.missing_dirs_path),
-        ("Missing files path",   Settings.missing_files_path),
+        ("Base download dir",    Settings.base_dir),
         ("Docs directory",       Settings.docs_dir),
         ("Audit database",       Settings.db_path),
     ]

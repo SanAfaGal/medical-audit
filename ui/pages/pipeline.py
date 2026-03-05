@@ -16,23 +16,20 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _STAGE_LABELS: dict[str, str] = {
-    "LOAD_AND_PROCESS":                   "Load and process SIHOS report",
-    "EXPORT_INVOICES":                    "Export invoices to Excel",
-    "ORGANIZE":                           "Organise invoice folders",
-    "RUN_STAGING":                        "Copy folders to staging area",
-    "DOWNLOAD_DRIVE":                     "Download missing folders from Drive",
-    "NORMALIZE_FILES":                    "Normalise files (delete non-PDFs, rename)",
-    "CHECK_FOLDERS_WITH_EXTRA_TEXT":      "Detect folders with extra text in name",
-    "NORMALIZE_DIR_NAMES":                "Rename malformed directory names",
-    "CHECK_INVOICE_NUMBER_ON_FILES":      "Verify invoice number on files",
-    "CHECK_INVOICES":                     "Audit invoices (OCR + CUFE)",
-    "MARK_DIRS_MISSING_CUFE":            "Mark directories missing CUFE",
-    "CHECK_INVALID_FILES":                "Detect unreadable PDF files",
-    "CHECK_FOUR_MAIN_FILES":              "Verify four mandatory document types",
-    "CHECK_DIRS":                         "Detect missing directories",
-    "MOVE_MISSING_FILES":                 "Relocate misplaced files",
-    "MOVE_FOLDERS_FROM_MISSING_TO_STAGE": "Move recovered folders to staging",
-    "DOWNLOAD_INVOICES_FROM_SIHOS":       "Download invoices from SIHOS portal",
+    "LOAD_AND_PROCESS":              "Load and process SIHOS report",
+    "EXPORT_INVOICES":               "Export invoices to Excel",
+    "ORGANIZE":                      "Organise invoice folders",
+    "DOWNLOAD_DRIVE":                "Download missing folders from Drive",
+    "NORMALIZE_FILES":               "Normalise files (delete non-PDFs, rename)",
+    "CHECK_FOLDERS_WITH_EXTRA_TEXT": "Detect folders with extra text in name",
+    "NORMALIZE_DIR_NAMES":           "Rename malformed directory names",
+    "CHECK_INVOICE_NUMBER_ON_FILES": "Verify invoice number on files",
+    "CHECK_INVOICES":                "Audit invoices (OCR + CUFE)",
+    "MARK_DIRS_MISSING_CUFE":        "Mark directories missing CUFE",
+    "CHECK_INVALID_FILES":           "Detect unreadable PDF files",
+    "CHECK_FOUR_MAIN_FILES":         "Verify four mandatory document types",
+    "CHECK_DIRS":                    "Detect missing directories",
+    "DOWNLOAD_INVOICES_FROM_SIHOS":  "Download invoices from SIHOS portal",
 }
 
 _STAGE_GROUPS: list[tuple[str, list[str]]] = [
@@ -46,9 +43,6 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
     ]),
     ("Organisation", [
         "ORGANIZE",
-        "RUN_STAGING",
-        "MOVE_MISSING_FILES",
-        "MOVE_FOLDERS_FROM_MISSING_TO_STAGE",
     ]),
     ("Normalisation", [
         "NORMALIZE_FILES",
@@ -262,26 +256,18 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
                 result = organizer.organize(dry_run=False)
                 pipeline_logger.info("Organise result: %s", result)
 
-        # ── Misplaced files ──────────────────────────────────────────────────
-
-        if flags.get("MOVE_MISSING_FILES"):
-            operations.relocate_misplaced(Settings.missing_files_path, dry_run=False)
-
-        # ── Staging ──────────────────────────────────────────────────────────
-
-        if flags.get("RUN_STAGING"):
-            leaf_finder = LeafFolderFinder()
-            folders_to_stage = leaf_finder.find_leaf_folders(Settings.drive_dir)
-            if folders_to_stage:
-                copier = FolderCopier(Settings.staging_dir)
-                copier.copy_folders(folders_to_stage, use_prefix=False)
-
         # ── Drive download ───────────────────────────────────────────────────
 
         if flags.get("DOWNLOAD_DRIVE"):
             missing_folders = read_lines_from_file(missing_folders_list) if missing_folders_list.exists() else []
             drive = DriveSync(credentials_path=Settings.drive_credentials)
-            drive.download_missing_dirs(missing_folders, Settings.missing_dirs_path)
+            drive.download_missing_dirs(missing_folders, Settings.base_dir)
+            leaf_finder = LeafFolderFinder()
+            leaf_folders = leaf_finder.find_leaf_folders(Settings.base_dir)
+            if leaf_folders:
+                copier = FolderCopier(Settings.staging_dir)
+                copier.copy_folders(leaf_folders, use_prefix=False)
+                pipeline_logger.info("Leaf folders copied to staging: %d", len(leaf_folders))
 
         # ── Skip list (SOAT) — derived from DB ───────────────────────────────
 
@@ -368,16 +354,6 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
             invalid_pdfs = DocumentReader.find_unreadable(all_files)
             pipeline_logger.info("Unreadable PDF files: %d", len(invalid_pdfs))
 
-        if flags.get("MOVE_FOLDERS_FROM_MISSING_TO_STAGE"):
-            missing_folders = read_lines_from_file(missing_folders_list) if missing_folders_list.exists() else []
-            result = operations.move_or_copy_dirs(
-                dir_names=missing_folders,
-                source_dir=Settings.missing_dirs_path,
-                destination_dir=Settings.staging_dir,
-                action="copy",
-            )
-            pipeline_logger.info("Move recovered folders result: %s", result)
-
         if flags.get("CHECK_FOUR_MAIN_FILES"):
             _run_check_four_main_files(
                 scanner, inspector, validator, invoices, skip_dirs,
@@ -399,9 +375,13 @@ def _execute_pipeline(flags: dict[str, bool]) -> str:
 
         if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
             from core.downloader import SihosDownloader
-            downloader = SihosDownloader()
-            invoices_to_dl = docs_dir / "invoices_to_download.txt"
-            downloader.run(invoices_to_dl)
+            raw_text = st.session_state.get("invoices_to_download", "")
+            invoice_numbers = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+            if invoice_numbers:
+                downloader = SihosDownloader()
+                downloader.run_from_list(invoice_numbers)
+            else:
+                pipeline_logger.warning("No invoice numbers provided for SIHOS download.")
 
     except (OSError, RuntimeError, ValueError) as exc:
         logging.getLogger("app.pipeline").error("Pipeline error: %s", exc, exc_info=True)
@@ -455,6 +435,17 @@ def render(config_error: str | None) -> None:
         st.rerun()
 
     selected = [k for k, v in flags.items() if v]
+
+    if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
+        st.divider()
+        section_header("Invoice numbers to download")
+        st.text_area(
+            "Paste invoice numbers (one per line)",
+            key="invoices_to_download",
+            height=140,
+            placeholder="FE12345\nFE12346\n...",
+        )
+
     st.divider()
 
     if selected:

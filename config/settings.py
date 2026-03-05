@@ -86,11 +86,9 @@ class Settings:
     root_path: Path = Path(_require_env("ROOT_PATH"))
     base_path: Path = Path(_require_env("BASE_PATH")) / audit_week
     docs_dir: Path = base_path / "DOCS"
-    drive_dir: Path = base_path / "DRIVE"
+    base_dir: Path = base_path / "BASE"
     archive_dir: Path = base_path / "AUDIT"
     staging_dir: Path = base_path / "STAGE"
-    missing_dirs_path: Path = base_path / "MISSING_FOLDERS"
-    missing_files_path: Path = base_path / "MISSING_FILES"
 
     # --- Audit database (accumulates across all audit weeks) ---
     db_path: Path = root_path / "audit.db"
