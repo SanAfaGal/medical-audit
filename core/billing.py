@@ -100,15 +100,33 @@ class BillingIngester:
         Returns:
             Cleaned DataFrame with normalised document numbers and a composite
             ``Factura`` column.
+
+        Notes:
+            ``Doc`` cells that are blank in Excel are loaded as either NaN or
+            as an empty string ``""`` depending on whether the cell contains a
+            formula.  Both are treated as absent — rows with an empty ``Doc``
+            are discarded before building the ``Factura`` identifier, otherwise
+            concatenation would produce bare numbers that cannot be linked to
+            their invoice folder.
         """
-        df = self._raw_df.dropna(subset=["Doc", "No Doc", "Administradora"]).copy()  # type: ignore[union-attr]
+        raw: pd.DataFrame = self._raw_df  # type: ignore[assignment]
+        # Strip Doc first so that whitespace-only cells also get filtered out.
+        doc_stripped = raw["Doc"].str.strip()
+        mask = (
+            doc_stripped.notna()
+            & doc_stripped.ne("")
+            & raw["No Doc"].notna()
+            & raw["Administradora"].notna()
+        )
+        df = raw[mask].copy()
+        df["Doc"] = doc_stripped[mask].str.upper()
         df["No Doc"] = (
             pd.to_numeric(df["No Doc"], errors="coerce")
             .astype("Int64")
             .astype(str)
         )
-        df["Doc"] = df["Doc"].str.strip().str.upper()
         df["Factura"] = df["Doc"] + df["No Doc"]
+        logger.debug("_normalize_raw_rows: %d rows kept out of %d", len(df), len(raw))
         return df
 
     def _apply_canonical_mapping(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -119,7 +137,13 @@ class BillingIngester:
 
         Returns:
             DataFrame with normalised values in both columns.
+            If ``df`` is empty the input is returned unchanged — pandas cannot
+            infer column indices from ``apply`` on zero rows, which would
+            raise ``KeyError: 0`` when accessing ``resolved[0]``.
         """
+        if df.empty:
+            return df
+
         resolved = df.apply(
             lambda row: self.admin_contract_map.get(
                 (row["Administradora"], row["Contrato"]), (None, None)
