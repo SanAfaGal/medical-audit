@@ -82,9 +82,8 @@ under `DOCUMENT_STANDARDS` in the Settings page.
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-ruff check .
-mypy core/ db/
-pytest
+uv run --with ruff ruff check .
+uv run --with mypy mypy core/ db/
+uv run --with pytest pytest
 pre-commit install
 ```
