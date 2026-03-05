@@ -34,10 +34,10 @@ class SihosDownloader:
         self._base_url: str = Settings.sihos_base_url
         self._user: str = Settings.sihos_user
         self._password: str = Settings.sihos_password
-        self._hospital_nit: str = Settings.hospital["NIT"]
-        self._invoice_prefix: str = Settings.hospital["DOCUMENT_STANDARDS"]["FACTURA"]
-        self._invoice_id_prefix: str = Settings.hospital["INVOICE_IDENTIFIER_PREFIX"]
-        self._invoice_doc_code: str = Settings.hospital["SIHOS_INVOICE_DOC_CODE"]
+        self._hospital_nit: str = Settings.hospital_nit
+        self._invoice_prefix: str = Settings.invoice_prefix
+        self._invoice_id_prefix: str = Settings.invoice_identifier_prefix
+        self._invoice_doc_code: str = Settings.sihos_invoice_doc_code
         self._output_dir: Path = (
             output_dir if output_dir is not None else Settings.staging_dir
         )

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # Compiled regex constants
 # ---------------------------------------------------------------------------
 
-_id_prefix = Settings.hospital["INVOICE_IDENTIFIER_PREFIX"]
+_id_prefix = Settings.invoice_identifier_prefix
 _RE_INVOICE_ID_STRICT = re.compile(rf"{_id_prefix}_?(\d+)", re.IGNORECASE)
 _RE_INVOICE_ID_LOOSE = re.compile(rf"{_id_prefix}[-_ ]?(\d+)", re.IGNORECASE)
 _RE_PREFIX = re.compile(r"^([a-zA-Z]+)")

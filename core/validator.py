@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Module-level compiled regex constants
 # ---------------------------------------------------------------------------
 
-_id_prefix = Settings.hospital["INVOICE_IDENTIFIER_PREFIX"]
+_id_prefix = Settings.invoice_identifier_prefix
 _RE_INVOICE_CODE = re.compile(rf"({_id_prefix}\d+)", re.IGNORECASE)
 _RE_CUFE = re.compile(r"CUFE\s*[:]*\s*(.{64,})\n", re.IGNORECASE)
 _RE_INLINE_WHITESPACE = re.compile(r"[ \t]+")

@@ -12,9 +12,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from config.mappings import ADMIN_CONTRACT_MAPS
-from config.hospitals import HOSPITALS
-
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -70,12 +67,9 @@ class Settings:
 
     # --- Hospital identity ---
     active_hospital: str = _require_env("ACTIVE_HOSPITAL")
-    hospital: dict = HOSPITALS.get(active_hospital, {})
-    admin_contract_map: dict = ADMIN_CONTRACT_MAPS.get(active_hospital, {})
 
     # --- Credentials (derived from active_hospital) ---
     drive_credentials: Path = _KEYS_DIR / active_hospital / "drive.json"
-    sihos_base_url: str = hospital["SIHOS_BASE_URL"]
     _sihos = _load_sihos_credentials(active_hospital, _KEYS_DIR)
     sihos_user: str = _sihos[0]
     sihos_password: str = _sihos[1]
@@ -93,6 +87,17 @@ class Settings:
     # --- Audit database (accumulates across all audit weeks) ---
     db_path: Path = root_path / "audit.db"
     backup_dir: Path = root_path / "backups"
+
+    # --- Hospital config loaded from DB (populated at startup) ---
+    # Imported lazily here to avoid circular dependencies at module load time.
+    from db.repository import AuditRepository as _AuditRepository
+    _hcfg: dict = _AuditRepository(db_path).fetch_hospital_config(active_hospital)
+    sihos_base_url: str            = _hcfg.get("SIHOS_BASE_URL", "")
+    sihos_invoice_doc_code: str    = _hcfg.get("SIHOS_INVOICE_DOC_CODE", "")
+    invoice_identifier_prefix: str = _hcfg.get("INVOICE_IDENTIFIER_PREFIX", "")
+    hospital_nit: str              = _hcfg.get("NIT", "")
+    invoice_prefix: str            = _hcfg.get("DOCUMENT_STANDARDS", {}).get("FACTURA", "")
+    del _AuditRepository, _hcfg
 
     # --- Report paths ---
     sihos_report_path: Path = base_path / ("%s_SIHOS.xlsx" % audit_week)

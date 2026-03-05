@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _RE_NIT: re.Pattern = re.compile(r"_(\d+)_")
-_id_prefix = Settings.hospital["INVOICE_IDENTIFIER_PREFIX"]
+_id_prefix = Settings.invoice_identifier_prefix
 _RE_DIR_ID_LOOSE: re.Pattern = re.compile(
     rf"({_id_prefix})[^a-zA-Z]*?(\d+)", re.IGNORECASE
 )

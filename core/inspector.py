@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # Module-level compiled regex constants
 # ---------------------------------------------------------------------------
 
-_id_prefix = Settings.hospital["INVOICE_IDENTIFIER_PREFIX"]
+_id_prefix = Settings.invoice_identifier_prefix
 _RE_DIR_NAME = re.compile(rf"{_id_prefix}\d+$", re.IGNORECASE)
 _RE_DIR_PATTERN = re.compile(rf"{_id_prefix}.\d+", re.IGNORECASE)
 _RE_FOLDER_SUFFIX = re.compile(rf"({_id_prefix}\d+)$", re.IGNORECASE)

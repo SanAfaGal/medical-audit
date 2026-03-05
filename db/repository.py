@@ -390,8 +390,11 @@ class AuditRepository:
             count = conn.execute("SELECT COUNT(*) FROM hospitals").fetchone()[0]
         if count > 0:
             return
-        from config.hospitals import HOSPITALS
-        from config.mappings import ADMIN_CONTRACT_MAPS
+        try:
+            from config.hospitals import HOSPITALS
+            from config.mappings import ADMIN_CONTRACT_MAPS
+        except ImportError:
+            return
         self.seed_hospitals_from_config(HOSPITALS, ADMIN_CONTRACT_MAPS)
 
     def _seed_filename_fixes_if_empty(self) -> None:
@@ -400,7 +403,10 @@ class AuditRepository:
             count = conn.execute("SELECT COUNT(*) FROM filename_fixes").fetchone()[0]
         if count > 0:
             return
-        from config.hospitals import HOSPITALS
+        try:
+            from config.hospitals import HOSPITALS
+        except ImportError:
+            return
         fixes: dict[str, str] = {}
         for cfg in HOSPITALS.values():
             fixes.update(cfg.get("MISNAMED_FIXER_MAP", {}))
