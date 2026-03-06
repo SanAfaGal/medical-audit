@@ -129,10 +129,66 @@ def render(config_error: str | None) -> None:
     # --- Invoice table ---
     section_header("Period invoices")
 
-    tipo_options = ["All"] + sorted(set(InvoiceType))
-    filter_col, *_ = st.columns([2, 6])
-    tipo_filter = filter_col.selectbox("Filter by type", tipo_options, key="tipo_filter")
-    display_df = df if tipo_filter == "All" else df[df["Tipo"] == tipo_filter]
+    # --- Summary breakdown (by type, folder status, and findings) ---
+    with st.expander("Resumen por tipo, estado de carpeta y hallazgos", expanded=False):
+        br_col1, br_col2, br_col3 = st.columns(3)
+        with br_col1:
+            st.caption("**Registros por tipo de factura**")
+            tipo_counts = (
+                df.groupby("Tipo").size()
+                .reset_index(name="Cantidad")
+                .sort_values("Cantidad", ascending=False)
+            )
+            st.dataframe(tipo_counts, hide_index=True, width="stretch")
+        with br_col2:
+            st.caption("**Registros por estado de carpeta**")
+            estado_counts = (
+                df.groupby("Estado carpeta").size()
+                .reset_index(name="Cantidad")
+                .sort_values("Cantidad", ascending=False)
+            )
+            st.dataframe(estado_counts, hide_index=True, width="stretch")
+        with br_col3:
+            st.caption("**Hallazgos más frecuentes**")
+            all_findings = (
+                df["Comentario"]
+                .loc[df["Comentario"] != ""]
+                .str.split("; ")
+                .explode()
+                .str.strip()
+            )
+            if all_findings.empty:
+                st.caption("Sin hallazgos registrados.")
+            else:
+                finding_counts = (
+                    all_findings.value_counts()
+                    .rename_axis("Hallazgo")
+                    .reset_index(name="Cantidad")
+                )
+                st.dataframe(finding_counts, hide_index=True, width="stretch")
+
+    # --- Filters ---
+    tipo_options   = ["All"] + sorted(set(InvoiceType))
+    estado_options = ["All"] + sorted(set(FolderStatus))
+
+    f1, f2, f3, *_ = st.columns([2, 2, 2, 2])
+    tipo_filter    = f1.selectbox("Tipo de factura", tipo_options, key="tipo_filter")
+    estado_filter  = f2.selectbox("Estado de carpeta", estado_options, key="estado_filter")
+    hallazgo_search = f3.text_input(
+        "Buscar hallazgo",
+        placeholder="ej: Firma, CUFE…",
+        key="hallazgo_search",
+    )
+
+    display_df = df.copy()
+    if tipo_filter != "All":
+        display_df = display_df[display_df["Tipo"] == tipo_filter]
+    if estado_filter != "All":
+        display_df = display_df[display_df["Estado carpeta"] == estado_filter]
+    if hallazgo_search:
+        display_df = display_df[
+            display_df["Comentario"].str.contains(hallazgo_search, case=False, na=False)
+        ]
 
     st.dataframe(
         display_df.style.apply(_highlight_row, axis=1),
