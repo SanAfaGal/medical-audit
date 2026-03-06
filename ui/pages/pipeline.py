@@ -64,9 +64,12 @@ _STAGE_LABELS: dict[str, str] = {
     "NORMALIZE_FILES":               "Normalise files (delete non-PDFs, rename)",
     "CHECK_FOLDERS_WITH_EXTRA_TEXT": "Detect folders with extra text in name",
     "NORMALIZE_DIR_NAMES":           "Rename malformed directory names",
+    "LIST_UNREADABLE_PDFS":          "Listar facturas sin texto extraíble",
+    "DELETE_UNREADABLE_PDFS":        "Eliminar facturas sin texto extraíble",
+    "CATEGORIZE_INVOICES":           "Categorizar facturas por tipo",
+    "VERIFY_CUFE":                   "Verificar CUFE en facturas",
     "CHECK_INVOICE_NUMBER_ON_FILES": "Verify invoice number on files",
-    "CHECK_INVOICES":                "Audit invoices (OCR + CUFE)",
-    "MARK_DIRS_MISSING_CUFE":        "Mark directories missing CUFE",
+    "CHECK_INVOICES":                "Apply OCR to invoices",
     "CHECK_INVALID_FILES":           "Detect unreadable PDF files",
     "CHECK_FOUR_MAIN_FILES":         "Verify four mandatory document types",
     "CHECK_DIRS":                    "Detect missing directories",
@@ -79,7 +82,6 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
     ("Download", [
         "DOWNLOAD_DRIVE",
         "RUN_STAGING",
-        "DOWNLOAD_INVOICES_FROM_SIHOS",
     ]),
     ("Organisation", [
         "ORGANIZE",
@@ -89,10 +91,16 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
         "CHECK_FOLDERS_WITH_EXTRA_TEXT",
         "NORMALIZE_DIR_NAMES",
     ]),
-    ("Verification", [
+    ("Facturas", [
+        "LIST_UNREADABLE_PDFS",
+        "DELETE_UNREADABLE_PDFS",
+        "CATEGORIZE_INVOICES",
+        "DOWNLOAD_INVOICES_FROM_SIHOS",
+        "VERIFY_CUFE",
         "CHECK_INVOICE_NUMBER_ON_FILES",
+    ]),
+    ("Verification", [
         "CHECK_INVOICES",
-        "MARK_DIRS_MISSING_CUFE",
         "CHECK_INVALID_FILES",
         "CHECK_FOUR_MAIN_FILES",
         "CHECK_DIRS",
@@ -118,6 +126,47 @@ _TEXT_TO_TIPO: dict[str, str] = {
     _SEARCH_POLYCLINIC: "POLICLINICA",
 }
 
+def _categorize_invoices(
+    validator,
+    invoices: list,
+    repo,
+    hospital: str,
+    period: str,
+) -> tuple[list, list, list, list, list]:
+    """Detect invoice types from PDF content and persist them to the DB.
+
+    Args:
+        validator: InvoiceValidator instance.
+        invoices: List of invoice PDF paths.
+        repo: AuditRepository instance.
+        hospital: Active hospital key.
+        period: Audit period string.
+
+    Returns:
+        Tuple of (dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs).
+    """
+    from db.schema import InvoiceType
+
+    dirs_ecg        = validator.find_files_with_text(invoices, _SEARCH_ECG,        return_parent=True)
+    dirs_lab        = validator.find_files_with_text(invoices, _SEARCH_LABORATORY, return_parent=True)
+    xray_dirs       = validator.find_files_with_text(invoices, _SEARCH_XRAY,       return_parent=True)
+    polyclinic_dirs = validator.find_files_with_text(invoices, _SEARCH_POLYCLINIC, return_parent=True)
+    emergency_dirs  = validator.find_files_with_text(invoices, _SEARCH_EMERGENCY,  return_parent=True)
+
+    for dirs, tipo in [
+        (dirs_lab,        InvoiceType.LABORATORIO),
+        (dirs_ecg,        InvoiceType.ECG),
+        (xray_dirs,       InvoiceType.RADIOGRAFIA),
+        (emergency_dirs,  InvoiceType.URGENCIAS),
+        (polyclinic_dirs, InvoiceType.POLICLINICA),
+    ]:
+        for d in dirs:
+            with contextlib.suppress(ValueError):
+                repo.update_tipo(hospital, period, d.name.upper(), tipo)
+
+    return dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs
+
+
 def _run_check_four_main_files(
     scanner,
     inspector,
@@ -130,8 +179,6 @@ def _run_check_four_main_files(
     hospital_cfg: dict,
 ) -> None:
     """Execute the four-mandatory-files audit check across invoice directories.
-
-    Detects invoice types via PDF text search and updates the repository.
 
     Args:
         scanner: DocumentScanner instance.
@@ -149,24 +196,9 @@ def _run_check_four_main_files(
     pipeline_logger = logging.getLogger("app.pipeline")
     all_dirs = scanner.list_dirs()
 
-    dirs_ecg        = validator.find_files_with_text(invoices, _SEARCH_ECG,        return_parent=True)
-    dirs_lab        = validator.find_files_with_text(invoices, _SEARCH_LABORATORY, return_parent=True)
-    xray_dirs       = validator.find_files_with_text(invoices, _SEARCH_XRAY,       return_parent=True)
-    polyclinic_dirs = validator.find_files_with_text(invoices, _SEARCH_POLYCLINIC, return_parent=True)
-    emergency_dirs  = validator.find_files_with_text(invoices, _SEARCH_EMERGENCY,  return_parent=True)
-
-    # Update invoice types in DB based on detected PDF content
-    for dirs, tipo in [
-        (dirs_lab,        InvoiceType.LABORATORIO),
-        (dirs_ecg,        InvoiceType.ECG),
-        (xray_dirs,       InvoiceType.RADIOGRAFIA),
-        (emergency_dirs,  InvoiceType.URGENCIAS),
-        (polyclinic_dirs, InvoiceType.POLICLINICA),
-    ]:
-        for d in dirs:
-            factura = d.name.upper()
-            with contextlib.suppress(ValueError):
-                repo.update_tipo(hospital, period, factura, tipo)
+    dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs = _categorize_invoices(
+        validator, invoices, repo, hospital, period
+    )
 
     results_dirs = list(set(dirs_lab + xray_dirs + dirs_ecg) - set(polyclinic_dirs))
     history_dirs = list(set(all_dirs) - set(polyclinic_dirs) - set(results_dirs))
@@ -443,23 +475,40 @@ def _execute_pipeline(
         invoice_prefix = doc_standards.get("FACTURA", "")
         invoices       = scanner.find_by_prefix(invoice_prefix) if invoice_prefix else []
 
+        if flags.get("LIST_UNREADABLE_PDFS"):
+            no_text = DocumentReader.find_needing_ocr(invoices)
+            pipeline_logger.info("Invoice PDFs without extractable text: %d", len(no_text))
+            for f in no_text:
+                pipeline_logger.info("  No text layer: %s", f.name)
+
+        if flags.get("DELETE_UNREADABLE_PDFS"):
+            to_delete = DocumentReader.find_needing_ocr(invoices)
+            deleted = 0
+            for f in to_delete:
+                try:
+                    f.unlink()
+                    deleted += 1
+                    pipeline_logger.info("Deleted unreadable PDF: %s", f.name)
+                except OSError as exc:
+                    pipeline_logger.error("Failed to delete %s: %s", f.name, exc)
+            pipeline_logger.info("Deleted %d unreadable invoice PDFs", deleted)
+
+        if flags.get("CATEGORIZE_INVOICES"):
+            _categorize_invoices(validator, invoices, repo, hospital, period)
+            pipeline_logger.info("Invoice categorization complete.")
+
+        if flags.get("VERIFY_CUFE"):
+            missing_code, missing_cufe = validator.validate_invoice_files(invoices)
+            pipeline_logger.info("Invoices missing invoice code: %d", len(missing_code))
+            pipeline_logger.info("Invoices missing CUFE: %d", len(missing_cufe))
+            if missing_cufe:
+                marked = operations.tag_dirs_missing_cufe(missing_cufe)
+                pipeline_logger.info("Directories marked as missing CUFE: %d", marked)
+
         if flags.get("CHECK_INVOICES"):
             needing_ocr = DocumentReader.find_needing_ocr(invoices)
             ocr_result  = DocumentProcessor.batch_ocr(files=needing_ocr, max_workers=8)
             pipeline_logger.info("OCR batch completed for invoices: %s", ocr_result)
-
-            missing_code, missing_cufe = validator.validate_invoice_files(invoices)
-            pipeline_logger.info("Invoices missing invoice code in content: %d", len(missing_code))
-            pipeline_logger.info("Invoices missing CUFE: %d", len(missing_cufe))
-
-            if flags.get("MARK_DIRS_MISSING_CUFE"):
-                marked = operations.tag_dirs_missing_cufe(missing_cufe)
-                pipeline_logger.info("Directories marked as missing CUFE: %d", marked)
-
-            missing_invoice_files = inspector.find_dirs_missing_file(
-                hospital_cfg["DOCUMENT_STANDARDS"]["FACTURA"], skip=skip_dirs
-            )
-            pipeline_logger.info("Directories missing invoice files: %d", len(missing_invoice_files))
 
         if flags.get("CHECK_DIRS"):
             from db.schema import FolderStatus
