@@ -353,6 +353,8 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
                 st.rerun()
 
     # ── Filename prefix fixes (global) ────────────────────────────────────────
+    from config.settings import Settings
+
     st.divider()
     section_header("Correcciones de prefijos de archivo")
     st.caption(
@@ -360,7 +362,7 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
         "normalización de nombres. Ej: OPD → OPF corrige archivos cuyo nombre empiece con OPD_."
     )
 
-    fixes = repo.fetch_filename_fixes()
+    fixes = Settings.filename_fixes
     if fixes:
         for wrong, correct in fixes.items():
             col_w, col_arr, col_c, col_del = st.columns([2, 0.5, 2, 1])
@@ -368,7 +370,7 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
             col_arr.markdown("→")
             col_c.markdown(f"`{correct}`")
             if col_del.button("✕", key=f"del_fix_{wrong}"):
-                repo.delete_filename_fix(wrong)
+                Settings.delete_filename_fix(wrong)
                 st.rerun()
     else:
         st.caption("No hay correcciones registradas.")
@@ -381,7 +383,7 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
             if not f_wrong or not f_correct:
                 st.error("Ambos campos son obligatorios.")
             else:
-                repo.upsert_filename_fix(f_wrong, f_correct)
+                Settings.upsert_filename_fix(f_wrong, f_correct)
                 st.success(f"Corrección '{f_wrong.upper()} → {f_correct.upper()}' guardada.")
                 st.rerun()
 

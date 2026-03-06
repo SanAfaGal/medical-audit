@@ -27,6 +27,13 @@ def _load_audit_path() -> Path:
         return _APP_DIR / "audits"
 
 
+def _load_filename_fixes() -> dict[str, str]:
+    try:
+        return json.loads(_CONFIG_FILE.read_text()).get("filename_fixes", {})
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
 class Settings:
     """Application-wide settings."""
 
@@ -37,6 +44,9 @@ class Settings:
 
     # --- Configurable audit working directory ---
     audit_path: Path = _load_audit_path()
+
+    # --- Global filename prefix corrections (shared across all hospitals) ---
+    filename_fixes: dict[str, str] = _load_filename_fixes()
 
     # --- Logging ---
     log_level: str = "INFO"
@@ -98,6 +108,42 @@ class Settings:
         _CONFIG_FILE.write_text(json.dumps(data, indent=2))
         cls.audit_path = path
         logger.info("audit_path updated to: %s", path)
+
+    @classmethod
+    def _save_filename_fixes(cls, fixes: dict[str, str]) -> None:
+        """Persist *fixes* to config.json and update the class attribute."""
+        _APP_DIR.mkdir(parents=True, exist_ok=True)
+        data: dict = {}
+        with contextlib.suppress(FileNotFoundError, ValueError):
+            data = json.loads(_CONFIG_FILE.read_text())
+        data["filename_fixes"] = fixes
+        _CONFIG_FILE.write_text(json.dumps(data, indent=2))
+        cls.filename_fixes = fixes
+
+    @classmethod
+    def upsert_filename_fix(cls, wrong: str, correct: str) -> None:
+        """Add or replace a filename prefix correction and persist it.
+
+        Args:
+            wrong: The misnamed prefix (e.g. ``"OPD"``).
+            correct: The correct replacement prefix (e.g. ``"OPF"``).
+        """
+        fixes = dict(cls.filename_fixes)
+        fixes[wrong.strip().upper()] = correct.strip().upper()
+        cls._save_filename_fixes(fixes)
+        logger.info("filename_fix upserted: %s → %s", wrong, correct)
+
+    @classmethod
+    def delete_filename_fix(cls, wrong: str) -> None:
+        """Remove a filename prefix correction and persist the change.
+
+        Args:
+            wrong: The misnamed prefix to remove.
+        """
+        fixes = dict(cls.filename_fixes)
+        fixes.pop(wrong, None)
+        cls._save_filename_fixes(fixes)
+        logger.info("filename_fix deleted: %s", wrong)
 
     @staticmethod
     def drive_credentials_path(hospital_key: str) -> Path:

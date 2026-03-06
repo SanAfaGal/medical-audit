@@ -91,7 +91,6 @@ class AuditRepository:
                         raise
         # Seed hospital config from hardcoded dicts if tables are empty
         self._seed_hospitals_if_empty()
-        self._seed_filename_fixes_if_empty()
 
     # ------------------------------------------------------------------
     # Invoice loading
@@ -402,26 +401,6 @@ class AuditRepository:
             return
         self.seed_hospitals_from_config(HOSPITALS, ADMIN_CONTRACT_MAPS)
 
-    def _seed_filename_fixes_if_empty(self) -> None:
-        """Seed filename_fixes table from all hospitals' MISNAMED_FIXER_MAP if empty."""
-        with self._connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM filename_fixes").fetchone()[0]
-        if count > 0:
-            return
-        try:
-            from config.hospitals import HOSPITALS
-        except ImportError:
-            return
-        fixes: dict[str, str] = {}
-        for cfg in HOSPITALS.values():
-            fixes.update(cfg.get("MISNAMED_FIXER_MAP", {}))
-        with self._connect() as conn:
-            for wrong, correct in fixes.items():
-                conn.execute(
-                    "INSERT OR IGNORE INTO filename_fixes (wrong_prefix, correct_prefix) VALUES (?, ?)",
-                    (wrong, correct),
-                )
-
     def fetch_invoice_ids(self, hospital: str, period: str) -> list[str]:
         """Return all factura IDs for a given hospital and period.
 
@@ -438,42 +417,6 @@ class AuditRepository:
                 (hospital, period),
             ).fetchall()
         return [r["factura"] for r in rows]
-
-    def fetch_filename_fixes(self) -> dict[str, str]:
-        """Return all filename prefix fixes as a dict.
-
-        Returns:
-            ``{wrong_prefix: correct_prefix}`` mapping.
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT wrong_prefix, correct_prefix FROM filename_fixes ORDER BY wrong_prefix"
-            ).fetchall()
-        return {r["wrong_prefix"]: r["correct_prefix"] for r in rows}
-
-    def upsert_filename_fix(self, wrong: str, correct: str) -> None:
-        """Insert or replace a filename prefix fix.
-
-        Args:
-            wrong: The misnamed prefix (e.g. ``"OPD"``).
-            correct: The correct replacement prefix (e.g. ``"OPF"``).
-        """
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO filename_fixes (wrong_prefix, correct_prefix) VALUES (?, ?)",
-                (wrong.strip().upper(), correct.strip().upper()),
-            )
-
-    def delete_filename_fix(self, wrong: str) -> None:
-        """Delete a filename prefix fix by its wrong_prefix key.
-
-        Args:
-            wrong: The misnamed prefix to remove.
-        """
-        with self._connect() as conn:
-            conn.execute(
-                "DELETE FROM filename_fixes WHERE wrong_prefix = ?", (wrong,)
-            )
 
     def seed_hospitals_from_config(
         self, hospitals_dict: dict, mappings_dict: dict

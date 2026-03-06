@@ -410,7 +410,7 @@ def _execute_pipeline(
                 nit=hospital_cfg["NIT"],
                 valid_prefixes=prefixes_accepted,
                 suffix_const=hospital_cfg["INVOICE_IDENTIFIER_PREFIX"],
-                prefix_map=repo.fetch_filename_fixes(),
+                prefix_map=Settings.filename_fixes,
             )
             standardizer.run(invalid_files)
 
