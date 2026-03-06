@@ -244,7 +244,7 @@ def render(config_error: str | None) -> None:
                 f"Estado '{nuevo_fs}'",
             )
 
-    with st.expander("Hallazgos en lote"):
+    with st.expander("Agregar hallazgos en lote"):
         raw_hf   = st.text_area("Facturas (una por línea)", key="batch_hf_list", height=120)
         nuevo_hf = st.selectbox("Tipo de hallazgo", sorted(set(FindingCode)), key="batch_hf_val")
         if st.button("Agregar hallazgo", key="btn_batch_hf", type="primary"):
@@ -252,6 +252,16 @@ def render(config_error: str | None) -> None:
                 raw_hf,
                 lambda f: repo.record_finding(hospital, period, f, nuevo_hf),
                 f"Hallazgo '{nuevo_hf}'",
+            )
+
+    with st.expander("Eliminar hallazgos en lote"):
+        raw_del_hf = st.text_area("Facturas (una por línea)", key="batch_del_hf_list", height=120)
+        del_hf     = st.selectbox("Hallazgo a eliminar", sorted(set(FindingCode)), key="batch_del_hf_val")
+        if st.button("Eliminar hallazgo", key="btn_batch_del_hf", type="primary"):
+            _apply_batch(
+                raw_del_hf,
+                lambda f: repo.delete_finding(hospital, period, f, del_hf),
+                f"Hallazgo '{del_hf}' eliminado",
             )
 
     with st.expander("Tipo de factura en lote"):
