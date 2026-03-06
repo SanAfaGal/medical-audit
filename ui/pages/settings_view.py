@@ -180,31 +180,6 @@ def render(config_error: str | None) -> None:
                 )
                 st.rerun()
 
-    # ── Document standards ────────────────────────────────────────────────────
-    st.divider()
-    section_header("Estándares de documentos")
-    st.caption(
-        "Mapeo de tipos de documento a prefijos de archivo para este hospital. "
-        "Edita el JSON directamente y guarda."
-    )
-    with st.form(f"ds_form_{hospital}"):
-        f_ds = st.text_area(
-            "DOCUMENT_STANDARDS (JSON)",
-            value=json.dumps(Settings.get_document_standards(hospital), indent=2),
-            height=200,
-            key=f"ds_{hospital}",
-            label_visibility="collapsed",
-        )
-        if st.form_submit_button("Guardar estándares", type="primary"):
-            try:
-                ds = json.loads(f_ds)
-            except json.JSONDecodeError as exc:
-                st.error(f"JSON inválido: {exc}")
-            else:
-                Settings.set_document_standards(hospital, ds)
-                st.success("Estándares guardados.")
-                st.rerun()
-
     # ── Zona de peligro: eliminar período ────────────────────────────────────
     period = st.session_state.get("sel_period")
     if period:
@@ -398,6 +373,31 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
             else:
                 Settings.upsert_filename_fix(f_wrong, f_correct)
                 st.success(f"Corrección '{f_wrong.upper()} → {f_correct.upper()}' guardada.")
+                st.rerun()
+
+    # ── Document standards (global) ───────────────────────────────────────────
+    st.divider()
+    section_header("Estándares de documentos")
+    st.caption(
+        "Mapeo global de tipos de documento a prefijos de archivo. "
+        "Aplica a todos los hospitales. Edita el JSON y guarda."
+    )
+    with st.form("ds_form"):
+        f_ds = st.text_area(
+            "DOCUMENT_STANDARDS (JSON)",
+            value=json.dumps(Settings.document_standards, indent=2),
+            height=200,
+            key="global_ds",
+            label_visibility="collapsed",
+        )
+        if st.form_submit_button("Guardar estándares", type="primary"):
+            try:
+                ds = json.loads(f_ds)
+            except json.JSONDecodeError as exc:
+                st.error(f"JSON inválido: {exc}")
+            else:
+                Settings.save_document_standards(ds)
+                st.success("Estándares guardados.")
                 st.rerun()
 
     # ── Gestión de hospitales ─────────────────────────────────────────────────

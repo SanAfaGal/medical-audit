@@ -34,7 +34,7 @@ def _load_filename_fixes() -> dict[str, str]:
         return {}
 
 
-def _load_document_standards() -> dict[str, dict]:
+def _load_document_standards() -> dict:
     try:
         return json.loads(_CONFIG_FILE.read_text()).get("document_standards", {})
     except (FileNotFoundError, ValueError):
@@ -55,8 +55,8 @@ class Settings:
     # --- Global filename prefix corrections (shared across all hospitals) ---
     filename_fixes: dict[str, str] = _load_filename_fixes()
 
-    # --- Per-hospital document standards ---
-    document_standards: dict[str, dict] = _load_document_standards()
+    # --- Global document standards (shared across all hospitals) ---
+    document_standards: dict = _load_document_standards()
 
     # --- Logging ---
     log_level: str = "INFO"
@@ -120,32 +120,20 @@ class Settings:
         logger.info("audit_path updated to: %s", path)
 
     @classmethod
-    def get_document_standards(cls, hospital_key: str) -> dict:
-        """Return document standards for a hospital (empty dict if not configured).
+    def save_document_standards(cls, standards: dict) -> None:
+        """Persist document standards to config.json and update the class attribute.
 
         Args:
-            hospital_key: Hospital key (e.g. ``"SANTA_LUCIA"``).
-        """
-        return cls.document_standards.get(hospital_key, {})
-
-    @classmethod
-    def set_document_standards(cls, hospital_key: str, standards: dict) -> None:
-        """Persist document standards for one hospital to config.json.
-
-        Args:
-            hospital_key: Hospital key.
             standards: Dict mapping document type labels to filename prefixes.
         """
         _APP_DIR.mkdir(parents=True, exist_ok=True)
         data: dict = {}
         with contextlib.suppress(FileNotFoundError, ValueError):
             data = json.loads(_CONFIG_FILE.read_text())
-        all_ds = dict(cls.document_standards)
-        all_ds[hospital_key] = standards
-        data["document_standards"] = all_ds
+        data["document_standards"] = standards
         _CONFIG_FILE.write_text(json.dumps(data, indent=2))
-        cls.document_standards = all_ds
-        logger.info("document_standards updated for: %s", hospital_key)
+        cls.document_standards = standards
+        logger.info("document_standards updated")
 
     @classmethod
     def _save_filename_fixes(cls, fixes: dict[str, str]) -> None:

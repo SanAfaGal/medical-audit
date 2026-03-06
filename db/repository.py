@@ -495,7 +495,7 @@ class AuditRepository:
             "INVOICE_IDENTIFIER_PREFIX": row["invoice_identifier_prefix"],
             "SIHOS_BASE_URL": row["sihos_base_url"],
             "SIHOS_INVOICE_DOC_CODE": row["sihos_invoice_doc_code"],
-            "DOCUMENT_STANDARDS": Settings.get_document_standards(key),
+            "DOCUMENT_STANDARDS": Settings.document_standards,
             "sihos_user": row["sihos_user"],
             "sihos_password": row["sihos_password"],
         }
