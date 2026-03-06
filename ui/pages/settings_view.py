@@ -250,14 +250,14 @@ def _render_delete_period_section(repo, hospital: str, period: str) -> None:
             f"del hospital **{hospital}**, período **{period}**. No se puede deshacer."
         )
         col_cancel, col_confirm = st.columns(2)
-        if col_cancel.button("Cancelar", key="danger_cancel", use_container_width=True):
+        if col_cancel.button("Cancelar", key="danger_cancel", width="stretch"):
             del st.session_state[_confirm_key]
             st.rerun()
         if col_confirm.button(
             f"Sí, eliminar {invoice_count} factura(s)",
             key="danger_confirm",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         ):
             deleted = repo.delete_period(hospital, period)
             del st.session_state[_confirm_key]
