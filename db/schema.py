@@ -84,9 +84,7 @@ CREATE TABLE IF NOT EXISTS hospitals (
     sihos_base_url            TEXT NOT NULL DEFAULT '',
     sihos_invoice_doc_code    TEXT NOT NULL DEFAULT '',
     sihos_user                TEXT NOT NULL DEFAULT '',
-    sihos_password            TEXT NOT NULL DEFAULT '',
-    drive_credentials_path    TEXT NOT NULL DEFAULT '',
-    base_path                 TEXT NOT NULL DEFAULT ''
+    sihos_password            TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS admin_contract_mappings (

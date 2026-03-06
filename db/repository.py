@@ -80,8 +80,6 @@ class AuditRepository:
                 "ALTER TABLE invoices ADD COLUMN nota TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE hospitals ADD COLUMN sihos_user TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE hospitals ADD COLUMN sihos_password TEXT NOT NULL DEFAULT ''",
-                "ALTER TABLE hospitals ADD COLUMN drive_credentials_path TEXT NOT NULL DEFAULT ''",
-                "ALTER TABLE hospitals ADD COLUMN base_path TEXT NOT NULL DEFAULT ''",
             ):
                 try:
                     conn.execute(stmt)
@@ -435,8 +433,8 @@ class AuditRepository:
                     INSERT OR IGNORE INTO hospitals
                         (key, display_name, nit, invoice_identifier_prefix,
                          sihos_base_url, sihos_invoice_doc_code,
-                         sihos_user, sihos_password, drive_credentials_path, base_path)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         sihos_user, sihos_password)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         key,
@@ -445,8 +443,6 @@ class AuditRepository:
                         cfg.get("INVOICE_IDENTIFIER_PREFIX", ""),
                         cfg.get("SIHOS_BASE_URL", ""),
                         cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
-                        "",
-                        "",
                         "",
                         "",
                     ),
@@ -472,7 +468,7 @@ class AuditRepository:
             rows = conn.execute(
                 "SELECT key, display_name, nit, invoice_identifier_prefix, "
                 "sihos_base_url, sihos_invoice_doc_code, "
-                "sihos_user, sihos_password, drive_credentials_path, base_path "
+                "sihos_user, sihos_password "
                 "FROM hospitals ORDER BY key"
             ).fetchall()
         return [dict(r) for r in rows]
@@ -502,8 +498,6 @@ class AuditRepository:
             "DOCUMENT_STANDARDS": Settings.get_document_standards(key),
             "sihos_user": row["sihos_user"],
             "sihos_password": row["sihos_password"],
-            "drive_credentials_path": row["drive_credentials_path"],
-            "base_path": row["base_path"],
         }
 
     def fetch_admin_contract_map(self, hospital_key: str) -> dict:
@@ -543,8 +537,8 @@ class AuditRepository:
                 INSERT INTO hospitals
                     (key, display_name, nit, invoice_identifier_prefix,
                      sihos_base_url, sihos_invoice_doc_code,
-                     sihos_user, sihos_password, drive_credentials_path, base_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     sihos_user, sihos_password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     display_name              = excluded.display_name,
                     nit                       = excluded.nit,
@@ -552,9 +546,7 @@ class AuditRepository:
                     sihos_base_url            = excluded.sihos_base_url,
                     sihos_invoice_doc_code    = excluded.sihos_invoice_doc_code,
                     sihos_user                = excluded.sihos_user,
-                    sihos_password            = excluded.sihos_password,
-                    drive_credentials_path    = excluded.drive_credentials_path,
-                    base_path                 = excluded.base_path
+                    sihos_password            = excluded.sihos_password
                 """,
                 (
                     key,
@@ -565,8 +557,6 @@ class AuditRepository:
                     cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
                     cfg.get("sihos_user", ""),
                     cfg.get("sihos_password", ""),
-                    cfg.get("drive_credentials_path", ""),
-                    cfg.get("base_path", ""),
                 ),
             )
 
