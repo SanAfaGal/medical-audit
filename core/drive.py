@@ -168,13 +168,18 @@ class DriveSync:
 
     def download_missing_dirs(
         self, dir_names: list[str], local_root: Path
-    ) -> None:
+    ) -> list[str]:
         """Search Drive for a list of folder names and download each one found.
 
         Args:
             dir_names: Folder names to search for.
             local_root: Local root directory where folders will be downloaded.
+
+        Returns:
+            Names of folders that were found in Drive and downloaded.
+            Folders absent from this list were not found in Drive.
         """
+        downloaded: list[str] = []
         for target in dir_names:
             logger.info("Searching Drive for folder: %s", target)
             found = self.find_folders_by_name(target)
@@ -187,6 +192,14 @@ class DriveSync:
             for folder in found:
                 dest = local_root / folder["name"]
                 self._sync_folder_tree(folder["id"], dest)
+
+            downloaded.append(target)
+
+        logger.info(
+            "Drive download complete: %d/%d folders found",
+            len(downloaded), len(dir_names),
+        )
+        return downloaded
 
     def download_specific_files(
         self, file_names: list[str], local_root: Path
@@ -221,4 +234,5 @@ class DriveSync:
             file_info = files[0]
             self.download_file(file_info["id"], file_info["name"], local_root)
 
-        logger.warning("Files not found in Drive: %d", len(not_found))
+        if not_found:
+            logger.warning("Files not found in Drive: %s", sorted(not_found))

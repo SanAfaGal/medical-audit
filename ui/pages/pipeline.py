@@ -350,9 +350,14 @@ def _execute_pipeline(
                 hospital, period, FolderStatus.MISSING
             )
             drive = DriveSync(credentials_path=Settings.drive_credentials_path(hospital))
-            drive.download_missing_dirs(missing_folders, staging_dir)
+            downloaded = drive.download_missing_dirs(missing_folders, staging_dir)
+            if downloaded:
+                repo.batch_update_folder_status(
+                    hospital, period, downloaded, FolderStatus.PRESENT
+                )
             pipeline_logger.info(
-                "Missing folders downloaded to STAGE: %d", len(missing_folders)
+                "Drive download: %d/%d folders found and updated to PRESENTE",
+                len(downloaded), len(missing_folders),
             )
 
         # ── Staging from BASE (manual extraction) ────────────────────────────

@@ -317,6 +317,38 @@ class AuditRepository:
             ).fetchall()
         return [r["factura"] for r in rows]
 
+    def batch_update_folder_status(
+        self, hospital: str, period: str, facturas: list[str], status: str
+    ) -> int:
+        """Set folder_status for multiple invoices in a single transaction.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            facturas: Invoice identifiers to update.
+            status: One of the ``FolderStatus`` constants.
+
+        Returns:
+            Number of rows actually updated.
+
+        Raises:
+            ValueError: If ``status`` is not a recognised constant.
+        """
+        if status not in set(FolderStatus):
+            raise ValueError(f"Unknown folder_status: {status}")
+        if not facturas:
+            return 0
+        with self._connect() as conn:
+            conn.executemany(
+                "UPDATE invoices SET folder_status = ? "
+                "WHERE hospital = ? AND period = ? AND factura = ?",
+                [(status, hospital, period, f) for f in facturas],
+            )
+        logger.info(
+            "batch_update_folder_status: %d rows → %s", len(facturas), status
+        )
+        return len(facturas)
+
     def update_folder_status(
         self, hospital: str, period: str, factura: str, status: str
     ) -> None:
