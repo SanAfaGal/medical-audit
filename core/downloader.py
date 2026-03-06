@@ -1,11 +1,13 @@
 """Automated invoice download from the SIHOS hospital billing portal."""
 
+import asyncio
 import logging
+import sys
 from pathlib import Path
 
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from playwright.sync_api import sync_playwright
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
 from core.helpers import read_lines_from_file
 
@@ -80,25 +82,40 @@ class SihosDownloader:
     def _download_invoices(self, invoice_list: list[str]) -> None:
         """Open a browser session and download each invoice.
 
+        Uses an explicit ProactorEventLoop to avoid the SelectorEventLoop
+        limitation on Windows when called from a non-main thread (e.g. the
+        Streamlit background pipeline thread).
+
         Args:
             invoice_list: List of invoice number strings.
         """
+        loop = asyncio.ProactorEventLoop() if sys.platform == "win32" else asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(self._async_download_invoices(invoice_list))
+        finally:
+            loop.close()
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            context = browser.new_context()
-            page = context.new_page()
+    async def _async_download_invoices(self, invoice_list: list[str]) -> None:
+        """Async implementation of the browser-based invoice download.
+
+        Args:
+            invoice_list: List of invoice number strings.
+        """
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context()
+            page = await context.new_page()
 
             try:
                 logger.info("Logging into SIHOS as user %s", self._user)
-                page.goto(self._base_url)
-                page.fill(_USERNAME_SELECTOR, self._user)
-                page.fill(_PASSWORD_SELECTOR, self._password)
-                page.click(f"text={_LOGIN_BUTTON_TEXT}")
-                page.wait_for_url(_LOGIN_URL_PATTERN)
+                await page.goto(self._base_url)
+                await page.fill(_USERNAME_SELECTOR, self._user)
+                await page.fill(_PASSWORD_SELECTOR, self._password)
+                await page.click(f"text={_LOGIN_BUTTON_TEXT}")
+                await page.wait_for_url(_LOGIN_URL_PATTERN)
             except (PlaywrightTimeoutError, PlaywrightError) as exc:
                 logger.error("SIHOS login failed: %s", exc)
-                browser.close()
+                await browser.close()
                 return
 
             for invoice_number in invoice_list:
@@ -114,8 +131,8 @@ class SihosDownloader:
                     f"{self._invoice_prefix}_{self._hospital_nit}_{self._invoice_id_prefix}{invoice_number}.pdf"
                 )
                 try:
-                    page.goto(url)
-                    page.pdf(path=str(out_path), format=_INVOICE_PAGE_FORMAT)
+                    await page.goto(url)
+                    await page.pdf(path=str(out_path), format=_INVOICE_PAGE_FORMAT)
                     logger.info(
                         "Downloaded invoice %s to %s", invoice_number, out_path
                     )
@@ -124,4 +141,4 @@ class SihosDownloader:
                         "Failed to download invoice %s: %s", invoice_number, exc
                     )
 
-            browser.close()
+            await browser.close()

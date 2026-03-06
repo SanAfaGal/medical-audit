@@ -249,6 +249,7 @@ def _execute_pipeline(
     period: str,
     live_slot: st.delta_generator.DeltaGenerator | None = None,
     on_update: Callable[[str], None] | None = None,
+    invoice_numbers: list[str] | None = None,
 ) -> str:
     """Run the selected pipeline stages and return captured log output.
 
@@ -533,8 +534,6 @@ def _execute_pipeline(
 
         if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
             from core.downloader import SihosDownloader
-            raw_text = st.session_state.get("invoices_to_download", "")
-            invoice_numbers = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
             if invoice_numbers:
                 downloader = SihosDownloader(
                     user=hospital_cfg["sihos_user"],
@@ -683,6 +682,8 @@ def render(config_error: str | None) -> None:
         _flags_snapshot    = dict(flags)
         _hospital_snapshot = st.session_state.get("sel_hospital", "")
         _period_snapshot   = st.session_state.get("sel_period", "")
+        _raw_invoices      = st.session_state.get("invoices_to_download", "")
+        _invoices_snapshot = [ln.strip() for ln in _raw_invoices.splitlines() if ln.strip()]
 
         def _run_thread() -> None:
             try:
@@ -691,6 +692,7 @@ def render(config_error: str | None) -> None:
                     hospital=_hospital_snapshot,
                     period=_period_snapshot,
                     on_update=lambda text: _pipe.__setitem__(_PIPE_LOG, text),
+                    invoice_numbers=_invoices_snapshot,
                 )
                 _pipe[_PIPE_LOG] = result
             except Exception as exc:  # noqa: BLE001
