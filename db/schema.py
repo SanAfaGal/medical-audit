@@ -1,75 +1,13 @@
-"""Finding code, folder-status constants, plus the SQLite schema DDL."""
+"""SQLite schema DDL.
 
-from enum import StrEnum
+Domain constants (InvoiceType, FindingCode, FolderStatus, FINDING_LABELS)
+live in ``db.constants`` — the single source of truth.
+"""
 
-# ---------------------------------------------------------------------------
-# Invoice types
-# ---------------------------------------------------------------------------
+# Re-exported so existing ``from db.schema import …`` calls keep working.
+from db.constants import FINDING_LABELS, FindingCode, FolderStatus, InvoiceType
 
-
-class InvoiceType(StrEnum):
-    """String constants that classify the type of an invoice."""
-
-    GENERAL      = "GENERAL"
-    SOAT         = "SOAT"
-    LABORATORIO  = "LABORATORIO"
-    URGENCIAS    = "URGENCIAS"
-    POLICLINICA  = "POLICLINICA"
-    ECG          = "ECG"
-    RADIOGRAFIA  = "RADIOGRAFIA"
-
-
-# ---------------------------------------------------------------------------
-# Finding codes
-# ---------------------------------------------------------------------------
-
-
-class FindingCode(StrEnum):
-    """String constants that identify the type of an audit finding."""
-
-    MISSING_FOLDER       = "MISSING_FOLDER"
-    MISSING_INVOICE      = "MISSING_INVOICE"
-    MISSING_HISTORIA     = "MISSING_HISTORIA"
-    MISSING_FIRMA        = "MISSING_FIRMA"
-    MISSING_VALIDACION   = "MISSING_VALIDACION"
-    MISSING_RESULTADOS   = "MISSING_RESULTADOS"
-    MISSING_BITACORA     = "MISSING_BITACORA"
-    MISSING_RESOLUCION   = "MISSING_RESOLUCION"
-    MISSING_AUTORIZACION = "MISSING_AUTORIZACION"
-    MISSING_ORDEN        = "MISSING_ORDEN"
-    MISSING_FURIPS       = "MISSING_FURIPS"
-    MISSING_CUFE         = "MISSING_CUFE"
-
-
-# Human-readable labels for the "Comentario" column in exported reports.
-FINDING_LABELS: dict[str, str] = {
-    FindingCode.MISSING_FOLDER:       "Carpeta",
-    FindingCode.MISSING_INVOICE:      "Factura",
-    FindingCode.MISSING_HISTORIA:     "Historia clinica",
-    FindingCode.MISSING_FIRMA:        "Firma",
-    FindingCode.MISSING_VALIDACION:   "Validacion",
-    FindingCode.MISSING_RESULTADOS:   "Resultados",
-    FindingCode.MISSING_BITACORA:     "Bitacora",
-    FindingCode.MISSING_RESOLUCION:   "Resolucion",
-    FindingCode.MISSING_AUTORIZACION: "Autorizacion",
-    FindingCode.MISSING_ORDEN:        "Orden",
-    FindingCode.MISSING_FURIPS:       "Furips",
-    FindingCode.MISSING_CUFE:         "Cufe",
-}
-
-
-# ---------------------------------------------------------------------------
-# Folder status
-# ---------------------------------------------------------------------------
-
-
-class FolderStatus(StrEnum):
-    """String constants for the physical presence state of an invoice folder."""
-
-    PRESENT  = "PRESENTE"
-    PENDING  = "PENDIENTE"
-    MISSING  = "FALTANTE"
-
+__all__ = ["FINDING_LABELS", "FindingCode", "FolderStatus", "InvoiceType", "SCHEMA_DDL"]
 
 # ---------------------------------------------------------------------------
 # SQLite schema DDL

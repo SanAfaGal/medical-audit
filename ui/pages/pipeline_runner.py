@@ -86,7 +86,7 @@ def _categorize_invoices(
     Returns:
         Tuple of (dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs).
     """
-    from db.schema import InvoiceType
+    from db.constants import InvoiceType
 
     dirs_ecg        = validator.find_files_with_text(invoices, _SEARCH_ECG,        return_parent=True)
     dirs_lab        = validator.find_files_with_text(invoices, _SEARCH_LABORATORY, return_parent=True)
@@ -143,7 +143,7 @@ def _build_doc_check_context(
         Dict with keys: ``emergency_dirs``, ``results_dirs``, ``history_dirs``,
         ``dirs_lab_test``.
     """
-    from db.schema import InvoiceType
+    from db.constants import InvoiceType
 
     all_dirs = scanner.list_dirs()
 
@@ -207,7 +207,7 @@ def _execute_pipeline(
     from core.standardizer import FilenameStandardizer
     from core.validator import InvoiceValidator
     from db.repository import AuditRepository
-    from db.schema import InvoiceType
+    from db.constants import InvoiceType
 
     handler = _LiveLogHandler(on_update or (lambda _: None))
     root = logging.getLogger()
@@ -281,7 +281,7 @@ def _execute_pipeline(
         # ── Drive download ───────────────────────────────────────────────────
 
         if flags.get("DOWNLOAD_DRIVE"):
-            from db.schema import FolderStatus
+            from db.constants import FolderStatus
             missing_folders = repo.fetch_by_folder_status(hospital, period, FolderStatus.MISSING)
             drive = DriveSync(credentials_path=Settings.drive_credentials_path(hospital))
             downloaded = drive.download_missing_dirs(missing_folders, staging_dir)
@@ -429,7 +429,7 @@ def _execute_pipeline(
             pipeline_logger.info("OCR batch completed for invoices: %s", ocr_result)
 
         if flags.get("CHECK_DIRS"):
-            from db.schema import FolderStatus
+            from db.constants import FolderStatus
             all_folders  = repo.fetch_invoice_ids(hospital, period)
             missing_dirs = inspector.find_missing_dirs(expected_dirs=all_folders)
             pipeline_logger.info("Missing directories: %d", len(missing_dirs))

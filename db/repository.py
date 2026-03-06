@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from db.schema import FINDING_LABELS, SCHEMA_DDL, FindingCode, FolderStatus, InvoiceType
+from db.constants import FINDING_LABELS, FindingCode, FolderStatus, InvoiceType
+from db.schema import SCHEMA_DDL
 
 logger = logging.getLogger(__name__)
 
