@@ -101,30 +101,18 @@ def render(config_error: str | None) -> None:
                 type="password",
                 key=f"hf_sihos_pass_{h}",
             )
-            f_ds = st.text_area(
-                "DOCUMENT_STANDARDS (JSON)",
-                value=json.dumps(Settings.get_document_standards(hospital), indent=2),
-                height=140,
-                key=f"hf_ds_{h}",
-            )
             if st.form_submit_button("Guardar configuración", type="primary"):
-                try:
-                    ds = json.loads(f_ds)
-                except json.JSONDecodeError as exc:
-                    st.error(f"JSON inválido: {exc}")
-                else:
-                    repo.upsert_hospital(hospital, {
-                        "display_name":              f_name,
-                        "NIT":                       f_nit,
-                        "INVOICE_IDENTIFIER_PREFIX": f_inv,
-                        "SIHOS_BASE_URL":            f_url,
-                        "SIHOS_INVOICE_DOC_CODE":    f_code,
-                        "sihos_user":                f_sihos_user,
-                        "sihos_password":            f_sihos_pass,
-                    })
-                    Settings.set_document_standards(hospital, ds)
-                    st.success(f"Configuración de '{hospital}' guardada.")
-                    st.rerun()
+                repo.upsert_hospital(hospital, {
+                    "display_name":              f_name,
+                    "NIT":                       f_nit,
+                    "INVOICE_IDENTIFIER_PREFIX": f_inv,
+                    "SIHOS_BASE_URL":            f_url,
+                    "SIHOS_INVOICE_DOC_CODE":    f_code,
+                    "sihos_user":                f_sihos_user,
+                    "sihos_password":            f_sihos_pass,
+                })
+                st.success(f"Configuración de '{hospital}' guardada.")
+                st.rerun()
 
     # ── Credenciales Drive ───────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
@@ -190,6 +178,31 @@ def render(config_error: str | None) -> None:
                 st.success(
                     f"Período `{period_name}` creado en `{period_dir}`"
                 )
+                st.rerun()
+
+    # ── Document standards ────────────────────────────────────────────────────
+    st.divider()
+    section_header("Estándares de documentos")
+    st.caption(
+        "Mapeo de tipos de documento a prefijos de archivo para este hospital. "
+        "Edita el JSON directamente y guarda."
+    )
+    with st.form(f"ds_form_{hospital}"):
+        f_ds = st.text_area(
+            "DOCUMENT_STANDARDS (JSON)",
+            value=json.dumps(Settings.get_document_standards(hospital), indent=2),
+            height=200,
+            key=f"ds_{hospital}",
+            label_visibility="collapsed",
+        )
+        if st.form_submit_button("Guardar estándares", type="primary"):
+            try:
+                ds = json.loads(f_ds)
+            except json.JSONDecodeError as exc:
+                st.error(f"JSON inválido: {exc}")
+            else:
+                Settings.set_document_standards(hospital, ds)
+                st.success("Estándares guardados.")
                 st.rerun()
 
     # ── Zona de peligro: eliminar período ────────────────────────────────────
