@@ -1,619 +1,25 @@
-"""Pipeline page: toggle and execute audit pipeline stages from the Streamlit UI."""
+"""Pipeline page: stage selection UI and background execution."""
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import threading
 import time
 import traceback
-from typing import TYPE_CHECKING
+import threading
 
 import streamlit as st
 
+from ui.pages.pipeline_stages import STAGES, STAGE_GROUPS
+from ui.pages.pipeline_runner import (
+    _cancel_event,
+    _execute_pipeline,
+    _pipe,
+    _PIPE_LOG,
+    _PIPE_RUNNING,
+)
 from ui.widgets import log_viewer, section_header
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Pipeline run state (module-level so it survives Streamlit reruns)
-# ---------------------------------------------------------------------------
-
-_cancel_event = threading.Event()
-
-# Keys for the shared pipeline state dict.
-_PIPE_RUNNING = "running"
-_PIPE_LOG     = "log"
-
-# Shared dict updated by the pipeline thread; read by the UI polling loop.
-_pipe: dict[str, object] = {
-    _PIPE_RUNNING: False,
-    _PIPE_LOG:     "",
-}
-
-
-class _LiveLogHandler(logging.Handler):
-    """Logging handler that streams records to a Streamlit placeholder in real time."""
-
-    def __init__(self, on_record: Callable[[str], None]) -> None:
-        super().__init__()
-        self._on_record = on_record
-        self._lines: list[str] = []
-        self.setFormatter(logging.Formatter("%(levelname)-8s %(name)s — %(message)s"))
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self._lines.append(self.format(record))
-        self._on_record("\n".join(self._lines))
-
-    def getvalue(self) -> str:
-        return "\n".join(self._lines)
-
-# ---------------------------------------------------------------------------
-# Stage metadata
-# ---------------------------------------------------------------------------
-
-_STAGE_LABELS: dict[str, str] = {
-    "LOAD_AND_PROCESS":              "Cargar y procesar reporte SIHOS",
-    "DOWNLOAD_DRIVE":                "Descargar carpetas faltantes desde Drive → STAGE",
-    "RUN_STAGING":                   "Copiar carpetas de facturas de BASE a STAGE",
-    "DOWNLOAD_INVOICES_FROM_SIHOS":  "Descargar facturas del portal SIHOS",
-    "ORGANIZE":                      "Organizar carpetas de facturas",
-    "REMOVE_NON_PDF":                "Eliminar archivos que no son PDF",
-    "NORMALIZE_FILES":               "Renombrar archivos con nombres inválidos",
-    "CHECK_FOLDERS_WITH_EXTRA_TEXT": "Detectar carpetas con texto extra en el nombre",
-    "NORMALIZE_DIR_NAMES":           "Renombrar directorios con nombre malformado",
-    "LIST_UNREADABLE_PDFS":          "Listar facturas sin texto extraíble",
-    "DELETE_UNREADABLE_PDFS":        "Eliminar facturas sin texto extraíble",
-    "CATEGORIZE_INVOICES":           "Categorizar facturas por tipo",
-    "VERIFY_CUFE":                   "Verificar CUFE en facturas",
-    "TAG_MISSING_CUFE":              "Marcar carpetas sin CUFE",
-    "CHECK_INVOICE_NUMBER_ON_FILES": "Verificar número de factura en archivos",
-    "CHECK_INVOICES":                "Aplicar OCR a facturas",
-    "CHECK_INVALID_FILES":           "Detectar archivos PDF ilegibles",
-    "CHECK_HISTORIA":                "Verificar historias clínicas",
-    "CHECK_RESULTADOS":              "Verificar archivos de resultados",
-    "CHECK_FIRMA":                   "Verificar archivos de firma",
-    "CHECK_VALIDACION":              "Verificar archivos de validación",
-    "CHECK_AUTORIZACION":            "Verificar archivos de autorización",
-    "CHECK_DIRS":                    "Detectar directorios faltantes",
-}
-
-_STAGE_GROUPS: list[tuple[str, list[str]]] = [
-    ("Ingesta", [
-        "LOAD_AND_PROCESS",
-    ]),
-    ("Descarga", [
-        "DOWNLOAD_DRIVE",
-        "RUN_STAGING",
-    ]),
-    ("Organización", [
-        "ORGANIZE",
-    ]),
-    ("Normalización", [
-        "REMOVE_NON_PDF",
-        "NORMALIZE_FILES",
-        "CHECK_FOLDERS_WITH_EXTRA_TEXT",
-        "NORMALIZE_DIR_NAMES",
-    ]),
-    ("Facturas", [
-        "LIST_UNREADABLE_PDFS",
-        "DELETE_UNREADABLE_PDFS",
-        "CATEGORIZE_INVOICES",
-        "DOWNLOAD_INVOICES_FROM_SIHOS",
-        "VERIFY_CUFE",
-        "TAG_MISSING_CUFE",
-        "CHECK_INVOICE_NUMBER_ON_FILES",
-    ]),
-    ("Verificación", [
-        "CHECK_INVOICES",
-        "CHECK_INVALID_FILES",
-        "CHECK_HISTORIA",
-        "CHECK_RESULTADOS",
-        "CHECK_FIRMA",
-        "CHECK_VALIDACION",
-        "CHECK_AUTORIZACION",
-        "CHECK_DIRS",
-    ]),
-]
-
-# ---------------------------------------------------------------------------
-# Pipeline execution
-# ---------------------------------------------------------------------------
-
-_SEARCH_ECG        = "ELECTROCARD"
-_SEARCH_LABORATORY = "LABORATORIO CLINICO"
-_SEARCH_XRAY       = "RADIOGRAF"
-_SEARCH_POLYCLINIC = "P909000"
-_SEARCH_EMERGENCY  = "URGENCIA"
-
-# Mapping from search text → InvoiceType (imported lazily inside functions)
-_TEXT_TO_TIPO: dict[str, str] = {
-    _SEARCH_LABORATORY: "LABORATORIO",
-    _SEARCH_ECG:        "ECG",
-    _SEARCH_XRAY:       "RADIOGRAFIA",
-    _SEARCH_EMERGENCY:  "URGENCIAS",
-    _SEARCH_POLYCLINIC: "POLICLINICA",
-}
-
-def _categorize_invoices(
-    validator,
-    invoices: list,
-    repo,
-    hospital: str,
-    period: str,
-) -> tuple[list, list, list, list, list]:
-    """Detect invoice types from PDF content and persist them to the DB.
-
-    Args:
-        validator: InvoiceValidator instance.
-        invoices: List of invoice PDF paths.
-        repo: AuditRepository instance.
-        hospital: Active hospital key.
-        period: Audit period string.
-
-    Returns:
-        Tuple of (dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs).
-    """
-    from db.schema import InvoiceType
-
-    dirs_ecg        = validator.find_files_with_text(invoices, _SEARCH_ECG,        return_parent=True)
-    dirs_lab        = validator.find_files_with_text(invoices, _SEARCH_LABORATORY, return_parent=True)
-    xray_dirs       = validator.find_files_with_text(invoices, _SEARCH_XRAY,       return_parent=True)
-    polyclinic_dirs = validator.find_files_with_text(invoices, _SEARCH_POLYCLINIC, return_parent=True)
-    emergency_dirs  = validator.find_files_with_text(invoices, _SEARCH_EMERGENCY,  return_parent=True)
-
-    for dirs, tipo in [
-        (dirs_lab,        InvoiceType.LABORATORIO),
-        (dirs_ecg,        InvoiceType.ECG),
-        (xray_dirs,       InvoiceType.RADIOGRAFIA),
-        (emergency_dirs,  InvoiceType.URGENCIAS),
-        (polyclinic_dirs, InvoiceType.POLICLINICA),
-    ]:
-        for d in dirs:
-            with contextlib.suppress(ValueError):
-                repo.update_tipo(hospital, period, d.name.upper(), tipo)
-
-    return dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs
-
-
-_DOC_CHECK_STAGES = frozenset({
-    "CHECK_HISTORIA",
-    "CHECK_RESULTADOS",
-    "CHECK_FIRMA",
-    "CHECK_VALIDACION",
-    "CHECK_AUTORIZACION",
-})
-
-
-def _build_doc_check_context(
-    scanner,
-    inspector,
-    validator,
-    invoices: list,
-    skip_dirs: list,
-    repo,
-    hospital: str,
-    period: str,
-) -> dict:
-    """Compute shared directory groupings needed for individual document checks.
-
-    Runs invoice categorisation (ECG, lab, X-ray, polyclinic, emergency) and
-    derives the sets of directories that each document type check operates on.
-
-    Args:
-        scanner: DocumentScanner instance.
-        inspector: FolderInspector instance.
-        validator: InvoiceValidator instance.
-        invoices: List of invoice PDF paths.
-        skip_dirs: Directories to skip (e.g. SOAT invoices).
-        repo: AuditRepository instance.
-        hospital: Active hospital key.
-        period: Audit period string.
-
-    Returns:
-        Dict with keys: ``emergency_dirs``, ``results_dirs``, ``history_dirs``,
-        ``dirs_lab_test``.
-    """
-    from db.schema import InvoiceType
-
-    all_dirs = scanner.list_dirs()
-
-    dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs = _categorize_invoices(
-        validator, invoices, repo, hospital, period
-    )
-
-    results_dirs = list(set(dirs_lab + xray_dirs + dirs_ecg) - set(polyclinic_dirs))
-    history_dirs = list(set(all_dirs) - set(polyclinic_dirs) - set(results_dirs))
-
-    lab_facturas  = repo.fetch_by_tipo(hospital, period, [
-        InvoiceType.LABORATORIO, InvoiceType.ECG, InvoiceType.RADIOGRAFIA,
-    ])
-    dirs_lab_test = inspector.resolve_dir_paths(lab_facturas)
-
-    return {
-        "emergency_dirs": emergency_dirs,
-        "results_dirs":   results_dirs,
-        "history_dirs":   history_dirs,
-        "dirs_lab_test":  dirs_lab_test,
-    }
-
-
-def _execute_pipeline(
-    flags: dict[str, bool],
-    hospital: str,
-    period: str,
-    live_slot: st.delta_generator.DeltaGenerator | None = None,
-    on_update: Callable[[str], None] | None = None,
-    invoice_numbers: list[str] | None = None,
-) -> str:
-    """Run the selected pipeline stages and return captured log output.
-
-    Sets up a logging handler so all module loggers are captured.  When
-    *live_slot* is provided, the accumulated log is pushed to it after
-    every log record (direct Streamlit update, main thread only).  When
-    *on_update* is provided instead, the callback is called with the
-    accumulated text — safe to use from a background thread.
-
-    Args:
-        flags: Mapping of stage key to enabled boolean.
-        hospital: Active hospital key (e.g. ``"SANTA_LUCIA"``).
-        period: Audit period string (e.g. ``"22-28_MARZO"``).
-        live_slot: Optional Streamlit placeholder updated on each log line.
-        on_update: Optional callback receiving the full accumulated log text.
-
-    Returns:
-        Multi-line string of all log output produced during the run.
-    """
-
-    from config.settings import Settings
-    from core.billing import BillingIngester
-    from core.drive import DriveSync
-    from core.helpers import flatten_prefixes
-    from core.inspector import FolderInspector
-    from core.ops import DocumentOps
-    from core.organizer import FolderCopier, InvoiceOrganizer, LeafFolderFinder
-    from core.processor import DocumentProcessor
-    from core.reader import DocumentReader
-    from core.scanner import DocumentScanner
-    from core.standardizer import FilenameStandardizer
-    from core.validator import InvoiceValidator
-    from db.repository import AuditRepository
-    from db.schema import InvoiceType
-
-    def _update_slot(text: str) -> None:
-        if live_slot is not None:
-            live_slot.code(text, language=None)
-        if on_update is not None:
-            on_update(text)
-
-    pipeline_logger_early = logging.getLogger("app.pipeline")
-
-    def _cancelled() -> bool:
-        if _cancel_event.is_set():
-            pipeline_logger_early.warning("Pipeline cancelled by user.")
-            return True
-        return False
-
-    handler = _LiveLogHandler(_update_slot)
-    root = logging.getLogger()
-    root.addHandler(handler)
-
-    try:
-        repo = AuditRepository(Settings.db_path)
-
-        # Load hospital config from DB
-        hospital_cfg = repo.fetch_hospital_config(hospital)
-
-        if not Settings.audit_path:
-            logging.getLogger("app.pipeline").error(
-                "Audit path not configured. Set it in Settings → Directorio de auditoría."
-            )
-            return handler.getvalue()
-
-        id_prefix    = hospital_cfg.get("INVOICE_IDENTIFIER_PREFIX", "")
-        base_path    = Settings.audit_path / hospital / period
-        staging_dir  = base_path / "STAGE"
-        archive_dir  = base_path / "AUDIT"
-        base_dir     = base_path / "BASE"
-        sihos_report = base_path / (f"{period}_SIHOS.xlsx")
-
-        scanner    = DocumentScanner(staging_dir)
-        inspector  = FolderInspector(staging_dir, id_prefix=id_prefix)
-        operations = DocumentOps(staging_dir, id_prefix=id_prefix)
-        validator  = InvoiceValidator(staging_dir, id_prefix=id_prefix)
-        admin_map  = repo.fetch_admin_contract_map(hospital)
-
-        pipeline_logger = logging.getLogger("app.pipeline")
-
-        # ── Backup ───────────────────────────────────────────────────────────
-
-        backup_path = repo.backup(Settings.backup_dir)
-        if backup_path:
-            pipeline_logger.info("Database backed up to: %s", backup_path)
-
-        # ── Ingestion ────────────────────────────────────────────────────────
-
-        df_processed = None
-
-        if flags.get("LOAD_AND_PROCESS"):
-            ingester = BillingIngester(admin_map)
-            ingester.load_excel(sihos_report, Settings.raw_schema_columns)
-
-            unknown_pairs = ingester.find_unknown_pairs()
-            if unknown_pairs:
-                saved = repo.register_unknown_mappings(hospital, unknown_pairs)
-                pipeline_logger.warning(
-                    "%d unmapped admin/contract pair(s) auto-registered in DB "
-                    "(%d new). Go to Settings → Mapeos to fill in canonical values.",
-                    len(unknown_pairs),
-                    saved,
-                )
-
-            df_processed = ingester.build_invoice_dataframe()
-            inserted = repo.upsert_invoices(
-                df_processed,
-                hospital=hospital,
-                period=period,
-            )
-            pipeline_logger.info("Invoices loaded into audit repository: %d", inserted)
-
-            if flags.get("ORGANIZE"):
-                organizer = InvoiceOrganizer(
-                    df=df_processed,
-                    staging_base=staging_dir,
-                    final_base=archive_dir,
-                )
-                result = organizer.organize(dry_run=False)
-                pipeline_logger.info("Organise result: %s", result)
-
-        if _cancelled():
-            return handler.getvalue()
-
-        # ── Drive download (API) ─────────────────────────────────────────────
-        # Downloads specific missing folders (from DB) directly into STAGE.
-
-        if flags.get("DOWNLOAD_DRIVE"):
-            from db.schema import FolderStatus
-            missing_folders = repo.fetch_by_folder_status(
-                hospital, period, FolderStatus.MISSING
-            )
-            drive = DriveSync(credentials_path=Settings.drive_credentials_path(hospital))
-            downloaded = drive.download_missing_dirs(missing_folders, staging_dir)
-            if downloaded:
-                repo.batch_update_folder_status(
-                    hospital, period, downloaded, FolderStatus.PRESENT
-                )
-            pipeline_logger.info(
-                "Drive download: %d/%d folders found and updated to PRESENTE",
-                len(downloaded), len(missing_folders),
-            )
-
-        # ── Staging from BASE (manual extraction) ────────────────────────────
-        # When the user manually extracts a Drive zip into BASE, this stage
-        # finds all leaf folders (those that contain files = invoice folders)
-        # and copies them to STAGE for further processing.
-
-        if flags.get("RUN_STAGING"):
-            leaf_finder  = LeafFolderFinder()
-            leaf_folders = leaf_finder.find_leaf_folders(base_dir)
-            if leaf_folders:
-                copier = FolderCopier(staging_dir)
-                copier.copy_folders(leaf_folders, use_prefix=False)
-                pipeline_logger.info(
-                    "Leaf folders copied from BASE to STAGE: %d", len(leaf_folders)
-                )
-            else:
-                pipeline_logger.warning(
-                    "RUN_STAGING: no leaf folders found in BASE directory: %s", base_dir
-                )
-
-        # ── Skip list (SOAT) — derived from DB ───────────────────────────────
-
-        soat_facturas = repo.fetch_by_tipo(
-            hospital, period, InvoiceType.SOAT
-        )
-        skip_dirs = inspector.resolve_dir_paths(soat_facturas)
-
-        if _cancelled():
-            return handler.getvalue()
-
-        # ── Normalisation ────────────────────────────────────────────────────
-
-        skip_set = set(skip_dirs)
-
-        def _is_skipped(f) -> bool:  # type: ignore[return]
-            return any(d in f.parents for d in skip_set)
-
-        if flags.get("REMOVE_NON_PDF"):
-            non_pdf = [f for f in scanner.find_non_pdf() if not _is_skipped(f)]
-            removed = operations.remove_files(non_pdf)
-            pipeline_logger.info("Non-PDF files removed: %d", removed)
-
-        if flags.get("NORMALIZE_FILES"):
-            prefixes_accepted = flatten_prefixes(hospital_cfg["DOCUMENT_STANDARDS"])
-            invalid_files = [
-                f for f in scanner.find_invalid_names(
-                    valid_prefixes=prefixes_accepted,
-                    suffix=hospital_cfg["INVOICE_IDENTIFIER_PREFIX"],
-                    nit=hospital_cfg["NIT"],
-                )
-                if not _is_skipped(f)
-            ]
-            pipeline_logger.info("Archivos con nombre inválido: %d", len(invalid_files))
-            for f in invalid_files:
-                pipeline_logger.info("  %s", f.name)
-            standardizer = FilenameStandardizer(
-                nit=hospital_cfg["NIT"],
-                valid_prefixes=prefixes_accepted,
-                suffix_const=hospital_cfg["INVOICE_IDENTIFIER_PREFIX"],
-                prefix_map=Settings.filename_fixes,
-            )
-            standardizer.run(invalid_files)
-
-        if flags.get("CHECK_INVOICE_NUMBER_ON_FILES"):
-            mismatched = inspector.find_mismatched_files(skip_dirs=skip_dirs)
-            pipeline_logger.info("Files mismatched to folder name: %d", len(mismatched))
-
-        dirs_with_extra_text: list = []
-        if flags.get("CHECK_FOLDERS_WITH_EXTRA_TEXT") or flags.get("NORMALIZE_DIR_NAMES"):
-            dirs_with_extra_text = inspector.find_malformed_dirs(skip=skip_dirs)
-
-        if flags.get("CHECK_FOLDERS_WITH_EXTRA_TEXT"):
-            pipeline_logger.info("Directories with extra text in name: %d", len(dirs_with_extra_text))
-
-        if flags.get("NORMALIZE_DIR_NAMES"):
-            renamed = operations.standardize_dir_names(dirs_with_extra_text)
-            pipeline_logger.info("Directories renamed: %d", renamed)
-
-        if _cancelled():
-            return handler.getvalue()
-
-        # ── Invoice audit ────────────────────────────────────────────────────
-
-        doc_standards  = hospital_cfg.get("DOCUMENT_STANDARDS", {})
-        invoice_prefix = doc_standards.get("FACTURA", "")
-        invoices       = scanner.find_by_prefix(invoice_prefix) if invoice_prefix else []
-
-        if flags.get("LIST_UNREADABLE_PDFS"):
-            no_text = DocumentReader.find_needing_ocr(invoices)
-            pipeline_logger.info("Invoice PDFs without extractable text: %d", len(no_text))
-            for f in no_text:
-                pipeline_logger.info("  No text layer: %s", f.name)
-
-        if flags.get("DELETE_UNREADABLE_PDFS"):
-            to_delete = DocumentReader.find_needing_ocr(invoices)
-            deleted = 0
-            for f in to_delete:
-                try:
-                    f.unlink()
-                    deleted += 1
-                    pipeline_logger.info("Deleted unreadable PDF: %s", f.name)
-                except OSError as exc:
-                    pipeline_logger.error("Failed to delete %s: %s", f.name, exc)
-            pipeline_logger.info("Deleted %d unreadable invoice PDFs", deleted)
-
-        if flags.get("CATEGORIZE_INVOICES"):
-            _categorize_invoices(validator, invoices, repo, hospital, period)
-            pipeline_logger.info("Invoice categorization complete.")
-
-        missing_cufe: list = []
-        if flags.get("VERIFY_CUFE") or flags.get("TAG_MISSING_CUFE"):
-            missing_code, missing_cufe = validator.validate_invoice_files(invoices)
-            if flags.get("VERIFY_CUFE"):
-                pipeline_logger.info("Facturas sin código de factura: %d", len(missing_code))
-                for f in missing_code:
-                    pipeline_logger.info("  %s", f.name)
-                pipeline_logger.info("Facturas sin CUFE: %d", len(missing_cufe))
-                for f in missing_cufe:
-                    pipeline_logger.info("  %s", f.name)
-
-        if flags.get("TAG_MISSING_CUFE"):
-            if missing_cufe:
-                marked = operations.tag_dirs_missing_cufe(missing_cufe)
-                pipeline_logger.info("Carpetas marcadas como sin CUFE: %d", marked)
-            else:
-                pipeline_logger.info("No hay carpetas sin CUFE para marcar.")
-
-        if flags.get("CHECK_INVOICES"):
-            needing_ocr = DocumentReader.find_needing_ocr(invoices)
-            ocr_result  = DocumentProcessor.batch_ocr(files=needing_ocr, max_workers=8)
-            pipeline_logger.info("OCR batch completed for invoices: %s", ocr_result)
-
-        if flags.get("CHECK_DIRS"):
-            from db.schema import FolderStatus
-            all_folders = repo.fetch_invoice_ids(hospital, period)
-            missing_dirs = inspector.find_missing_dirs(expected_dirs=all_folders)
-            pipeline_logger.info("Missing directories: %d", len(missing_dirs))
-            for factura in missing_dirs:
-                repo.update_folder_status(
-                    hospital, period, factura, FolderStatus.MISSING
-                )
-
-        if flags.get("CHECK_INVALID_FILES"):
-            all_files    = scanner.find_by_extension()
-            invalid_pdfs = DocumentReader.find_unreadable(all_files)
-            pipeline_logger.info("Unreadable PDF files: %d", len(invalid_pdfs))
-
-        if any(flags.get(k) for k in _DOC_CHECK_STAGES):
-            doc_standards = hospital_cfg.get("DOCUMENT_STANDARDS", {})
-            ctx = _build_doc_check_context(
-                scanner, inspector, validator, invoices, skip_dirs,
-                repo, hospital, period,
-            )
-            emergency_dirs = ctx["emergency_dirs"]
-            results_dirs   = ctx["results_dirs"]
-            history_dirs   = ctx["history_dirs"]
-            dirs_lab_test  = ctx["dirs_lab_test"]
-
-            def _log_missing(dirs: list, label: str) -> None:
-                pipeline_logger.info("%s — %d directorio(s):", label, len(dirs))
-                for d in dirs:
-                    pipeline_logger.info("  %s", d.name.upper())
-
-            if flags.get("CHECK_HISTORIA"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("HISTORIA", ""),
-                    skip=skip_dirs + dirs_lab_test,
-                    target_dirs=history_dirs,
-                )
-                _log_missing(missing, "Historias clínicas faltantes")
-
-            if flags.get("CHECK_RESULTADOS"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("RESULTADOS", ""),
-                    skip=skip_dirs + emergency_dirs,
-                    target_dirs=results_dirs,
-                )
-                _log_missing(missing, "Resultados faltantes")
-
-            if flags.get("CHECK_FIRMA"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("FIRMA", ""),
-                    skip=skip_dirs,
-                )
-                _log_missing(missing, "Firmas faltantes")
-
-            if flags.get("CHECK_VALIDACION"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("VALIDACION", ""),
-                    skip=skip_dirs + emergency_dirs,
-                )
-                _log_missing(missing, "Validaciones faltantes")
-
-            if flags.get("CHECK_AUTORIZACION"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("AUTORIZACION", ""),
-                    skip=skip_dirs,
-                    target_dirs=emergency_dirs,
-                )
-                _log_missing(missing, "Autorizaciones faltantes")
-
-        if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
-            from core.downloader import SihosDownloader
-            if invoice_numbers:
-                downloader = SihosDownloader(
-                    user=hospital_cfg["sihos_user"],
-                    password=hospital_cfg["sihos_password"],
-                    base_url=hospital_cfg["SIHOS_BASE_URL"],
-                    hospital_nit=hospital_cfg["NIT"],
-                    invoice_prefix=doc_standards.get("FACTURA", ""),
-                    invoice_id_prefix=id_prefix,
-                    invoice_doc_code=hospital_cfg["SIHOS_INVOICE_DOC_CODE"],
-                    output_dir=staging_dir,
-                )
-                downloader.run_from_list(invoice_numbers)
-            else:
-                pipeline_logger.warning("No invoice numbers provided for SIHOS download.")
-
-    except (OSError, RuntimeError, ValueError) as exc:
-        logging.getLogger("app.pipeline").error("Pipeline error: %s", exc, exc_info=True)
-    finally:
-        root.removeHandler(handler)
-
-    return handler.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -632,17 +38,17 @@ def render(config_error: str | None) -> None:
         config_error_banner(config_error)
         return
 
-    section_header("Pipeline stages")
+    section_header("Etapas del pipeline")
 
     # Handle clear before checkboxes are instantiated
     if st.session_state.pop("_clear_stages", False):
-        for key in _STAGE_LABELS:
+        for key in STAGES:
             st.session_state[f"stage_{key}"] = False
 
     flags: dict[str, bool] = {}
     cols = st.columns(3)
 
-    for idx, (group_name, group_keys) in enumerate(_STAGE_GROUPS):
+    for idx, (group_name, group_keys) in enumerate(STAGE_GROUPS):
         with cols[idx % 3]:
             st.markdown(
                 f'<div class="group-card">'
@@ -650,12 +56,17 @@ def render(config_error: str | None) -> None:
                 unsafe_allow_html=True,
             )
             for key in group_keys:
-                flags[key] = st.checkbox(_STAGE_LABELS[key], key=f"stage_{key}")
+                info = STAGES[key]
+                flags[key] = st.checkbox(info.label, key=f"stage_{key}")
+                st.markdown(
+                    f'<div class="stage-desc">{info.description}</div>',
+                    unsafe_allow_html=True,
+                )
             st.markdown("</div>", unsafe_allow_html=True)
 
     # Controls row
     c_clear, _, c_run = st.columns([1.5, 4.0, 1.5])
-    if c_clear.button("Clear selection", width="stretch"):
+    if c_clear.button("Limpiar selección", width="stretch"):
         st.session_state["_clear_stages"] = True
         st.rerun()
 
@@ -663,9 +74,9 @@ def render(config_error: str | None) -> None:
 
     if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
         st.divider()
-        section_header("Invoice numbers to download")
+        section_header("Números de factura a descargar")
         st.text_area(
-            "Paste invoice numbers (one per line)",
+            "Pega los números de factura (uno por línea)",
             key="invoices_to_download",
             height=140,
             placeholder="FE12345\nFE12346\n...",
@@ -674,7 +85,7 @@ def render(config_error: str | None) -> None:
     st.divider()
 
     if selected:
-        joined = ", ".join(_STAGE_LABELS[k] for k in selected)
+        joined = ", ".join(STAGES[k].label for k in selected)
         st.markdown(
             f'<div class="run-summary"><b>{len(selected)} etapa(s) seleccionada(s):</b> {joined}</div>',
             unsafe_allow_html=True,
@@ -684,7 +95,9 @@ def render(config_error: str | None) -> None:
 
     run_col, cancel_col, _ = st.columns([1.5, 1.5, 4])
     run_btn = run_col.button(
-        "Ejecutar pipeline", type="primary", disabled=not selected or bool(_pipe[_PIPE_RUNNING])
+        "Ejecutar pipeline",
+        type="primary",
+        disabled=not selected or bool(_pipe[_PIPE_RUNNING]),
     )
     cancel_btn = cancel_col.button("Cancelar", disabled=not _pipe[_PIPE_RUNNING])
 
@@ -695,14 +108,12 @@ def render(config_error: str | None) -> None:
     # ── While pipeline is running: poll and refresh ──────────────────────────
 
     if _pipe[_PIPE_RUNNING]:
-        status_slot = st.empty()
-        status_slot.markdown(
+        st.markdown(
             '<div class="status-bar info">Ejecutando — por favor espera…</div>',
             unsafe_allow_html=True,
         )
         section_header("Salida del pipeline")
-        live_slot = st.empty()
-        live_slot.code(_pipe[_PIPE_LOG] or "Iniciando…", language=None)
+        st.code(_pipe[_PIPE_LOG] or "Iniciando…", language=None)
         time.sleep(0.4)
         st.rerun()
 
@@ -737,7 +148,6 @@ def render(config_error: str | None) -> None:
         _pipe[_PIPE_RUNNING] = True
         _pipe[_PIPE_LOG]     = ""
 
-        # Capture flags and session values now — evaluated at click time
         _flags_snapshot    = dict(flags)
         _hospital_snapshot = st.session_state.get("sel_hospital", "")
         _period_snapshot   = st.session_state.get("sel_period", "")

@@ -230,6 +230,17 @@ html, body, [class*="css"] {{
     flex-shrink: 0;
 }}
 
+/* ── Stage description ───────────────────────────────────────────────────────── */
+.stage-desc {{
+    font-size: .73rem;
+    color: {SLATE_LIGHT};
+    line-height: 1.5;
+    margin: -.3rem 0 .6rem 1.85rem;
+    padding-bottom: .4rem;
+    border-bottom: 1px solid rgba(51,65,85,.35);
+    letter-spacing: .005em;
+}}
+
 /* ── Status bar ──────────────────────────────────────────────────────────────── */
 .status-bar {{
     display: flex;
