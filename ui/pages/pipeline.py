@@ -61,17 +61,23 @@ _STAGE_LABELS: dict[str, str] = {
     "RUN_STAGING":                   "Copiar carpetas de facturas de BASE a STAGE",
     "DOWNLOAD_INVOICES_FROM_SIHOS":  "Descargar facturas del portal SIHOS",
     "ORGANIZE":                      "Organizar carpetas de facturas",
-    "NORMALIZE_FILES":               "Normalizar archivos (eliminar no-PDFs, renombrar)",
+    "REMOVE_NON_PDF":                "Eliminar archivos que no son PDF",
+    "NORMALIZE_FILES":               "Renombrar archivos con nombres inválidos",
     "CHECK_FOLDERS_WITH_EXTRA_TEXT": "Detectar carpetas con texto extra en el nombre",
     "NORMALIZE_DIR_NAMES":           "Renombrar directorios con nombre malformado",
     "LIST_UNREADABLE_PDFS":          "Listar facturas sin texto extraíble",
     "DELETE_UNREADABLE_PDFS":        "Eliminar facturas sin texto extraíble",
     "CATEGORIZE_INVOICES":           "Categorizar facturas por tipo",
     "VERIFY_CUFE":                   "Verificar CUFE en facturas",
+    "TAG_MISSING_CUFE":              "Marcar carpetas sin CUFE",
     "CHECK_INVOICE_NUMBER_ON_FILES": "Verificar número de factura en archivos",
     "CHECK_INVOICES":                "Aplicar OCR a facturas",
     "CHECK_INVALID_FILES":           "Detectar archivos PDF ilegibles",
-    "CHECK_FOUR_MAIN_FILES":         "Verificar cuatro tipos de documento obligatorios",
+    "CHECK_HISTORIA":                "Verificar historias clínicas",
+    "CHECK_RESULTADOS":              "Verificar archivos de resultados",
+    "CHECK_FIRMA":                   "Verificar archivos de firma",
+    "CHECK_VALIDACION":              "Verificar archivos de validación",
+    "CHECK_AUTORIZACION":            "Verificar archivos de autorización",
     "CHECK_DIRS":                    "Detectar directorios faltantes",
 }
 
@@ -87,6 +93,7 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
         "ORGANIZE",
     ]),
     ("Normalización", [
+        "REMOVE_NON_PDF",
         "NORMALIZE_FILES",
         "CHECK_FOLDERS_WITH_EXTRA_TEXT",
         "NORMALIZE_DIR_NAMES",
@@ -97,12 +104,17 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
         "CATEGORIZE_INVOICES",
         "DOWNLOAD_INVOICES_FROM_SIHOS",
         "VERIFY_CUFE",
+        "TAG_MISSING_CUFE",
         "CHECK_INVOICE_NUMBER_ON_FILES",
     ]),
     ("Verificación", [
         "CHECK_INVOICES",
         "CHECK_INVALID_FILES",
-        "CHECK_FOUR_MAIN_FILES",
+        "CHECK_HISTORIA",
+        "CHECK_RESULTADOS",
+        "CHECK_FIRMA",
+        "CHECK_VALIDACION",
+        "CHECK_AUTORIZACION",
         "CHECK_DIRS",
     ]),
 ]
@@ -167,7 +179,16 @@ def _categorize_invoices(
     return dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs
 
 
-def _run_check_four_main_files(
+_DOC_CHECK_STAGES = frozenset({
+    "CHECK_HISTORIA",
+    "CHECK_RESULTADOS",
+    "CHECK_FIRMA",
+    "CHECK_VALIDACION",
+    "CHECK_AUTORIZACION",
+})
+
+
+def _build_doc_check_context(
     scanner,
     inspector,
     validator,
@@ -176,24 +197,28 @@ def _run_check_four_main_files(
     repo,
     hospital: str,
     period: str,
-    hospital_cfg: dict,
-) -> None:
-    """Execute the four-mandatory-files audit check across invoice directories.
+) -> dict:
+    """Compute shared directory groupings needed for individual document checks.
+
+    Runs invoice categorisation (ECG, lab, X-ray, polyclinic, emergency) and
+    derives the sets of directories that each document type check operates on.
 
     Args:
         scanner: DocumentScanner instance.
         inspector: FolderInspector instance.
         validator: InvoiceValidator instance.
         invoices: List of invoice PDF paths.
-        skip_dirs: Directories to skip during checks.
-        repo: AuditRepository instance for updating invoice types.
+        skip_dirs: Directories to skip (e.g. SOAT invoices).
+        repo: AuditRepository instance.
         hospital: Active hospital key.
         period: Audit period string.
-        hospital_cfg: Hospital configuration dict from the repository.
+
+    Returns:
+        Dict with keys: ``emergency_dirs``, ``results_dirs``, ``history_dirs``,
+        ``dirs_lab_test``.
     """
     from db.schema import InvoiceType
 
-    pipeline_logger = logging.getLogger("app.pipeline")
     all_dirs = scanner.list_dirs()
 
     dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs = _categorize_invoices(
@@ -203,44 +228,17 @@ def _run_check_four_main_files(
     results_dirs = list(set(dirs_lab + xray_dirs + dirs_ecg) - set(polyclinic_dirs))
     history_dirs = list(set(all_dirs) - set(polyclinic_dirs) - set(results_dirs))
 
-    # Replace lab.txt: derive lab directories from DB tipo
     lab_facturas  = repo.fetch_by_tipo(hospital, period, [
         InvoiceType.LABORATORIO, InvoiceType.ECG, InvoiceType.RADIOGRAFIA,
     ])
     dirs_lab_test = inspector.resolve_dir_paths(lab_facturas)
 
-    missing_histories = inspector.find_dirs_missing_file(
-        hospital_cfg["DOCUMENT_STANDARDS"]["HISTORIA"],
-        skip=skip_dirs + dirs_lab_test,
-        target_dirs=history_dirs,
-    )
-    pipeline_logger.info("Directories missing medical history files: %d", len(missing_histories))
-
-    missing_results = inspector.find_dirs_missing_file(
-        hospital_cfg["DOCUMENT_STANDARDS"]["RESULTADOS"],
-        skip=skip_dirs + emergency_dirs,
-        target_dirs=results_dirs,
-    )
-    pipeline_logger.info("Directories missing results files: %d", len(missing_results))
-
-    missing_signatures = inspector.find_dirs_missing_file(
-        hospital_cfg["DOCUMENT_STANDARDS"]["FIRMA"],
-        skip=skip_dirs,
-    )
-    pipeline_logger.info("Directories missing signature files: %d", len(missing_signatures))
-
-    missing_validations = inspector.find_dirs_missing_file(
-        hospital_cfg["DOCUMENT_STANDARDS"]["VALIDACION"],
-        skip=skip_dirs + emergency_dirs,
-    )
-    pipeline_logger.info("Directories missing validation files: %d", len(missing_validations))
-
-    missing_auths = inspector.find_dirs_missing_file(
-        hospital_cfg["DOCUMENT_STANDARDS"]["AUTORIZACION"],
-        skip=skip_dirs,
-        target_dirs=emergency_dirs,
-    )
-    pipeline_logger.info("Directories missing authorization files: %d", len(missing_auths))
+    return {
+        "emergency_dirs": emergency_dirs,
+        "results_dirs":   results_dirs,
+        "history_dirs":   history_dirs,
+        "dirs_lab_test":  dirs_lab_test,
+    }
 
 
 def _execute_pipeline(
@@ -424,15 +422,17 @@ def _execute_pipeline(
 
         # ── Normalisation ────────────────────────────────────────────────────
 
-        if flags.get("NORMALIZE_FILES"):
-            skip_set = set(skip_dirs)
+        skip_set = set(skip_dirs)
 
-            def _is_skipped(f) -> bool:  # type: ignore[return]
-                return any(d in f.parents for d in skip_set)
+        def _is_skipped(f) -> bool:  # type: ignore[return]
+            return any(d in f.parents for d in skip_set)
 
+        if flags.get("REMOVE_NON_PDF"):
             non_pdf = [f for f in scanner.find_non_pdf() if not _is_skipped(f)]
-            pipeline_logger.info("Non-PDF files removed: %d", len(operations.remove_files(non_pdf)))
+            removed = operations.remove_files(non_pdf)
+            pipeline_logger.info("Non-PDF files removed: %d", removed)
 
+        if flags.get("NORMALIZE_FILES"):
             prefixes_accepted = flatten_prefixes(hospital_cfg["DOCUMENT_STANDARDS"])
             invalid_files = [
                 f for f in scanner.find_invalid_names(
@@ -442,8 +442,9 @@ def _execute_pipeline(
                 )
                 if not _is_skipped(f)
             ]
-            pipeline_logger.info("Files with invalid naming structure: %d", len(invalid_files))
-
+            pipeline_logger.info("Archivos con nombre inválido: %d", len(invalid_files))
+            for f in invalid_files:
+                pipeline_logger.info("  %s", f.name)
             standardizer = FilenameStandardizer(
                 nit=hospital_cfg["NIT"],
                 valid_prefixes=prefixes_accepted,
@@ -498,13 +499,23 @@ def _execute_pipeline(
             _categorize_invoices(validator, invoices, repo, hospital, period)
             pipeline_logger.info("Invoice categorization complete.")
 
-        if flags.get("VERIFY_CUFE"):
+        missing_cufe: list = []
+        if flags.get("VERIFY_CUFE") or flags.get("TAG_MISSING_CUFE"):
             missing_code, missing_cufe = validator.validate_invoice_files(invoices)
-            pipeline_logger.info("Invoices missing invoice code: %d", len(missing_code))
-            pipeline_logger.info("Invoices missing CUFE: %d", len(missing_cufe))
+            if flags.get("VERIFY_CUFE"):
+                pipeline_logger.info("Facturas sin código de factura: %d", len(missing_code))
+                for f in missing_code:
+                    pipeline_logger.info("  %s", f.name)
+                pipeline_logger.info("Facturas sin CUFE: %d", len(missing_cufe))
+                for f in missing_cufe:
+                    pipeline_logger.info("  %s", f.name)
+
+        if flags.get("TAG_MISSING_CUFE"):
             if missing_cufe:
                 marked = operations.tag_dirs_missing_cufe(missing_cufe)
-                pipeline_logger.info("Directories marked as missing CUFE: %d", marked)
+                pipeline_logger.info("Carpetas marcadas como sin CUFE: %d", marked)
+            else:
+                pipeline_logger.info("No hay carpetas sin CUFE para marcar.")
 
         if flags.get("CHECK_INVOICES"):
             needing_ocr = DocumentReader.find_needing_ocr(invoices)
@@ -526,11 +537,59 @@ def _execute_pipeline(
             invalid_pdfs = DocumentReader.find_unreadable(all_files)
             pipeline_logger.info("Unreadable PDF files: %d", len(invalid_pdfs))
 
-        if flags.get("CHECK_FOUR_MAIN_FILES"):
-            _run_check_four_main_files(
+        if any(flags.get(k) for k in _DOC_CHECK_STAGES):
+            doc_standards = hospital_cfg.get("DOCUMENT_STANDARDS", {})
+            ctx = _build_doc_check_context(
                 scanner, inspector, validator, invoices, skip_dirs,
-                repo, hospital, period, hospital_cfg=hospital_cfg,
+                repo, hospital, period,
             )
+            emergency_dirs = ctx["emergency_dirs"]
+            results_dirs   = ctx["results_dirs"]
+            history_dirs   = ctx["history_dirs"]
+            dirs_lab_test  = ctx["dirs_lab_test"]
+
+            def _log_missing(dirs: list, label: str) -> None:
+                pipeline_logger.info("%s — %d directorio(s):", label, len(dirs))
+                for d in dirs:
+                    pipeline_logger.info("  %s", d.name.upper())
+
+            if flags.get("CHECK_HISTORIA"):
+                missing = inspector.find_dirs_missing_file(
+                    doc_standards.get("HISTORIA", ""),
+                    skip=skip_dirs + dirs_lab_test,
+                    target_dirs=history_dirs,
+                )
+                _log_missing(missing, "Historias clínicas faltantes")
+
+            if flags.get("CHECK_RESULTADOS"):
+                missing = inspector.find_dirs_missing_file(
+                    doc_standards.get("RESULTADOS", ""),
+                    skip=skip_dirs + emergency_dirs,
+                    target_dirs=results_dirs,
+                )
+                _log_missing(missing, "Resultados faltantes")
+
+            if flags.get("CHECK_FIRMA"):
+                missing = inspector.find_dirs_missing_file(
+                    doc_standards.get("FIRMA", ""),
+                    skip=skip_dirs,
+                )
+                _log_missing(missing, "Firmas faltantes")
+
+            if flags.get("CHECK_VALIDACION"):
+                missing = inspector.find_dirs_missing_file(
+                    doc_standards.get("VALIDACION", ""),
+                    skip=skip_dirs + emergency_dirs,
+                )
+                _log_missing(missing, "Validaciones faltantes")
+
+            if flags.get("CHECK_AUTORIZACION"):
+                missing = inspector.find_dirs_missing_file(
+                    doc_standards.get("AUTORIZACION", ""),
+                    skip=skip_dirs,
+                    target_dirs=emergency_dirs,
+                )
+                _log_missing(missing, "Autorizaciones faltantes")
 
         if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
             from core.downloader import SihosDownloader
