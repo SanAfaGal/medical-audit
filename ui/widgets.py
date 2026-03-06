@@ -191,7 +191,7 @@ def config_error_banner(error: str) -> None:
 
 
 def page_header(period_map: dict[str, list[str]]) -> None:
-    """Render the top application header with hospital/period selectors.
+    """Render the sidebar with brand identity and hospital/period selectors.
 
     The selected values are stored in ``st.session_state["sel_hospital"]``
     and ``st.session_state["sel_period"]`` so all pages can read them.
@@ -200,37 +200,35 @@ def page_header(period_map: dict[str, list[str]]) -> None:
         period_map: Mapping of hospital key → list of available period strings,
             as returned by ``AuditRepository.fetch_hospitals_and_periods()``.
     """
-    brand_col, sel_col = st.columns([3, 2])
-    with brand_col:
+    with st.sidebar:
         st.markdown(
             """
-            <div class="app-header" style="margin-bottom:0;">
-                <div class="header-brand">
-                    <div class="header-dot"></div>
-                    <div>
-                        <div class="header-title">Medical Audit</div>
-                        <div class="header-subtitle">Document management &amp; invoice validation</div>
-                    </div>
+            <div style="display:flex;align-items:center;gap:.6rem;padding:.5rem 0 1rem;">
+                <div style="width:9px;height:9px;border-radius:50%;background:#3B82F6;
+                            box-shadow:0 0 0 3px rgba(59,130,246,.25);flex-shrink:0;"></div>
+                <div>
+                    <div style="font-size:.95rem;font-weight:700;color:#fff;letter-spacing:-.015em;
+                                line-height:1.2;">Auditoría Médica</div>
+                    <div style="font-size:.68rem;color:rgba(255,255,255,.45);margin-top:.1rem;
+                                letter-spacing:.02em;">Gestión documental y validación de facturas</div>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    with sel_col:
+        st.divider()
         hospital_options = sorted(period_map.keys()) if period_map else []
         hospital = st.selectbox(
             "Hospital",
             options=hospital_options,
             key="sel_hospital",
-            label_visibility="collapsed",
             placeholder="— seleccionar hospital —",
         )
         period_options = period_map.get(hospital, []) if hospital else []
         st.selectbox(
-            "Period",
+            "Período",
             options=period_options,
             key="sel_period",
-            label_visibility="collapsed",
             placeholder="— seleccionar período —",
         )
 

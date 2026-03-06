@@ -99,35 +99,35 @@ def render(config_error: str | None) -> None:
 
     m1, m2, m3, m4, m5 = st.columns(5)
     with m1:
-        st.markdown(metric_card("Total invoices", total, "in this period"), unsafe_allow_html=True)
+        st.markdown(metric_card("Total facturas", total, "en este período"), unsafe_allow_html=True)
     with m2:
         color_wf = "amber" if with_findings else ""
         st.markdown(
-            metric_card("With findings", with_findings, f"{100 - pct_clean}% of total", color=color_wf),
+            metric_card("Con hallazgos", with_findings, f"{100 - pct_clean}% del total", color=color_wf),
             unsafe_allow_html=True,
         )
     with m3:
         st.markdown(
-            metric_card("Without findings", clean, f"{pct_clean}% of total", color="green"),
+            metric_card("Sin hallazgos", clean, f"{pct_clean}% del total", color="green"),
             unsafe_allow_html=True,
         )
     with m4:
         color_rate = "green" if pct_clean >= 80 else "amber"
         st.markdown(
-            metric_card("Approval rate", f"{pct_clean}%", "invoices with no findings", color=color_rate),
+            metric_card("Tasa de aprobación", f"{pct_clean}%", "facturas sin hallazgos", color=color_rate),
             unsafe_allow_html=True,
         )
     with m5:
         color_missing = "red" if missing_count else "green"
         st.markdown(
-            metric_card("Missing folders", missing_count, "not found on disk", color=color_missing),
+            metric_card("Carpetas faltantes", missing_count, "no encontradas en disco", color=color_missing),
             unsafe_allow_html=True,
         )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # --- Invoice table ---
-    section_header("Period invoices")
+    section_header("Facturas del período")
 
     # --- Summary breakdown (by type, folder status, and findings) ---
     with st.expander("Resumen por tipo, estado de carpeta y hallazgos", expanded=False):
@@ -168,8 +168,8 @@ def render(config_error: str | None) -> None:
                 st.dataframe(finding_counts, hide_index=True, width="stretch")
 
     # --- Filters ---
-    tipo_options   = ["All"] + sorted(set(InvoiceType))
-    estado_options = ["All"] + sorted(set(FolderStatus))
+    tipo_options   = ["Todos"] + sorted(set(InvoiceType))
+    estado_options = ["Todos"] + sorted(set(FolderStatus))
 
     f1, f2, f3, *_ = st.columns([2, 2, 2, 2])
     tipo_filter    = f1.selectbox("Tipo de factura", tipo_options, key="tipo_filter")
@@ -181,9 +181,9 @@ def render(config_error: str | None) -> None:
     )
 
     display_df = df.copy()
-    if tipo_filter != "All":
+    if tipo_filter != "Todos":
         display_df = display_df[display_df["Tipo"] == tipo_filter]
-    if estado_filter != "All":
+    if estado_filter != "Todos":
         display_df = display_df[display_df["Estado carpeta"] == estado_filter]
     if hallazgo_search:
         display_df = display_df[
@@ -199,7 +199,7 @@ def render(config_error: str | None) -> None:
     dl_col, *_ = st.columns([2, 6])
     excel_bytes = _df_to_excel_bytes(df.reset_index())
     dl_col.download_button(
-        label="Export to Excel",
+        label="Exportar a Excel",
         data=excel_bytes,
         file_name=f"{hospital}_{period}_AUDIT.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -277,19 +277,19 @@ def render(config_error: str | None) -> None:
     st.divider()
 
     # --- Invoice detail ---
-    section_header("Invoice detail and finding management")
+    section_header("Detalle de factura y hallazgos")
 
     detail_col, action_col = st.columns([5, 3])
 
     with detail_col:
         invoice_id = st.text_input(
-            "Invoice number",
-            placeholder="e.g. FE12345 — type and press Enter",
+            "Número de factura",
+            placeholder="ej. FE12345 — escribe y presiona Enter",
         )
         if not invoice_id:
-            st.caption("Enter an invoice number to view and manage its findings.")
+            st.caption("Ingresa un número de factura para ver y gestionar sus hallazgos.")
         elif invoice_id not in df.index:
-            st.error(f"Invoice `{invoice_id}` not found in this period.")
+            st.error(f"Factura `{invoice_id}` no encontrada en este período.")
         else:
             findings = repo.fetch_findings(hospital, period, invoice_id)
 
@@ -322,35 +322,35 @@ def render(config_error: str | None) -> None:
             existing_types    = findings
 
             action = st.radio(
-                "Action",
-                ["Add finding", "Remove finding", "Change type"],
+                "Acción",
+                ["Agregar hallazgo", "Eliminar hallazgo", "Cambiar tipo"],
                 horizontal=False,
             )
 
-            if action == "Add finding":
-                ft_add = st.selectbox("Missing document type", all_finding_codes, key="add_ft")
-                if st.button("Add", type="primary", key="btn_add", width="stretch"):
+            if action == "Agregar hallazgo":
+                ft_add = st.selectbox("Tipo de documento faltante", all_finding_codes, key="add_ft")
+                if st.button("Agregar", type="primary", key="btn_add", width="stretch"):
                     repo.record_finding(hospital, period, invoice_id, ft_add)
-                    st.success("Finding added.")
+                    st.success("Hallazgo agregado.")
                     st.rerun()
 
-            elif action == "Remove finding" and existing_types:
-                ft_del = st.selectbox("Finding to remove", existing_types, key="del_ft")
-                if st.button("Remove", type="primary", key="btn_del", width="stretch"):
+            elif action == "Eliminar hallazgo" and existing_types:
+                ft_del = st.selectbox("Hallazgo a eliminar", existing_types, key="del_ft")
+                if st.button("Eliminar", type="primary", key="btn_del", width="stretch"):
                     repo.delete_finding(hospital, period, invoice_id, ft_del)
-                    st.success("Removed.")
+                    st.success("Hallazgo eliminado.")
                     st.rerun()
 
-            elif action == "Change type":
+            elif action == "Cambiar tipo":
                 current_tipo = df.at[invoice_id, "Tipo"]
                 all_tipos = sorted(set(InvoiceType))
                 cur_tipo_idx = all_tipos.index(current_tipo) if current_tipo in all_tipos else 0
-                new_tipo = st.selectbox("Invoice type", all_tipos, index=cur_tipo_idx, key="change_tipo")
-                st.caption("Set type to **SOAT** to exclude this invoice from document checks.")
-                if st.button("Apply", type="primary", key="btn_tipo", width="stretch"):
+                new_tipo = st.selectbox("Tipo de factura", all_tipos, index=cur_tipo_idx, key="change_tipo")
+                st.caption("Establece el tipo **SOAT** para excluir esta factura de la verificación de documentos.")
+                if st.button("Aplicar", type="primary", key="btn_tipo", width="stretch"):
                     repo.update_tipo(hospital, period, invoice_id, new_tipo)
-                    st.success(f"Type updated to {new_tipo}.")
+                    st.success(f"Tipo actualizado a {new_tipo}.")
                     st.rerun()
 
-            elif not existing_types and action == "Remove finding":
-                st.caption("This invoice has no findings to remove.")
+            elif not existing_types and action == "Eliminar hallazgo":
+                st.caption("Esta factura no tiene hallazgos para eliminar.")

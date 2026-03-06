@@ -15,10 +15,10 @@ import streamlit as st
 
 # Page config must be the very first Streamlit call.
 st.set_page_config(
-    page_title="Medical Audit",
+    page_title="Auditoría Médica",
     page_icon=None,
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 import ui.pages.audit as page_audit
@@ -64,7 +64,7 @@ except (OSError, KeyError) as exc:
 page_header(_period_map)
 
 # ── Tab layout ──────────────────────────────────────────────────────────────────
-t_pipeline, t_audit, t_settings = st.tabs(["Pipeline", "Audit", "Settings"])
+t_pipeline, t_audit, t_settings = st.tabs(["Pipeline", "Auditoría", "Configuración"])
 
 with t_pipeline:
     page_pipeline.render(_config_error)

@@ -30,162 +30,143 @@ def render(config_error: str | None) -> None:
 
     repo = AuditRepository(Settings.db_path)
 
-    # -----------------------------------------------------------------------
-    # A. Directorio de auditoría (global)
-    # -----------------------------------------------------------------------
-
-    section_header("Directorio de auditoría")
-    st.caption(
-        "Ruta raíz donde se almacenan las carpetas de cada hospital y período "
-        "(BASE, STAGE, AUDIT y reportes SIHOS). La base de datos y las "
-        "credenciales de Drive se guardan aparte en `~/.medical-audit/`."
-    )
-
-    with st.form("audit_path_form"):
-        new_audit_path = st.text_input(
-            "Directorio de auditoría",
-            value=str(Settings.audit_path),
-            label_visibility="collapsed",
-            placeholder="C:/Auditorias",
-        )
-        if st.form_submit_button("Guardar", type="primary"):
-            p = Path(new_audit_path.strip())
-            Settings.save_audit_path(p)
-            st.success(f"Directorio guardado: `{p}`")
-            st.rerun()
-
-    # -----------------------------------------------------------------------
-    # B. Configuración del hospital (basado en sel_hospital del header)
-    # -----------------------------------------------------------------------
-
-    st.divider()
     hospital = st.session_state.get("sel_hospital")
 
-    if not hospital:
-        st.info("Selecciona un hospital desde el encabezado para ver su configuración.")
-        _render_global_sections(repo)
-        return
+    tab_hosp, tab_global = st.tabs(["Hospital seleccionado", "Configuración global"])
 
-    section_header(f"Hospital — {hospital}")
+    # -----------------------------------------------------------------------
+    # Tab A: Configuración específica del hospital
+    # -----------------------------------------------------------------------
+    with tab_hosp:
+        if not hospital:
+            st.info("Selecciona un hospital desde la barra lateral para ver su configuración.")
+            return
 
-    hospitals = repo.fetch_all_hospitals()
-    current = next((h for h in hospitals if h["key"] == hospital), {})
+        section_header(f"Hospital — {hospital}")
 
-    # ── Hospital config form ─────────────────────────────────────────────────
-    with st.expander("Editar configuración técnica", expanded=False):
-        h = hospital  # shorthand for key suffix
-        with st.form(f"hosp_form_{h}"):
-            f_name = st.text_input(
-                "Nombre para mostrar", value=current.get("display_name", ""), key=f"hf_name_{h}"
-            )
-            f_nit = st.text_input("NIT", value=current.get("nit", ""), key=f"hf_nit_{h}")
-            f_inv = st.text_input(
-                "Prefijo factura (INVOICE_IDENTIFIER_PREFIX)",
-                value=current.get("invoice_identifier_prefix", ""),
-                key=f"hf_inv_{h}",
-            )
-            f_url = st.text_input(
-                "SIHOS base URL", value=current.get("sihos_base_url", ""), key=f"hf_url_{h}"
-            )
-            f_code = st.text_input(
-                "SIHOS doc code",
-                value=current.get("sihos_invoice_doc_code", ""),
-                key=f"hf_code_{h}",
-            )
-            f_sihos_user = st.text_input(
-                "Usuario SIHOS", value=current.get("sihos_user", ""), key=f"hf_sihos_user_{h}"
-            )
-            f_sihos_pass = st.text_input(
-                "Contraseña SIHOS",
-                value=current.get("sihos_password", ""),
-                type="password",
-                key=f"hf_sihos_pass_{h}",
-            )
-            if st.form_submit_button("Guardar configuración", type="primary"):
-                repo.upsert_hospital(hospital, {
-                    "display_name":              f_name,
-                    "NIT":                       f_nit,
-                    "INVOICE_IDENTIFIER_PREFIX": f_inv,
-                    "SIHOS_BASE_URL":            f_url,
-                    "SIHOS_INVOICE_DOC_CODE":    f_code,
-                    "sihos_user":                f_sihos_user,
-                    "sihos_password":            f_sihos_pass,
-                })
-                st.success(f"Configuración de '{hospital}' guardada.")
-                st.rerun()
+        hospitals = repo.fetch_all_hospitals()
+        current = next((h for h in hospitals if h["key"] == hospital), {})
 
-    # ── Credenciales Drive ───────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    section_header("Credenciales Drive")
-
-    cred_path = Settings.drive_credentials_path(hospital)
-    if cred_path.exists():
-        st.markdown(
-            "<span style='color:#16A34A;font-weight:600;'>✓ drive.json configurado</span> "
-            f"&nbsp; `{cred_path}`",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            "<span style='color:#DC2626;font-weight:600;'>✗ No encontrado</span> "
-            f"&nbsp; `{cred_path}`",
-            unsafe_allow_html=True,
-        )
-
-    uploaded_cred = st.file_uploader(
-        "Subir drive.json (service account de Google Drive)",
-        type=["json"],
-        key=f"drive_cred_upload_{hospital}",
-    )
-    if uploaded_cred is not None:
-        cred_path.parent.mkdir(parents=True, exist_ok=True)
-        cred_path.write_bytes(uploaded_cred.read())
-        st.success(f"Credenciales guardadas en `{cred_path}`")
-        st.rerun()
-
-    # ── Nuevo período ────────────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    section_header("Nuevo período")
-    st.caption(
-        "Crea la estructura de carpetas para un período y sube el reporte SIHOS. "
-        "El período aparecerá en el selector del encabezado. "
-        "Formato recomendado: `22-28_MARZO`"
-    )
-
-    with st.form(f"new_period_form_{hospital}"):
-        period_name = st.text_input(
-            "Nombre del período",
-            placeholder="22-28_MARZO",
-            key=f"new_period_name_{hospital}",
-        )
-        sihos_file = st.file_uploader(
-            "Reporte SIHOS (.xlsx)",
-            type=["xlsx"],
-            key=f"sihos_upload_{hospital}",
-        )
-        if st.form_submit_button("Crear período", type="primary"):
-            period_name = period_name.strip()
-            if not period_name:
-                st.error("Ingresa un nombre de período.")
-            elif sihos_file is None:
-                st.error("Sube el reporte SIHOS (.xlsx).")
-            else:
-                period_dir = Settings.audit_path / hospital / period_name
-                for sub in ("BASE", "STAGE", "AUDIT"):
-                    (period_dir / sub).mkdir(parents=True, exist_ok=True)
-                sihos_dest = period_dir / (f"{period_name}_SIHOS.xlsx")
-                sihos_dest.write_bytes(sihos_file.read())
-                st.success(
-                    f"Período `{period_name}` creado en `{period_dir}`"
+        # ── Hospital config form ─────────────────────────────────────────────
+        with st.expander("Editar configuración técnica", expanded=False):
+            hk = hospital  # shorthand for key suffix
+            with st.form(f"hosp_form_{hk}"):
+                f_name = st.text_input(
+                    "Nombre para mostrar", value=current.get("display_name", ""), key=f"hf_name_{hk}"
                 )
-                st.rerun()
+                f_nit = st.text_input("NIT", value=current.get("nit", ""), key=f"hf_nit_{hk}")
+                f_inv = st.text_input(
+                    "Prefijo factura (INVOICE_IDENTIFIER_PREFIX)",
+                    value=current.get("invoice_identifier_prefix", ""),
+                    key=f"hf_inv_{hk}",
+                )
+                f_url = st.text_input(
+                    "SIHOS base URL", value=current.get("sihos_base_url", ""), key=f"hf_url_{hk}"
+                )
+                f_code = st.text_input(
+                    "SIHOS doc code",
+                    value=current.get("sihos_invoice_doc_code", ""),
+                    key=f"hf_code_{hk}",
+                )
+                f_sihos_user = st.text_input(
+                    "Usuario SIHOS", value=current.get("sihos_user", ""), key=f"hf_sihos_user_{hk}"
+                )
+                f_sihos_pass = st.text_input(
+                    "Contraseña SIHOS",
+                    value=current.get("sihos_password", ""),
+                    type="password",
+                    key=f"hf_sihos_pass_{hk}",
+                )
+                if st.form_submit_button("Guardar configuración", type="primary"):
+                    repo.upsert_hospital(hospital, {
+                        "display_name":              f_name,
+                        "NIT":                       f_nit,
+                        "INVOICE_IDENTIFIER_PREFIX": f_inv,
+                        "SIHOS_BASE_URL":            f_url,
+                        "SIHOS_INVOICE_DOC_CODE":    f_code,
+                        "sihos_user":                f_sihos_user,
+                        "sihos_password":            f_sihos_pass,
+                    })
+                    st.success(f"Configuración de '{hospital}' guardada.")
+                    st.rerun()
 
-    # ── Zona de peligro: eliminar período ────────────────────────────────────
-    period = st.session_state.get("sel_period")
-    if period:
-        _render_delete_period_section(repo, hospital, period)
+        # ── Credenciales Drive ───────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        section_header("Credenciales Drive")
 
-    _render_global_sections(repo, hospital=hospital)
+        cred_path = Settings.drive_credentials_path(hospital)
+        if cred_path.exists():
+            st.markdown(
+                "<span style='color:#16A34A;font-weight:600;'>✓ drive.json configurado</span> "
+                f"&nbsp; `{cred_path}`",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<span style='color:#DC2626;font-weight:600;'>✗ No encontrado</span> "
+                f"&nbsp; `{cred_path}`",
+                unsafe_allow_html=True,
+            )
+
+        uploaded_cred = st.file_uploader(
+            "Subir drive.json (service account de Google Drive)",
+            type=["json"],
+            key=f"drive_cred_upload_{hospital}",
+        )
+        if uploaded_cred is not None:
+            cred_path.parent.mkdir(parents=True, exist_ok=True)
+            cred_path.write_bytes(uploaded_cred.read())
+            st.success(f"Credenciales guardadas en `{cred_path}`")
+            st.rerun()
+
+        # ── Nuevo período ────────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        section_header("Nuevo período")
+        st.caption(
+            "Crea la estructura de carpetas para un período y sube el reporte SIHOS. "
+            "El período aparecerá en el selector de la barra lateral. "
+            "Formato recomendado: `22-28_MARZO`"
+        )
+
+        with st.form(f"new_period_form_{hospital}"):
+            period_name = st.text_input(
+                "Nombre del período",
+                placeholder="22-28_MARZO",
+                key=f"new_period_name_{hospital}",
+            )
+            sihos_file = st.file_uploader(
+                "Reporte SIHOS (.xlsx)",
+                type=["xlsx"],
+                key=f"sihos_upload_{hospital}",
+            )
+            if st.form_submit_button("Crear período", type="primary"):
+                period_name = period_name.strip()
+                if not period_name:
+                    st.error("Ingresa un nombre de período.")
+                elif sihos_file is None:
+                    st.error("Sube el reporte SIHOS (.xlsx).")
+                else:
+                    period_dir = Settings.audit_path / hospital / period_name
+                    for sub in ("BASE", "STAGE", "AUDIT"):
+                        (period_dir / sub).mkdir(parents=True, exist_ok=True)
+                    sihos_dest = period_dir / (f"{period_name}_SIHOS.xlsx")
+                    sihos_dest.write_bytes(sihos_file.read())
+                    st.success(f"Período `{period_name}` creado en `{period_dir}`")
+                    st.rerun()
+
+        # ── Mappings admin/contrato ──────────────────────────────────────────
+        _render_mappings_section(repo, hospital)
+
+        # ── Zona de peligro: eliminar período ───────────────────────────────
+        period = st.session_state.get("sel_period")
+        if period:
+            _render_delete_period_section(repo, hospital, period)
+
+    # -----------------------------------------------------------------------
+    # Tab B: Configuración global
+    # -----------------------------------------------------------------------
+    with tab_global:
+        _render_global_sections(repo)
 
 
 def _render_delete_period_section(repo, hospital: str, period: str) -> None:
@@ -202,27 +183,6 @@ def _render_delete_period_section(repo, hospital: str, period: str) -> None:
     """
     _confirm_key = "_confirm_delete_period"
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(
-        f"""
-        <div style="
-            border: 1px solid {RED};
-            border-radius: 8px;
-            padding: 1rem 1.25rem 0.75rem;
-            background: {RED_LIGHT}22;
-        ">
-            <div style="
-                font-size: .7rem;
-                font-weight: 600;
-                letter-spacing: .08em;
-                color: {RED};
-                text-transform: uppercase;
-                margin-bottom: .5rem;
-            ">Zona de peligro</div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     pending = st.session_state.get(_confirm_key)
 
     # Stale confirmation — user switched hospital/period
@@ -230,24 +190,27 @@ def _render_delete_period_section(repo, hospital: str, period: str) -> None:
         del st.session_state[_confirm_key]
         pending = None
 
+    st.divider()
+    st.markdown(
+        f'<span style="font-size:.7rem;font-weight:700;letter-spacing:.08em;'
+        f'color:{RED};text-transform:uppercase;">⚠ Zona de peligro</span>',
+        unsafe_allow_html=True,
+    )
+
     if not pending:
-        col_info, col_btn = st.columns([4, 1])
-        col_info.caption(
+        st.caption(
             f"Elimina todas las facturas y hallazgos de **{hospital} / {period}** de la base de datos. "
             "Las carpetas físicas no se modifican. Esta acción no se puede deshacer."
         )
-        if col_btn.button("Eliminar período…", key="danger_delete_period", type="secondary"):
+        if st.button("Eliminar período…", key="danger_delete_period", type="secondary"):
             st.session_state[_confirm_key] = (hospital, period)
             st.rerun()
     else:
         invoice_count = len(repo.fetch_invoice_ids(hospital, period))
-        st.markdown(
-            f'<p style="color:{RED};font-weight:600;margin:0 0 .5rem;">¿Confirmar eliminación?</p>',
-            unsafe_allow_html=True,
-        )
-        st.caption(
-            f"Se borrarán **{invoice_count} factura(s)** y todos sus hallazgos asociados "
-            f"del hospital **{hospital}**, período **{period}**. No se puede deshacer."
+        st.warning(
+            f"Se borrarán **{invoice_count} factura(s)** y todos sus hallazgos de "
+            f"**{hospital} / {period}**. Esta acción no se puede deshacer.",
+            icon=None,
         )
         col_cancel, col_confirm = st.columns(2)
         if col_cancel.button("Cancelar", key="danger_cancel", width="stretch"):
@@ -267,82 +230,105 @@ def _render_delete_period_section(repo, hospital: str, period: str) -> None:
             st.success(f"Período **{hospital} / {period}** eliminado — {deleted} factura(s) borradas.")
             st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
 
-
-def _render_global_sections(repo, hospital: str | None = None) -> None:
-    """Render admin/contract mappings and filename fix sections.
+def _render_mappings_section(repo, hospital: str) -> None:
+    """Render admin/contract mappings for a specific hospital.
 
     Args:
         repo: AuditRepository instance.
-        hospital: Selected hospital key, or None if no hospital is selected.
+        hospital: Selected hospital key.
     """
-    # ── Admin/contract mappings ───────────────────────────────────────────────
-    if hospital:
-        st.divider()
-        section_header(f"Mappings admin/contrato — {hospital}")
+    st.divider()
+    section_header(f"Mappings admin/contrato — {hospital}")
 
-        mappings = repo.fetch_admin_contract_mappings(hospital)
-        if mappings:
-            pending = [m for m in mappings if not m["canonical_admin"]]
-            mapped  = [m for m in mappings if m["canonical_admin"]]
+    mappings = repo.fetch_admin_contract_mappings(hospital)
+    if mappings:
+        pending = [m for m in mappings if not m["canonical_admin"]]
+        mapped  = [m for m in mappings if m["canonical_admin"]]
 
-            if pending:
-                st.caption("Pares sin mapear — completa los campos canónicos:")
-                for m in pending:
-                    with st.form(f"edit_map_{m['id']}"):
-                        ec1, ec2 = st.columns(2)
-                        ec1.markdown("**Raw:** `{}` / `{}`".format(m["raw_admin"], m["raw_contract"] or "—"))
-                        ec3, ec4 = st.columns(2)
-                        new_can_a = ec3.text_input("Administradora (canónica)", key=f"can_a_{m['id']}")
-                        new_can_c = ec4.text_input("Contrato (canónico)", key=f"can_c_{m['id']}")
-                        sb1, sb2 = st.columns([3, 1])
-                        if sb1.form_submit_button("Guardar", type="primary"):
-                            repo.upsert_admin_contract_mapping(
-                                hospital,
-                                m["raw_admin"],
-                                m["raw_contract"],
-                                new_can_a or None,
-                                new_can_c or None,
-                            )
-                            st.rerun()
-                        if sb2.form_submit_button("Eliminar"):
-                            repo.delete_admin_contract_mapping(m["id"])
-                            st.rerun()
-
-            if mapped:
-                if pending:
-                    st.caption("Pares ya mapeados:")
-                for m in mapped:
-                    col_raw, col_arrow, col_can, col_del = st.columns([3, 0.5, 3, 1])
-                    col_raw.markdown("`{}` / `{}`".format(m["raw_admin"], m["raw_contract"] or "—"))
-                    col_arrow.markdown("→")
-                    can_a = m["canonical_admin"]
-                    can_c = m["canonical_contract"] or "—"
-                    col_can.markdown(f"`{can_a}` / `{can_c}`")
-                    if col_del.button("✕", key=f"del_map_{m['id']}"):
+        if pending:
+            st.caption("Pares sin mapear — completa los campos canónicos:")
+            for m in pending:
+                with st.form(f"edit_map_{m['id']}"):
+                    ec1, ec2 = st.columns(2)
+                    ec1.markdown("**Raw:** `{}` / `{}`".format(m["raw_admin"], m["raw_contract"] or "—"))
+                    ec3, ec4 = st.columns(2)
+                    new_can_a = ec3.text_input("Administradora (canónica)", key=f"can_a_{m['id']}")
+                    new_can_c = ec4.text_input("Contrato (canónico)", key=f"can_c_{m['id']}")
+                    sb1, sb2 = st.columns([3, 1])
+                    if sb1.form_submit_button("Guardar", type="primary"):
+                        repo.upsert_admin_contract_mapping(
+                            hospital,
+                            m["raw_admin"],
+                            m["raw_contract"],
+                            new_can_a or None,
+                            new_can_c or None,
+                        )
+                        st.rerun()
+                    if sb2.form_submit_button("Eliminar"):
                         repo.delete_admin_contract_mapping(m["id"])
                         st.rerun()
-        else:
-            st.caption("No hay mappings para este hospital.")
 
-        with st.expander("Agregar mapping"), st.form(f"map_form_{hospital}"):
-            mc1, mc2 = st.columns(2)
-            m_raw_a = mc1.text_input("Administradora (raw)", key="mf_raw_a")
-            m_raw_c = mc2.text_input("Contrato (raw)", key="mf_raw_c")
-            mc3, mc4 = st.columns(2)
-            m_can_a = mc3.text_input("Administradora (canónica)", key="mf_can_a")
-            m_can_c = mc4.text_input("Contrato (canónico)", key="mf_can_c")
-            if st.form_submit_button("Agregar", type="primary"):
-                repo.upsert_admin_contract_mapping(
-                    hospital, m_raw_a, m_raw_c or None, m_can_a or None, m_can_c or None,
-                )
-                st.success("Mapping agregado.")
-                st.rerun()
+        if mapped:
+            if pending:
+                st.caption("Pares ya mapeados:")
+            for m in mapped:
+                col_raw, col_arrow, col_can, col_del = st.columns([3, 0.5, 3, 1])
+                col_raw.markdown("`{}` / `{}`".format(m["raw_admin"], m["raw_contract"] or "—"))
+                col_arrow.markdown("→")
+                can_a = m["canonical_admin"]
+                can_c = m["canonical_contract"] or "—"
+                col_can.markdown(f"`{can_a}` / `{can_c}`")
+                if col_del.button("✕", key=f"del_map_{m['id']}"):
+                    repo.delete_admin_contract_mapping(m["id"])
+                    st.rerun()
+    else:
+        st.caption("No hay mappings para este hospital.")
 
-    # ── Filename prefix fixes (global) ────────────────────────────────────────
+    with st.expander("Agregar mapping"), st.form(f"map_form_{hospital}"):
+        mc1, mc2 = st.columns(2)
+        m_raw_a = mc1.text_input("Administradora (raw)", key="mf_raw_a")
+        m_raw_c = mc2.text_input("Contrato (raw)", key="mf_raw_c")
+        mc3, mc4 = st.columns(2)
+        m_can_a = mc3.text_input("Administradora (canónica)", key="mf_can_a")
+        m_can_c = mc4.text_input("Contrato (canónico)", key="mf_can_c")
+        if st.form_submit_button("Agregar", type="primary"):
+            repo.upsert_admin_contract_mapping(
+                hospital, m_raw_a, m_raw_c or None, m_can_a or None, m_can_c or None,
+            )
+            st.success("Mapping agregado.")
+            st.rerun()
+
+
+def _render_global_sections(repo) -> None:
+    """Render global configuration sections (filename fixes, doc standards, hospitals, DB).
+
+    Args:
+        repo: AuditRepository instance.
+    """
+    # ── Directorio de auditoría ───────────────────────────────────────────────
     from config.settings import Settings
 
+    section_header("Directorio de auditoría")
+    st.caption(
+        "Ruta raíz donde se almacenan las carpetas de cada hospital y período "
+        "(BASE, STAGE, AUDIT y reportes SIHOS). La base de datos y las "
+        "credenciales de Drive se guardan aparte en `~/.medical-audit/`."
+    )
+    with st.form("audit_path_form"):
+        new_audit_path = st.text_input(
+            "Directorio de auditoría",
+            value=str(Settings.audit_path),
+            label_visibility="collapsed",
+            placeholder="C:/Auditorias",
+        )
+        if st.form_submit_button("Guardar", type="primary"):
+            p = Path(new_audit_path.strip())
+            Settings.save_audit_path(p)
+            st.success(f"Directorio guardado: `{p}`")
+            st.rerun()
+
+    # ── Filename prefix fixes (global) ────────────────────────────────────────
     st.divider()
     section_header("Correcciones de prefijos de archivo")
     st.caption(
@@ -430,8 +416,7 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
     st.divider()
     section_header("Base de datos")
 
-    from config.settings import Settings as _Settings
-    db = Path(_Settings.db_path)
+    db = Path(Settings.db_path)
     if db.exists():
         size_kb = db.stat().st_size / 1024
         st.markdown(f"**Ruta** &nbsp; `{db}`", unsafe_allow_html=True)
@@ -439,7 +424,7 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
     else:
         st.caption("Base de datos aún no creada.")
 
-    backup_dir = Path(_Settings.backup_dir)
+    backup_dir = Path(Settings.backup_dir)
     backups = sorted(backup_dir.glob("audit_*.db")) if backup_dir.exists() else []
     if backups:
         latest = backups[-1]
@@ -451,7 +436,7 @@ def _render_global_sections(repo, hospital: str | None = None) -> None:
     else:
         st.caption("Sin backups. Ejecuta cualquier etapa del pipeline para crear uno.")
 
-    log_file = Path(_Settings.logs_dir) / "app.log"
+    log_file = Path(Settings.logs_dir) / "app.log"
     st.markdown("<br>", unsafe_allow_html=True)
     section_header("Logs")
     if log_file.exists():

@@ -56,37 +56,37 @@ class _LiveLogHandler(logging.Handler):
 # ---------------------------------------------------------------------------
 
 _STAGE_LABELS: dict[str, str] = {
-    "LOAD_AND_PROCESS":              "Load and process SIHOS report",
-    "DOWNLOAD_DRIVE":                "Download missing folders from Drive → STAGE",
-    "RUN_STAGING":                   "Copy invoice folders from BASE to STAGE",
-    "DOWNLOAD_INVOICES_FROM_SIHOS":  "Download invoices from SIHOS portal",
-    "ORGANIZE":                      "Organise invoice folders",
-    "NORMALIZE_FILES":               "Normalise files (delete non-PDFs, rename)",
-    "CHECK_FOLDERS_WITH_EXTRA_TEXT": "Detect folders with extra text in name",
-    "NORMALIZE_DIR_NAMES":           "Rename malformed directory names",
+    "LOAD_AND_PROCESS":              "Cargar y procesar reporte SIHOS",
+    "DOWNLOAD_DRIVE":                "Descargar carpetas faltantes desde Drive → STAGE",
+    "RUN_STAGING":                   "Copiar carpetas de facturas de BASE a STAGE",
+    "DOWNLOAD_INVOICES_FROM_SIHOS":  "Descargar facturas del portal SIHOS",
+    "ORGANIZE":                      "Organizar carpetas de facturas",
+    "NORMALIZE_FILES":               "Normalizar archivos (eliminar no-PDFs, renombrar)",
+    "CHECK_FOLDERS_WITH_EXTRA_TEXT": "Detectar carpetas con texto extra en el nombre",
+    "NORMALIZE_DIR_NAMES":           "Renombrar directorios con nombre malformado",
     "LIST_UNREADABLE_PDFS":          "Listar facturas sin texto extraíble",
     "DELETE_UNREADABLE_PDFS":        "Eliminar facturas sin texto extraíble",
     "CATEGORIZE_INVOICES":           "Categorizar facturas por tipo",
     "VERIFY_CUFE":                   "Verificar CUFE en facturas",
-    "CHECK_INVOICE_NUMBER_ON_FILES": "Verify invoice number on files",
-    "CHECK_INVOICES":                "Apply OCR to invoices",
-    "CHECK_INVALID_FILES":           "Detect unreadable PDF files",
-    "CHECK_FOUR_MAIN_FILES":         "Verify four mandatory document types",
-    "CHECK_DIRS":                    "Detect missing directories",
+    "CHECK_INVOICE_NUMBER_ON_FILES": "Verificar número de factura en archivos",
+    "CHECK_INVOICES":                "Aplicar OCR a facturas",
+    "CHECK_INVALID_FILES":           "Detectar archivos PDF ilegibles",
+    "CHECK_FOUR_MAIN_FILES":         "Verificar cuatro tipos de documento obligatorios",
+    "CHECK_DIRS":                    "Detectar directorios faltantes",
 }
 
 _STAGE_GROUPS: list[tuple[str, list[str]]] = [
-    ("Ingestion", [
+    ("Ingesta", [
         "LOAD_AND_PROCESS",
     ]),
-    ("Download", [
+    ("Descarga", [
         "DOWNLOAD_DRIVE",
         "RUN_STAGING",
     ]),
-    ("Organisation", [
+    ("Organización", [
         "ORGANIZE",
     ]),
-    ("Normalisation", [
+    ("Normalización", [
         "NORMALIZE_FILES",
         "CHECK_FOLDERS_WITH_EXTRA_TEXT",
         "NORMALIZE_DIR_NAMES",
@@ -99,7 +99,7 @@ _STAGE_GROUPS: list[tuple[str, list[str]]] = [
         "VERIFY_CUFE",
         "CHECK_INVOICE_NUMBER_ON_FILES",
     ]),
-    ("Verification", [
+    ("Verificación", [
         "CHECK_INVOICES",
         "CHECK_INVALID_FILES",
         "CHECK_FOUR_MAIN_FILES",
@@ -617,17 +617,17 @@ def render(config_error: str | None) -> None:
     if selected:
         joined = ", ".join(_STAGE_LABELS[k] for k in selected)
         st.markdown(
-            f'<div class="run-summary"><b>{len(selected)} stage(s) selected:</b> {joined}</div>',
+            f'<div class="run-summary"><b>{len(selected)} etapa(s) seleccionada(s):</b> {joined}</div>',
             unsafe_allow_html=True,
         )
     else:
-        st.caption("No stages selected.")
+        st.caption("Ninguna etapa seleccionada.")
 
     run_col, cancel_col, _ = st.columns([1.5, 1.5, 4])
     run_btn = run_col.button(
-        "Run pipeline", type="primary", disabled=not selected or bool(_pipe[_PIPE_RUNNING])
+        "Ejecutar pipeline", type="primary", disabled=not selected or bool(_pipe[_PIPE_RUNNING])
     )
-    cancel_btn = cancel_col.button("Cancel", disabled=not _pipe[_PIPE_RUNNING])
+    cancel_btn = cancel_col.button("Cancelar", disabled=not _pipe[_PIPE_RUNNING])
 
     if cancel_btn:
         _cancel_event.set()
@@ -638,12 +638,12 @@ def render(config_error: str | None) -> None:
     if _pipe[_PIPE_RUNNING]:
         status_slot = st.empty()
         status_slot.markdown(
-            '<div class="status-bar info">Running — please wait…</div>',
+            '<div class="status-bar info">Ejecutando — por favor espera…</div>',
             unsafe_allow_html=True,
         )
-        section_header("Pipeline output")
+        section_header("Salida del pipeline")
         live_slot = st.empty()
-        live_slot.code(_pipe[_PIPE_LOG] or "Starting…", language=None)
+        live_slot.code(_pipe[_PIPE_LOG] or "Iniciando…", language=None)
         time.sleep(0.4)
         st.rerun()
 
@@ -655,20 +655,20 @@ def render(config_error: str | None) -> None:
         cancelled = "cancelled by user" in log_text
         if cancelled:
             st.markdown(
-                '<div class="status-bar info">Pipeline cancelled.</div>',
+                '<div class="status-bar info">Pipeline cancelado.</div>',
                 unsafe_allow_html=True,
             )
         elif has_error:
             st.markdown(
-                '<div class="status-bar error">Pipeline finished with errors. See log below.</div>',
+                '<div class="status-bar error">El pipeline terminó con errores. Ver log a continuación.</div>',
                 unsafe_allow_html=True,
             )
         else:
             st.markdown(
-                '<div class="status-bar success">Pipeline completed successfully.</div>',
+                '<div class="status-bar success">Pipeline completado exitosamente.</div>',
                 unsafe_allow_html=True,
             )
-        section_header("Pipeline output")
+        section_header("Salida del pipeline")
         log_viewer(log_text)
 
     # ── Launch pipeline in background thread ─────────────────────────────────
