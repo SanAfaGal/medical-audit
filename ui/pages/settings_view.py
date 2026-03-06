@@ -103,7 +103,7 @@ def render(config_error: str | None) -> None:
             )
             f_ds = st.text_area(
                 "DOCUMENT_STANDARDS (JSON)",
-                value=current.get("document_standards", "{}"),
+                value=json.dumps(Settings.get_document_standards(hospital), indent=2),
                 height=140,
                 key=f"hf_ds_{h}",
             )
@@ -121,8 +121,8 @@ def render(config_error: str | None) -> None:
                         "SIHOS_INVOICE_DOC_CODE":    f_code,
                         "sihos_user":                f_sihos_user,
                         "sihos_password":            f_sihos_pass,
-                        "DOCUMENT_STANDARDS":        ds,
                     })
+                    Settings.set_document_standards(hospital, ds)
                     st.success(f"Configuración de '{hospital}' guardada.")
                     st.rerun()
 

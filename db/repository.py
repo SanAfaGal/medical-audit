@@ -1,6 +1,5 @@
 """SQLite-backed repository for audit findings per invoice."""
 
-import json
 import logging
 import shutil
 import sqlite3
@@ -435,9 +434,9 @@ class AuditRepository:
                     """
                     INSERT OR IGNORE INTO hospitals
                         (key, display_name, nit, invoice_identifier_prefix,
-                         sihos_base_url, sihos_invoice_doc_code, document_standards,
+                         sihos_base_url, sihos_invoice_doc_code,
                          sihos_user, sihos_password, drive_credentials_path, base_path)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         key,
@@ -446,7 +445,6 @@ class AuditRepository:
                         cfg.get("INVOICE_IDENTIFIER_PREFIX", ""),
                         cfg.get("SIHOS_BASE_URL", ""),
                         cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
-                        json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
                         "",
                         "",
                         "",
@@ -473,7 +471,7 @@ class AuditRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT key, display_name, nit, invoice_identifier_prefix, "
-                "sihos_base_url, sihos_invoice_doc_code, document_standards, "
+                "sihos_base_url, sihos_invoice_doc_code, "
                 "sihos_user, sihos_password, drive_credentials_path, base_path "
                 "FROM hospitals ORDER BY key"
             ).fetchall()
@@ -495,12 +493,13 @@ class AuditRepository:
             ).fetchone()
         if row is None:
             return {}
+        from config.settings import Settings
         return {
             "NIT": row["nit"],
             "INVOICE_IDENTIFIER_PREFIX": row["invoice_identifier_prefix"],
             "SIHOS_BASE_URL": row["sihos_base_url"],
             "SIHOS_INVOICE_DOC_CODE": row["sihos_invoice_doc_code"],
-            "DOCUMENT_STANDARDS": json.loads(row["document_standards"]),
+            "DOCUMENT_STANDARDS": Settings.get_document_standards(key),
             "sihos_user": row["sihos_user"],
             "sihos_password": row["sihos_password"],
             "drive_credentials_path": row["drive_credentials_path"],
@@ -543,16 +542,15 @@ class AuditRepository:
                 """
                 INSERT INTO hospitals
                     (key, display_name, nit, invoice_identifier_prefix,
-                     sihos_base_url, sihos_invoice_doc_code, document_standards,
+                     sihos_base_url, sihos_invoice_doc_code,
                      sihos_user, sihos_password, drive_credentials_path, base_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
                     display_name              = excluded.display_name,
                     nit                       = excluded.nit,
                     invoice_identifier_prefix = excluded.invoice_identifier_prefix,
                     sihos_base_url            = excluded.sihos_base_url,
                     sihos_invoice_doc_code    = excluded.sihos_invoice_doc_code,
-                    document_standards        = excluded.document_standards,
                     sihos_user                = excluded.sihos_user,
                     sihos_password            = excluded.sihos_password,
                     drive_credentials_path    = excluded.drive_credentials_path,
@@ -565,7 +563,6 @@ class AuditRepository:
                     cfg.get("INVOICE_IDENTIFIER_PREFIX", ""),
                     cfg.get("SIHOS_BASE_URL", ""),
                     cfg.get("SIHOS_INVOICE_DOC_CODE", ""),
-                    json.dumps(cfg.get("DOCUMENT_STANDARDS", {})),
                     cfg.get("sihos_user", ""),
                     cfg.get("sihos_password", ""),
                     cfg.get("drive_credentials_path", ""),

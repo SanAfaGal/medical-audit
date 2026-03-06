@@ -83,7 +83,6 @@ CREATE TABLE IF NOT EXISTS hospitals (
     invoice_identifier_prefix TEXT NOT NULL DEFAULT '',
     sihos_base_url            TEXT NOT NULL DEFAULT '',
     sihos_invoice_doc_code    TEXT NOT NULL DEFAULT '',
-    document_standards        TEXT NOT NULL DEFAULT '{}',
     misnamed_fixer_map        TEXT NOT NULL DEFAULT '{}',
     sihos_user                TEXT NOT NULL DEFAULT '',
     sihos_password            TEXT NOT NULL DEFAULT '',
