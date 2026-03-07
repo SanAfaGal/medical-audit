@@ -67,4 +67,29 @@ CREATE TABLE IF NOT EXISTS audit_findings (
 CREATE INDEX IF NOT EXISTS idx_findings_invoice
     ON audit_findings(invoice_id);
 
+CREATE TABLE IF NOT EXISTS document_types (
+    id         INTEGER PRIMARY KEY,
+    code       TEXT UNIQUE NOT NULL,
+    label      TEXT NOT NULL,
+    prefixes   TEXT NOT NULL DEFAULT '[]',
+    is_active  INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS invoice_types (
+    id            INTEGER PRIMARY KEY,
+    code          TEXT UNIQUE NOT NULL,
+    display_name  TEXT NOT NULL,
+    keywords      TEXT NOT NULL DEFAULT '[]',
+    required_docs TEXT NOT NULL DEFAULT '[]',
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    is_active     INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS folder_statuses (
+    id         INTEGER PRIMARY KEY,
+    code       TEXT UNIQUE NOT NULL,
+    label      TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 """

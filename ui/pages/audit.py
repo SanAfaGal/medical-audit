@@ -63,7 +63,6 @@ def render(config_error: str | None) -> None:
         return
 
     from config.settings import Settings
-    from db.constants import FINDING_LABELS, FindingCode, FolderStatus, InvoiceType
     from db.repository import AuditRepository
 
     db_path = Settings.db_path
@@ -76,6 +75,12 @@ def render(config_error: str | None) -> None:
         return
 
     repo = AuditRepository(db_path)
+
+    # Load dynamic lookup tables from DB
+    doc_labels   = repo.fetch_document_labels()      # {code: label}
+    inv_types_db = repo.fetch_invoice_types()         # list[dict]
+    folder_stats = repo.fetch_folder_statuses()       # list[dict]
+    all_doc_codes = [dt["code"] for dt in repo.fetch_document_types() if dt["is_active"]]
 
     hospital = st.session_state.get("sel_hospital")
     period   = st.session_state.get("sel_period")
@@ -95,7 +100,7 @@ def render(config_error: str | None) -> None:
     with_findings = int((df["Comentario"] != "").sum())
     clean         = total - with_findings
     pct_clean     = int(clean / total * 100) if total else 0
-    missing_count = int((df["Estado carpeta"] == FolderStatus.MISSING).sum())
+    missing_count = int((df["Estado carpeta"] == "FALTANTE").sum())
 
     m1, m2, m3, m4, m5 = st.columns(5)
     with m1:
@@ -168,8 +173,8 @@ def render(config_error: str | None) -> None:
                 st.dataframe(finding_counts, hide_index=True, width="stretch")
 
     # --- Filters ---
-    tipo_options   = ["Todos"] + sorted(InvoiceType)
-    estado_options = ["Todos"] + sorted(FolderStatus)
+    tipo_options   = ["Todos"] + [it["code"] for it in inv_types_db]
+    estado_options = ["Todos"] + [fs["code"] for fs in folder_stats]
 
     f1, f2, f3, *_ = st.columns([2, 2, 2, 2])
     tipo_filter    = f1.selectbox("Tipo de factura", tipo_options, key="tipo_filter")
@@ -182,7 +187,7 @@ def render(config_error: str | None) -> None:
 
     display_df = df.copy()
     if tipo_filter != "Todos":
-        display_df = display_df[display_df["Tipo"] == tipo_filter]
+        display_df = display_df[display_df["Tipo"].str.contains(tipo_filter, regex=False, na=False)]
     if estado_filter != "Todos":
         display_df = display_df[display_df["Estado carpeta"] == estado_filter]
     if hallazgo_search:
@@ -235,8 +240,9 @@ def render(config_error: str | None) -> None:
             st.rerun()
 
     with st.expander("Estado de carpeta en lote"):
-        raw_fs   = st.text_area("Facturas (una por línea)", key="batch_fs_list", height=120)
-        nuevo_fs = st.selectbox("Nuevo estado", sorted(set(FolderStatus)), key="batch_fs_val")
+        raw_fs      = st.text_area("Facturas (una por línea)", key="batch_fs_list", height=120)
+        status_opts = [fs["code"] for fs in folder_stats]
+        nuevo_fs    = st.selectbox("Nuevo estado", status_opts, key="batch_fs_val")
         if st.button("Aplicar estado", key="btn_batch_fs", type="primary"):
             _apply_batch(
                 raw_fs,
@@ -248,41 +254,50 @@ def render(config_error: str | None) -> None:
         raw_hf   = st.text_area("Facturas (una por línea)", key="batch_hf_list", height=120)
         nuevo_hf = st.selectbox(
             "Tipo de hallazgo",
-            sorted(FindingCode),
-            format_func=lambda c: FINDING_LABELS.get(c, c),
+            all_doc_codes,
+            format_func=lambda c: doc_labels.get(c, c),
             key="batch_hf_val",
         )
         if st.button("Agregar hallazgo", key="btn_batch_hf", type="primary"):
             _apply_batch(
                 raw_hf,
                 lambda f: repo.record_finding(hospital, period, f, nuevo_hf),
-                f"Hallazgo '{FINDING_LABELS.get(nuevo_hf, nuevo_hf)}'",
+                f"Hallazgo '{doc_labels.get(nuevo_hf, nuevo_hf)}'",
             )
 
     with st.expander("Eliminar hallazgos en lote"):
         raw_del_hf = st.text_area("Facturas (una por línea)", key="batch_del_hf_list", height=120)
         del_hf     = st.selectbox(
             "Hallazgo a eliminar",
-            sorted(FindingCode),
-            format_func=lambda c: FINDING_LABELS.get(c, c),
+            all_doc_codes,
+            format_func=lambda c: doc_labels.get(c, c),
             key="batch_del_hf_val",
         )
         if st.button("Eliminar hallazgo", key="btn_batch_del_hf", type="primary"):
             _apply_batch(
                 raw_del_hf,
                 lambda f: repo.delete_finding(hospital, period, f, del_hf),
-                f"Hallazgo '{FINDING_LABELS.get(del_hf, del_hf)}' eliminado",
+                f"Hallazgo '{doc_labels.get(del_hf, del_hf)}' eliminado",
             )
 
     with st.expander("Tipo de factura en lote"):
         raw_tp   = st.text_area("Facturas (una por línea)", key="batch_tp_list", height=120)
-        nuevo_tp = st.selectbox("Nuevo tipo", sorted(InvoiceType), key="batch_tp_val")
-        if st.button("Aplicar tipo", key="btn_batch_tp", type="primary"):
-            _apply_batch(
-                raw_tp,
-                lambda f: repo.update_tipo(hospital, period, f, nuevo_tp),
-                f"Tipo '{nuevo_tp}'",
-            )
+        tipo_opts = [it["code"] for it in inv_types_db]
+        nuevos_tp = st.multiselect(
+            "Tipos de factura",
+            tipo_opts,
+            format_func=lambda c: next((it["display_name"] for it in inv_types_db if it["code"] == c), c),
+            key="batch_tp_val",
+        )
+        if st.button("Aplicar tipos", key="btn_batch_tp", type="primary"):
+            if not nuevos_tp:
+                st.warning("Selecciona al menos un tipo.")
+            else:
+                _apply_batch(
+                    raw_tp,
+                    lambda f: repo.set_tipos(hospital, period, f, nuevos_tp),
+                    f"Tipos {nuevos_tp}",
+                )
 
     st.divider()
 
@@ -306,7 +321,7 @@ def render(config_error: str | None) -> None:
             if findings:
                 st.markdown("**Archivos faltantes:**")
                 cards_html = "".join(
-                    finding_row(FINDING_LABELS.get(ft, ft)) for ft in findings
+                    finding_row(doc_labels.get(ft, ft)) for ft in findings
                 )
                 st.markdown(cards_html, unsafe_allow_html=True)
             else:
@@ -329,21 +344,20 @@ def render(config_error: str | None) -> None:
 
     with action_col:
         if invoice_id and invoice_id in df.index:
-            findings = repo.fetch_findings(hospital, period, invoice_id)
-            all_finding_codes = sorted(FindingCode)
-            existing_types    = findings
+            findings       = repo.fetch_findings(hospital, period, invoice_id)
+            existing_types = findings
 
             action = st.radio(
                 "Acción",
-                ["Agregar hallazgo", "Eliminar hallazgo", "Cambiar tipo"],
+                ["Agregar hallazgo", "Eliminar hallazgo", "Cambiar tipos"],
                 horizontal=False,
             )
 
             if action == "Agregar hallazgo":
                 ft_add = st.selectbox(
                     "Tipo de documento faltante",
-                    all_finding_codes,
-                    format_func=lambda c: FINDING_LABELS.get(c, c),
+                    all_doc_codes,
+                    format_func=lambda c: doc_labels.get(c, c),
                     key="add_ft",
                 )
                 if st.button("Agregar", type="primary", key="btn_add", width="stretch"):
@@ -355,7 +369,7 @@ def render(config_error: str | None) -> None:
                 ft_del = st.selectbox(
                     "Hallazgo a eliminar",
                     existing_types,
-                    format_func=lambda c: FINDING_LABELS.get(c, c),
+                    format_func=lambda c: doc_labels.get(c, c),
                     key="del_ft",
                 )
                 if st.button("Eliminar", type="primary", key="btn_del", width="stretch"):
@@ -363,15 +377,21 @@ def render(config_error: str | None) -> None:
                     st.success("Hallazgo eliminado.")
                     st.rerun()
 
-            elif action == "Cambiar tipo":
-                current_tipo = df.at[invoice_id, "Tipo"]
-                all_tipos = sorted(InvoiceType)
-                cur_tipo_idx = all_tipos.index(current_tipo) if current_tipo in all_tipos else 0
-                new_tipo = st.selectbox("Tipo de factura", all_tipos, index=cur_tipo_idx, key="change_tipo")
-                st.caption("Establece el tipo **SOAT** para excluir esta factura de la verificación de documentos.")
+            elif action == "Cambiar tipos":
+                current_tipos_str = df.at[invoice_id, "Tipo"]
+                current_tipos = [t.strip() for t in current_tipos_str.split(",") if t.strip()]
+                tipo_opts     = [it["code"] for it in inv_types_db]
+                new_tipos = st.multiselect(
+                    "Tipos de factura",
+                    tipo_opts,
+                    default=[t for t in current_tipos if t in tipo_opts],
+                    format_func=lambda c: next((it["display_name"] for it in inv_types_db if it["code"] == c), c),
+                    key="change_tipo",
+                )
+                st.caption("Selecciona **SOAT** para excluir esta factura de la verificación de documentos.")
                 if st.button("Aplicar", type="primary", key="btn_tipo", width="stretch"):
-                    repo.update_tipo(hospital, period, invoice_id, new_tipo)
-                    st.success(f"Tipo actualizado a {new_tipo}.")
+                    repo.set_tipos(hospital, period, invoice_id, new_tipos or ["GENERAL"])
+                    st.success(f"Tipos actualizados: {new_tipos or ['GENERAL']}")
                     st.rerun()
 
             elif not existing_types and action == "Eliminar hallazgo":

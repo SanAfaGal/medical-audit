@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
 import streamlit as st
 
+from ui.pages._settings_rules_view import (
+    render_document_types,
+    render_folder_statuses,
+    render_invoice_types,
+)
 from ui.theme import RED, RED_LIGHT
 from ui.widgets import section_header
 
@@ -361,30 +365,13 @@ def _render_global_sections(repo) -> None:
                 st.success(f"Corrección '{f_wrong.upper()} → {f_correct.upper()}' guardada.")
                 st.rerun()
 
-    # ── Document standards (global) ───────────────────────────────────────────
+    # ── Tipos de documento, factura y estado de carpeta ──────────────────────
     st.divider()
-    section_header("Estándares de documentos")
-    st.caption(
-        "Mapeo global de tipos de documento a prefijos de archivo. "
-        "Aplica a todos los hospitales. Edita el JSON y guarda."
-    )
-    with st.form("ds_form"):
-        f_ds = st.text_area(
-            "DOCUMENT_STANDARDS (JSON)",
-            value=json.dumps(Settings.document_standards, indent=2),
-            height=200,
-            key="global_ds",
-            label_visibility="collapsed",
-        )
-        if st.form_submit_button("Guardar estándares", type="primary"):
-            try:
-                ds = json.loads(f_ds)
-            except json.JSONDecodeError as exc:
-                st.error(f"JSON inválido: {exc}")
-            else:
-                Settings.save_document_standards(ds)
-                st.success("Estándares guardados.")
-                st.rerun()
+    render_document_types(repo)
+    st.divider()
+    render_invoice_types(repo)
+    st.divider()
+    render_folder_statuses(repo)
 
     # ── Gestión de hospitales ─────────────────────────────────────────────────
     st.divider()

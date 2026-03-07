@@ -1,5 +1,6 @@
 """SQLite-backed repository for audit findings per invoice."""
 
+import json
 import logging
 import shutil
 import sqlite3
@@ -8,7 +9,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from db.constants import FINDING_LABELS, FindingCode, FolderStatus, InvoiceType
+from db.constants import (
+    DEFAULT_DOCUMENT_TYPES,
+    DEFAULT_FOLDER_STATUSES,
+    DEFAULT_INVOICE_TYPES,
+    FINDING_LABELS,
+    FINDING_CODE_MIGRATION,
+    FindingCode,
+    FolderStatus,
+    InvoiceType,
+)
+from db.rules_repository import RulesRepositoryMixin
 from db.schema import SCHEMA_DDL
 
 logger = logging.getLogger(__name__)
@@ -16,7 +27,7 @@ logger = logging.getLogger(__name__)
 _COMMENT_SEPARATOR = "; "
 
 
-class AuditRepository:
+class AuditRepository(RulesRepositoryMixin):
     """SQLite-backed store for audit findings per invoice folder.
 
     One row in ``audit_findings`` represents one missing document type for a
@@ -87,8 +98,81 @@ class AuditRepository:
                 except sqlite3.OperationalError as exc:
                     if "duplicate column name" not in str(exc).lower():
                         raise
+
+            # Migrate finding_type from MISSING_* format to clean document codes
+            cases = " ".join(
+                f"WHEN '{old}' THEN '{new}'"
+                for old, new in FINDING_CODE_MIGRATION.items()
+            )
+            conn.execute(
+                f"UPDATE audit_findings SET finding_type = CASE finding_type {cases} "
+                "ELSE finding_type END WHERE finding_type LIKE 'MISSING_%'"
+            )
+
+            # Migrate invoices.tipo from plain string to JSON array
+            conn.execute(
+                "UPDATE invoices SET tipo = json_array(tipo) WHERE tipo NOT LIKE '[%'"
+            )
+
         # Seed hospital config from hardcoded dicts if tables are empty
         self._seed_hospitals_if_empty()
+        # Seed dynamic rules tables if empty
+        self._seed_dynamic_tables_if_empty()
+
+    def _seed_dynamic_tables_if_empty(self) -> None:
+        """Populate document_types, invoice_types, folder_statuses from defaults if empty.
+
+        Also reads existing DOCUMENT_STANDARDS from config.json and merges into
+        document_types so that user-configured prefixes are not lost.
+        """
+        with self._connect() as conn:
+            if conn.execute("SELECT COUNT(*) FROM document_types").fetchone()[0] == 0:
+                # Try to load user's existing prefixes from config.json
+                existing_prefixes: dict = {}
+                try:
+                    from config.settings import Settings
+                    existing_prefixes = dict(Settings.document_standards)
+                except Exception:
+                    pass
+
+                for dt in DEFAULT_DOCUMENT_TYPES:
+                    # Prefer user-configured prefixes over defaults
+                    raw = existing_prefixes.get(dt["code"])
+                    if raw is not None:
+                        prefixes = raw if isinstance(raw, list) else [raw]
+                    else:
+                        prefixes = dt["prefixes"]
+                    conn.execute(
+                        "INSERT OR IGNORE INTO document_types (code, label, prefixes, is_active) "
+                        "VALUES (?, ?, ?, 1)",
+                        (dt["code"], dt["label"], json.dumps(prefixes)),
+                    )
+                logger.info("Seeded document_types from defaults")
+
+            if conn.execute("SELECT COUNT(*) FROM invoice_types").fetchone()[0] == 0:
+                for it in DEFAULT_INVOICE_TYPES:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO invoice_types "
+                        "(code, display_name, keywords, required_docs, sort_order, is_active) "
+                        "VALUES (?, ?, ?, ?, ?, 1)",
+                        (
+                            it["code"],
+                            it["display_name"],
+                            json.dumps(it["keywords"]),
+                            json.dumps(it["required_docs"]),
+                            it["sort_order"],
+                        ),
+                    )
+                logger.info("Seeded invoice_types from defaults")
+
+            if conn.execute("SELECT COUNT(*) FROM folder_statuses").fetchone()[0] == 0:
+                for fs in DEFAULT_FOLDER_STATUSES:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO folder_statuses (code, label, sort_order) "
+                        "VALUES (?, ?, ?)",
+                        (fs["code"], fs["label"], fs["sort_order"]),
+                    )
+                logger.info("Seeded folder_statuses from defaults")
 
     # ------------------------------------------------------------------
     # Invoice loading
@@ -172,9 +256,6 @@ class AuditRepository:
         Raises:
             ValueError: If ``finding_type`` is not recognised.
         """
-        if finding_type not in set(FindingCode):
-            raise ValueError(f"Unknown finding_type: {finding_type}")
-
         with self._connect() as conn:
             conn.execute(
                 """
@@ -269,37 +350,95 @@ class AuditRepository:
             ).fetchall()
         return [r["factura"] for r in rows]
 
-    def update_tipo(
-        self, hospital: str, period: str, factura: str, tipo: str
-    ) -> None:
-        """Set the invoice type for a single invoice.
+    def fetch_tipos(self, hospital: str, period: str, factura: str) -> list[str]:
+        """Return the list of invoice types assigned to a single invoice.
 
         Args:
             hospital: Hospital key.
             period: Audit period string.
             factura: Invoice identifier.
-            tipo: One of the ``InvoiceType`` constants.
 
-        Raises:
-            ValueError: If ``tipo`` is not a recognised constant.
+        Returns:
+            List of invoice type codes, e.g. ``["URGENCIAS", "AMBULANCIA"]``.
         """
-        if tipo not in set(InvoiceType):
-            raise ValueError(f"Unknown tipo: {tipo}")
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE invoices SET tipo = ? WHERE hospital = ? AND period = ? AND factura = ?",
-                (tipo, hospital, period, factura),
-            )
+            row = conn.execute(
+                "SELECT tipo FROM invoices WHERE hospital = ? AND period = ? AND factura = ?",
+                (hospital, period, factura),
+            ).fetchone()
+        if row is None:
+            return ["GENERAL"]
+        raw = row["tipo"] or '["GENERAL"]'
+        try:
+            tipos = json.loads(raw) if raw.startswith("[") else [raw]
+        except (ValueError, TypeError):
+            tipos = [raw]
+        return tipos or ["GENERAL"]
 
-    def fetch_by_tipo(
-        self, hospital: str, period: str, tipos: str | list[str]
-    ) -> list[str]:
-        """Return invoice IDs whose tipo matches the given value(s).
+    def set_tipos(
+        self, hospital: str, period: str, factura: str, tipos: list[str]
+    ) -> None:
+        """Replace all invoice types for a single invoice.
 
         Args:
             hospital: Hospital key.
             period: Audit period string.
-            tipos: A single ``InvoiceType`` constant or a list of them.
+            factura: Invoice identifier.
+            tipos: New list of invoice type codes.
+        """
+        if not tipos:
+            tipos = ["GENERAL"]
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE invoices SET tipo = ? WHERE hospital = ? AND period = ? AND factura = ?",
+                (json.dumps(tipos), hospital, period, factura),
+            )
+
+    def add_tipo(
+        self, hospital: str, period: str, factura: str, tipo: str
+    ) -> None:
+        """Append an invoice type to a single invoice (multi-type support).
+
+        Idempotent — no-op if the type is already present.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            factura: Invoice identifier.
+            tipo: Invoice type code to add.
+        """
+        current = self.fetch_tipos(hospital, period, factura)
+        if tipo not in current:
+            # Remove GENERAL placeholder when a real type is added
+            updated = [t for t in current if t != "GENERAL"] + [tipo]
+            self.set_tipos(hospital, period, factura, updated)
+
+    def update_tipo(
+        self, hospital: str, period: str, factura: str, tipo: str
+    ) -> None:
+        """Set a single invoice type, replacing any existing types.
+
+        Deprecated: prefer ``set_tipos`` or ``add_tipo`` for multi-type support.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            factura: Invoice identifier.
+            tipo: Invoice type code.
+        """
+        self.set_tipos(hospital, period, factura, [tipo])
+
+    def fetch_by_tipo(
+        self, hospital: str, period: str, tipos: str | list[str]
+    ) -> list[str]:
+        """Return invoice IDs that have at least one of the given types.
+
+        Supports the multi-type JSON array format stored in ``invoices.tipo``.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+            tipos: A single invoice type code or a list of codes.
 
         Returns:
             Sorted list of factura identifiers.
@@ -310,8 +449,11 @@ class AuditRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
-                SELECT factura FROM invoices
-                WHERE hospital = ? AND period = ? AND tipo IN ({placeholders})
+                SELECT DISTINCT factura FROM invoices
+                WHERE hospital = ? AND period = ?
+                AND EXISTS (
+                    SELECT 1 FROM json_each(tipo) WHERE value IN ({placeholders})
+                )
                 ORDER BY factura
                 """,
                 [hospital, period, *tipos],
@@ -335,8 +477,6 @@ class AuditRepository:
         Raises:
             ValueError: If ``status`` is not a recognised constant.
         """
-        if status not in set(FolderStatus):
-            raise ValueError(f"Unknown folder_status: {status}")
         if not facturas:
             return 0
         with self._connect() as conn:
@@ -364,8 +504,6 @@ class AuditRepository:
         Raises:
             ValueError: If ``status`` is not a recognised constant.
         """
-        if status not in set(FolderStatus):
-            raise ValueError(f"Unknown folder_status: {status}")
         with self._connect() as conn:
             conn.execute(
                 "UPDATE invoices SET folder_status = ? WHERE hospital = ? AND period = ? AND factura = ?",
@@ -522,13 +660,12 @@ class AuditRepository:
             ).fetchone()
         if row is None:
             return {}
-        from config.settings import Settings
         return {
             "NIT": row["nit"],
             "INVOICE_IDENTIFIER_PREFIX": row["invoice_identifier_prefix"],
             "SIHOS_BASE_URL": row["sihos_base_url"],
             "SIHOS_INVOICE_DOC_CODE": row["sihos_invoice_doc_code"],
-            "DOCUMENT_STANDARDS": Settings.document_standards,
+            "DOCUMENT_STANDARDS": self._build_document_standards(),
             "sihos_user": row["sihos_user"],
             "sihos_password": row["sihos_password"],
         }
@@ -799,6 +936,9 @@ class AuditRepository:
         for row in finding_rows:
             findings_index.setdefault(row["factura"], []).append(row["finding_type"])
 
+        # Build label lookup from DB (falls back to old FINDING_LABELS for unknown codes)
+        doc_labels = self.fetch_document_labels()
+
         records = []
         for inv in invoice_rows:
             factura = inv["factura"]
@@ -806,11 +946,18 @@ class AuditRepository:
 
             comment_parts = []
             for ft in finding_types:
-                label = FINDING_LABELS.get(ft)
+                label = doc_labels.get(ft) or FINDING_LABELS.get(ft)
                 if label is None:
                     logger.warning("Unknown finding_type in DB: %s", ft)
                     label = ft
                 comment_parts.append(label)
+
+            # Parse tipo from JSON array
+            tipo_raw = inv["tipo"] or '["GENERAL"]'
+            try:
+                tipos = json.loads(tipo_raw) if tipo_raw.startswith("[") else [tipo_raw]
+            except (ValueError, TypeError):
+                tipos = [tipo_raw]
 
             records.append(
                 {
@@ -822,7 +969,7 @@ class AuditRepository:
                     "Administradora": inv["administradora"],
                     "Contrato": inv["contrato"],
                     "Operario": inv["operario"],
-                    "Tipo": inv["tipo"],
+                    "Tipo": ", ".join(tipos) if tipos else "GENERAL",
                     "Estado carpeta": inv["folder_status"],
                     "Comentario": _COMMENT_SEPARATOR.join(comment_parts),
                     "Nota": inv["nota"],

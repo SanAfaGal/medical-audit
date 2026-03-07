@@ -94,8 +94,8 @@ STAGES: dict[str, StageInfo] = {
     "CATEGORIZE_INVOICES": StageInfo(
         label="Categorizar facturas por tipo",
         description=(
-            "Lee el contenido de cada PDF para detectar si es Laboratorio, "
-            "ECG, Radiografía, Urgencias o Policlínica, y guarda el tipo en la BD."
+            "Lee el contenido de cada PDF y busca las palabras clave definidas "
+            "en Configuración → Tipos de factura. Asigna uno o varios tipos por carpeta."
         ),
     ),
     "VERIFY_INVOICE_CODE": StageInfo(
@@ -182,6 +182,13 @@ STAGES: dict[str, StageInfo] = {
             "marca como FALTANTE las que no existen en el sistema de archivos."
         ),
     ),
+    "CHECK_REQUIRED_DOCS": StageInfo(
+        label="Verificar documentos requeridos por tipo",
+        description=(
+            "Para cada factura, determina los documentos requeridos según su tipo "
+            "(definidos en Configuración) y registra hallazgos en la BD por cada uno faltante."
+        ),
+    ),
 }
 
 STAGE_GROUPS: list[tuple[str, list[str]]] = [
@@ -214,6 +221,7 @@ STAGE_GROUPS: list[tuple[str, list[str]]] = [
     ("Verificación", [
         "CHECK_INVOICES",
         "CHECK_INVALID_FILES",
+        "CHECK_REQUIRED_DOCS",
         "CHECK_HISTORIA",
         "CHECK_RESULTADOS",
         "CHECK_FIRMA",

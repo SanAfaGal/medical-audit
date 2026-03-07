@@ -52,20 +52,6 @@ class _LiveLogHandler(logging.Handler):
 # Invoice categorisation helpers
 # ---------------------------------------------------------------------------
 
-_SEARCH_ECG        = "ELECTROCARD"
-_SEARCH_LABORATORY = "LABORATORIO CLINICO"
-_SEARCH_XRAY       = "RADIOGRAF"
-_SEARCH_POLYCLINIC = "P909000"
-_SEARCH_EMERGENCY  = "URGENCIA"
-
-_TEXT_TO_TIPO: dict[str, str] = {
-    _SEARCH_LABORATORY: "LABORATORIO",
-    _SEARCH_ECG:        "ECG",
-    _SEARCH_XRAY:       "RADIOGRAFIA",
-    _SEARCH_EMERGENCY:  "URGENCIAS",
-    _SEARCH_POLYCLINIC: "POLICLINICA",
-}
-
 
 def _categorize_invoices(
     validator,
@@ -73,8 +59,11 @@ def _categorize_invoices(
     repo,
     hospital: str,
     period: str,
-) -> tuple[list, list, list, list, list]:
-    """Detect invoice types from PDF content and persist them to the DB.
+) -> None:
+    """Detect invoice types from PDF content using DB-configured keywords.
+
+    Reads active invoice types and their keywords from the database, scans each
+    PDF, and calls ``add_tipo`` so that multi-type assignment is supported.
 
     Args:
         validator: InvoiceValidator instance.
@@ -82,30 +71,21 @@ def _categorize_invoices(
         repo: AuditRepository instance.
         hospital: Active hospital key.
         period: Audit period string.
-
-    Returns:
-        Tuple of (dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs).
     """
-    from db.constants import InvoiceType
-
-    dirs_ecg        = validator.find_files_with_text(invoices, _SEARCH_ECG,        return_parent=True)
-    dirs_lab        = validator.find_files_with_text(invoices, _SEARCH_LABORATORY, return_parent=True)
-    xray_dirs       = validator.find_files_with_text(invoices, _SEARCH_XRAY,       return_parent=True)
-    polyclinic_dirs = validator.find_files_with_text(invoices, _SEARCH_POLYCLINIC, return_parent=True)
-    emergency_dirs  = validator.find_files_with_text(invoices, _SEARCH_EMERGENCY,  return_parent=True)
-
-    for dirs, tipo in [
-        (dirs_lab,        InvoiceType.LABORATORIO),
-        (dirs_ecg,        InvoiceType.ECG),
-        (xray_dirs,       InvoiceType.RADIOGRAFIA),
-        (emergency_dirs,  InvoiceType.URGENCIAS),
-        (polyclinic_dirs, InvoiceType.POLICLINICA),
-    ]:
-        for d in dirs:
-            with contextlib.suppress(ValueError):
-                repo.update_tipo(hospital, period, d.name.upper(), tipo)
-
-    return dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs
+    active_types = repo.fetch_invoice_types()
+    for inv_type in active_types:
+        if not inv_type["is_active"]:
+            continue
+        keywords = inv_type["keywords"]
+        if not keywords:
+            continue
+        code = inv_type["code"]
+        matched_dirs: set = set()
+        for kw in keywords:
+            dirs = validator.find_files_with_text(invoices, kw.upper(), return_parent=True)
+            matched_dirs.update(dirs)
+        for d in matched_dirs:
+            repo.add_tipo(hospital, period, d.name.upper(), code)
 
 
 _DOC_CHECK_STAGES = frozenset({
@@ -143,21 +123,22 @@ def _build_doc_check_context(
         Dict with keys: ``emergency_dirs``, ``results_dirs``, ``history_dirs``,
         ``dirs_lab_test``.
     """
-    from db.constants import InvoiceType
+    # Run dynamic categorisation (writes to DB)
+    _categorize_invoices(validator, invoices, repo, hospital, period)
 
     all_dirs = scanner.list_dirs()
 
-    dirs_lab, dirs_ecg, xray_dirs, polyclinic_dirs, emergency_dirs = _categorize_invoices(
-        validator, invoices, repo, hospital, period
-    )
+    # Rebuild dir groups from DB after categorisation
+    lab_facturas      = repo.fetch_by_tipo(hospital, period, ["LABORATORIO", "ECG", "RADIOGRAFIA"])
+    polyclinic_facturas = repo.fetch_by_tipo(hospital, period, ["POLICLINICA"])
+    emergency_facturas  = repo.fetch_by_tipo(hospital, period, ["URGENCIAS", "AMBULANCIA"])
 
-    results_dirs = list(set(dirs_lab + xray_dirs + dirs_ecg) - set(polyclinic_dirs))
+    dirs_lab_test   = inspector.resolve_dir_paths(lab_facturas)
+    polyclinic_dirs = inspector.resolve_dir_paths(polyclinic_facturas)
+    emergency_dirs  = inspector.resolve_dir_paths(emergency_facturas)
+
+    results_dirs = list(set(dirs_lab_test) - set(polyclinic_dirs))
     history_dirs = list(set(all_dirs) - set(polyclinic_dirs) - set(results_dirs))
-
-    lab_facturas  = repo.fetch_by_tipo(hospital, period, [
-        InvoiceType.LABORATORIO, InvoiceType.ECG, InvoiceType.RADIOGRAFIA,
-    ])
-    dirs_lab_test = inspector.resolve_dir_paths(lab_facturas)
 
     return {
         "emergency_dirs": emergency_dirs,
@@ -495,6 +476,54 @@ def _execute_pipeline(
                     target_dirs=emergency_dirs,
                 )
                 _log_missing(missing, "Autorizaciones faltantes")
+
+        # ── Dynamic document requirements check ──────────────────────────────
+
+        if flags.get("CHECK_REQUIRED_DOCS"):
+            doc_types_map = {
+                dt["code"]: dt["prefixes"]
+                for dt in repo.fetch_document_types()
+                if dt["is_active"]
+            }
+            inv_types_req = {
+                it["code"]: it["required_docs"]
+                for it in repo.fetch_invoice_types()
+                if it["is_active"]
+            }
+            all_invoice_ids = repo.fetch_invoice_ids(hospital, period)
+            checked = 0
+            findings_added = 0
+
+            for factura in all_invoice_ids:
+                tipos = repo.fetch_tipos(hospital, period, factura)
+                if "SOAT" in tipos:
+                    continue
+
+                required: set[str] = set()
+                for t in tipos:
+                    required.update(inv_types_req.get(t, []))
+
+                if not required:
+                    checked += 1
+                    continue
+
+                folder = staging_dir / factura
+                missing_docs = inspector.check_required_docs(
+                    folder,
+                    {code: doc_types_map.get(code, []) for code in required},
+                )
+                for doc_code in missing_docs:
+                    repo.record_finding(hospital, period, factura, doc_code)
+                    findings_added += 1
+
+                checked += 1
+
+            pipeline_logger.info(
+                "Verificación de documentos requeridos: %d facturas revisadas, "
+                "%d hallazgos registrados",
+                checked,
+                findings_added,
+            )
 
         # ── SIHOS invoice download ────────────────────────────────────────────
 

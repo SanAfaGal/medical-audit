@@ -117,6 +117,36 @@ class FolderInspector:
 
         return mismatched
 
+    def check_required_docs(
+        self,
+        folder: Path,
+        required_prefixes: dict[str, list[str]],
+    ) -> list[str]:
+        """Return document codes missing from a folder based on required prefixes.
+
+        Args:
+            folder: Path to the invoice folder to inspect.
+            required_prefixes: Mapping of document_type code → list of filename
+                prefixes to look for (e.g. ``{"FIRMA": ["CRC"], "HISTORIA": ["EPI","HEV"]}``).
+
+        Returns:
+            List of document codes whose files were not found in the folder.
+            Codes with empty prefix lists are silently skipped (they are content
+            checks, not file-presence checks).
+        """
+        if not folder.is_dir():
+            return list(required_prefixes.keys())
+
+        files_upper = [f.name.upper() for f in folder.iterdir() if f.is_file()]
+        missing: list[str] = []
+        for doc_code, prefixes in required_prefixes.items():
+            if not prefixes:
+                continue
+            criteria = tuple(p.upper() for p in prefixes)
+            if not any(fname.startswith(criteria) for fname in files_upper):
+                missing.append(doc_code)
+        return missing
+
     def find_dirs_missing_file(
         self,
         prefixes: str | list[str],
