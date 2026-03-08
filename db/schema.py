@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     contrato        TEXT,
     operario        TEXT,
     ruta            TEXT,
-    tipo            TEXT NOT NULL DEFAULT 'GENERAL',
+    tipo            TEXT NOT NULL DEFAULT '["GENERAL"]',
     folder_status   TEXT NOT NULL DEFAULT 'PRESENTE',
     nota            TEXT NOT NULL DEFAULT '',
     UNIQUE(hospital, period, factura)

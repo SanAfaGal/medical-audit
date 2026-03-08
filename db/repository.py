@@ -87,7 +87,7 @@ class AuditRepository(RulesRepositoryMixin):
             conn.executescript(SCHEMA_DDL)
             # Idempotent column migrations for existing databases
             for stmt in (
-                "ALTER TABLE invoices ADD COLUMN tipo TEXT NOT NULL DEFAULT 'GENERAL'",
+                "ALTER TABLE invoices ADD COLUMN tipo TEXT NOT NULL DEFAULT '[\"GENERAL\"]'",
                 "ALTER TABLE invoices ADD COLUMN folder_status TEXT NOT NULL DEFAULT 'PRESENTE'",
                 "ALTER TABLE invoices ADD COLUMN nota TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE hospitals ADD COLUMN sihos_user TEXT NOT NULL DEFAULT ''",
@@ -176,6 +176,12 @@ class AuditRepository(RulesRepositoryMixin):
                         (fs["code"], fs["label"], fs["sort_order"]),
                     )
                 logger.info("Seeded folder_statuses from defaults")
+            else:
+                # Ensure AUDITADA exists in already-seeded databases
+                conn.execute(
+                    "INSERT OR IGNORE INTO folder_statuses (code, label, sort_order) "
+                    "VALUES ('AUDITADA', 'Auditada', 3)"
+                )
 
     # ------------------------------------------------------------------
     # Invoice loading
@@ -455,7 +461,9 @@ class AuditRepository(RulesRepositoryMixin):
                 SELECT DISTINCT factura FROM invoices
                 WHERE hospital = ? AND period = ?
                 AND EXISTS (
-                    SELECT 1 FROM json_each(COALESCE(tipo, '["GENERAL"]')) WHERE value IN ({placeholders})
+                    SELECT 1 FROM json_each(
+                        CASE WHEN tipo LIKE '[%' THEN tipo ELSE '["' || COALESCE(tipo, 'GENERAL') || '"]' END
+                    ) WHERE value IN ({placeholders})
                 )
                 ORDER BY factura
                 """,
@@ -539,6 +547,36 @@ class AuditRepository(RulesRepositoryMixin):
                 [hospital, period, *statuses],
             ).fetchall()
         return [r["factura"] for r in rows]
+
+    def fetch_organizable_invoices(self, hospital: str, period: str) -> pd.DataFrame:
+        """Return invoices eligible for organization: PRESENTE status and no findings.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+
+        Returns:
+            DataFrame indexed by ``factura`` with a ``Ruta`` column, containing
+            only invoices that are present on disk and have zero open findings.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.factura, i.ruta
+                FROM invoices i
+                WHERE i.hospital = ? AND i.period = ?
+                  AND i.folder_status = 'PRESENTE'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM audit_findings f WHERE f.invoice_id = i.id
+                  )
+                ORDER BY i.factura
+                """,
+                (hospital, period),
+            ).fetchall()
+        df = pd.DataFrame([{"Factura": r["factura"], "Ruta": r["ruta"]} for r in rows])
+        if not df.empty:
+            df = df.set_index("Factura")
+        return df
 
     def update_nota(self, hospital: str, period: str, factura: str, nota: str) -> None:
         """Set the folder-level note for a single invoice.

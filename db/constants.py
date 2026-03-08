@@ -114,6 +114,7 @@ DEFAULT_FOLDER_STATUSES: list[dict] = [
     {"code": "PRESENTE",  "label": "Presente",  "sort_order": 0},
     {"code": "PENDIENTE", "label": "Pendiente", "sort_order": 1},
     {"code": "FALTANTE",  "label": "Faltante",  "sort_order": 2},
+    {"code": "AUDITADA",  "label": "Auditada",  "sort_order": 3},
 ]
 
 # Migration map: old MISSING_* finding codes → new clean codes

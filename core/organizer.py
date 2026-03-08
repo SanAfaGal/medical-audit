@@ -99,6 +99,7 @@ class _OrganizeStats:
     failed: int = 0
     not_found: int = 0
     errors: list[str] = field(default_factory=list)
+    moved_ids: list[str] = field(default_factory=list)
 
 
 class TransferSummary(NamedTuple):
@@ -108,6 +109,7 @@ class TransferSummary(NamedTuple):
     failed: int
     not_found: int
     errors: list[str]
+    moved_ids: list[str]
 
 
 class InvoiceOrganizer:
@@ -184,10 +186,12 @@ class InvoiceOrganizer:
         if dry_run:
             logger.info("[DRY RUN] %s -> %s", source_path.name, destination_path)
             stats.moved += 1
+            stats.moved_ids.append(invoice_id)
             return
 
         if safe_move(source_path, destination_path):
             stats.moved += 1
+            stats.moved_ids.append(invoice_id)
             logger.info("Moved invoice %s successfully", invoice_id)
         else:
             stats.failed += 1
@@ -223,4 +227,5 @@ class InvoiceOrganizer:
             failed=stats.failed,
             not_found=stats.not_found,
             errors=stats.errors,
+            moved_ids=stats.moved_ids,
         )
