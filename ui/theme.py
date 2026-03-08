@@ -52,14 +52,22 @@ html, body, [class*="css"] {{
 }}
 
 /* ── Tab bar ────────────────────────────────────────────────────────────────── */
+.stTabs > div:first-child {{
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    background: {BG};
+    padding: .6rem 0 .4rem;
+    margin: -.6rem 0 0;
+}}
 .stTabs [data-baseweb="tab-list"] {{
     gap: 0;
     background: {BG_CARD};
     border: 1px solid {BORDER};
     border-radius: 12px;
     padding: 5px;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 1px 4px rgba(15,23,42,.06);
+    margin-bottom: 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,.18);
 }}
 .stTabs [data-baseweb="tab"] {{
     border-radius: 8px;
