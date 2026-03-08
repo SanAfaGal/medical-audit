@@ -196,9 +196,7 @@ def render(config_error: str | None) -> None:
         ]
 
     st.dataframe(
-        display_df.style.apply(_highlight_row, axis=1),
-        width="stretch",
-        height=320,
+        display_df.style.apply(_highlight_row, axis=1)
     )
 
     dl_col, *_ = st.columns([2, 6])
@@ -219,6 +217,7 @@ def render(config_error: str | None) -> None:
     section_header("Operaciones en lote")
 
     known_facturas = set(df.index)
+    _shared_invoices = st.session_state.get("shared_invoices", "")
 
     def _apply_batch(raw: str, fn, label: str) -> None:
         facturas = [ln.strip() for ln in raw.splitlines() if ln.strip()]
@@ -240,18 +239,16 @@ def render(config_error: str | None) -> None:
             st.rerun()
 
     with st.expander("Estado de carpeta en lote"):
-        raw_fs      = st.text_area("Facturas (una por línea)", key="batch_fs_list", height=120)
         status_opts = [fs["code"] for fs in folder_stats]
         nuevo_fs    = st.selectbox("Nuevo estado", status_opts, key="batch_fs_val")
         if st.button("Aplicar estado", key="btn_batch_fs", type="primary"):
             _apply_batch(
-                raw_fs,
+                _shared_invoices,
                 lambda f: repo.update_folder_status(hospital, period, f, nuevo_fs),
                 f"Estado '{nuevo_fs}'",
             )
 
     with st.expander("Agregar hallazgos en lote"):
-        raw_hf   = st.text_area("Facturas (una por línea)", key="batch_hf_list", height=120)
         nuevo_hf = st.selectbox(
             "Tipo de hallazgo",
             all_doc_codes,
@@ -260,14 +257,13 @@ def render(config_error: str | None) -> None:
         )
         if st.button("Agregar hallazgo", key="btn_batch_hf", type="primary"):
             _apply_batch(
-                raw_hf,
+                _shared_invoices,
                 lambda f: repo.record_finding(hospital, period, f, nuevo_hf),
                 f"Hallazgo '{doc_labels.get(nuevo_hf, nuevo_hf)}'",
             )
 
     with st.expander("Eliminar hallazgos en lote"):
-        raw_del_hf = st.text_area("Facturas (una por línea)", key="batch_del_hf_list", height=120)
-        del_hf     = st.selectbox(
+        del_hf = st.selectbox(
             "Hallazgo a eliminar",
             all_doc_codes,
             format_func=lambda c: doc_labels.get(c, c),
@@ -275,13 +271,12 @@ def render(config_error: str | None) -> None:
         )
         if st.button("Eliminar hallazgo", key="btn_batch_del_hf", type="primary"):
             _apply_batch(
-                raw_del_hf,
+                _shared_invoices,
                 lambda f: repo.delete_finding(hospital, period, f, del_hf),
                 f"Hallazgo '{doc_labels.get(del_hf, del_hf)}' eliminado",
             )
 
     with st.expander("Tipo de factura en lote"):
-        raw_tp   = st.text_area("Facturas (una por línea)", key="batch_tp_list", height=120)
         tipo_opts = [it["code"] for it in inv_types_db]
         nuevos_tp = st.multiselect(
             "Tipos de factura",
@@ -294,7 +289,7 @@ def render(config_error: str | None) -> None:
                 st.warning("Selecciona al menos un tipo.")
             else:
                 _apply_batch(
-                    raw_tp,
+                    _shared_invoices,
                     lambda f: repo.set_tipos(hospital, period, f, nuevos_tp),
                     f"Tipos {nuevos_tp}",
                 )

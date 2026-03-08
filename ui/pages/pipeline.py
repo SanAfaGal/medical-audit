@@ -73,14 +73,7 @@ def render(config_error: str | None) -> None:
     selected = [k for k, v in flags.items() if v]
 
     if flags.get("DOWNLOAD_INVOICES_FROM_SIHOS"):
-        st.divider()
-        section_header("Números de factura a descargar")
-        st.text_area(
-            "Pega los números de factura (uno por línea)",
-            key="invoices_to_download",
-            height=140,
-            placeholder="FE12345\nFE12346\n...",
-        )
+        st.info("Los números de factura a descargar se ingresan en el campo de la barra lateral.")
 
     st.divider()
 
@@ -151,7 +144,7 @@ def render(config_error: str | None) -> None:
         _flags_snapshot    = dict(flags)
         _hospital_snapshot = st.session_state.get("sel_hospital", "")
         _period_snapshot   = st.session_state.get("sel_period", "")
-        _raw_invoices      = st.session_state.get("invoices_to_download", "")
+        _raw_invoices      = st.session_state.get("shared_invoices", "")
         _invoices_snapshot = [ln.strip() for ln in _raw_invoices.splitlines() if ln.strip()]
 
         def _run_thread() -> None:

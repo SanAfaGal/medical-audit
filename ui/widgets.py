@@ -231,6 +231,12 @@ def page_header(period_map: dict[str, list[str]]) -> None:
             key="sel_period",
             placeholder="— seleccionar período —",
         )
+        st.divider()
+        st.text_area("Facturas seleccionadas",
+            key="shared_invoices",
+            height=240,
+            placeholder="FE12345\nFE12346\n...",
+        )
 
 
 def run_summary(label: str, items: list[str], collapsed: bool = True) -> None:

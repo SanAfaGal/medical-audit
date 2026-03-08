@@ -109,9 +109,12 @@ class AuditRepository(RulesRepositoryMixin):
                 "ELSE finding_type END WHERE finding_type LIKE 'MISSING_%'"
             )
 
-            # Migrate invoices.tipo from plain string to JSON array
+            # Migrate invoices.tipo from plain string to JSON array (NULL → GENERAL)
             conn.execute(
-                "UPDATE invoices SET tipo = json_array(tipo) WHERE tipo NOT LIKE '[%'"
+                "UPDATE invoices SET tipo = json_array(tipo) WHERE tipo IS NOT NULL AND tipo NOT LIKE '[%'"
+            )
+            conn.execute(
+                "UPDATE invoices SET tipo = '[\"GENERAL\"]' WHERE tipo IS NULL OR tipo = ''"
             )
 
         # Seed hospital config from hardcoded dicts if tables are empty
@@ -452,7 +455,7 @@ class AuditRepository(RulesRepositoryMixin):
                 SELECT DISTINCT factura FROM invoices
                 WHERE hospital = ? AND period = ?
                 AND EXISTS (
-                    SELECT 1 FROM json_each(tipo) WHERE value IN ({placeholders})
+                    SELECT 1 FROM json_each(COALESCE(tipo, '["GENERAL"]')) WHERE value IN ({placeholders})
                 )
                 ORDER BY factura
                 """,
