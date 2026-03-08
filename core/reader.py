@@ -8,6 +8,31 @@ import pdfplumber
 
 logger = logging.getLogger(__name__)
 
+# Keywords that identify the service table header in Colombian healthcare invoices.
+# A table row must match at least this many of them to be considered valid.
+_SERVICE_HEADERS = {"item", "codigo", "nombre", "und", "fina", "cant", "unitario", "total"}
+_MIN_HEADER_MATCHES = 4
+
+
+def _is_service_header_row(row: list) -> bool:
+    """Return True if the row looks like a service table header.
+
+    Checks for at least ``_MIN_HEADER_MATCHES`` matches against
+    ``_SERVICE_HEADERS``, case-insensitively and stripping whitespace.
+
+    Args:
+        row: List of cell values from pdfplumber (may contain None).
+
+    Returns:
+        True if the row contains enough service-table header keywords.
+    """
+    cells = {(cell or "").strip().lower() for cell in row}
+    matches = sum(
+        any(header in cell for cell in cells)
+        for header in _SERVICE_HEADERS
+    )
+    return matches >= _MIN_HEADER_MATCHES
+
 
 class DocumentReader:
     """Provides static helpers for opening and reading PDF documents."""
@@ -62,30 +87,66 @@ class DocumentReader:
             return ""
 
     @staticmethod
-    def read_table_text(file_path: Path) -> str:
-        """Extract text from table cells only, ignoring all other PDF content.
+    def read_text_if_has_table(file_path: Path) -> str | None:
+        """Extract full text from a PDF, but only if it contains a valid service table.
 
-        Uses pdfplumber to detect tables in each page and joins each row's
-        cells with \" | \". Only this structured content is returned, which
-        reduces false-positive keyword matches in administrative text sections.
+        Uses PyMuPDF (fitz) for fast text extraction (~5–15 ms/PDF vs ~500 ms for
+        pdfplumber). Validates that the extracted text contains at least
+        ``_MIN_HEADER_MATCHES`` service-table header keywords before returning.
+        Returns ``None`` if no valid service table is detected, signalling that the
+        invoice should be classified as DESCONOCIDO.
 
         Args:
             file_path: Path to the PDF.
 
         Returns:
-            Newline-joined rows from all tables, or empty string on failure.
+            Full page text joined across all pages, or ``None`` if no service
+            table header is detected.
         """
         try:
-            rows: list[str] = []
+            with fitz.open(file_path) as doc:
+                text = "".join(page.get_text() for page in doc)
+            words = {w.strip().lower() for w in text.split()}
+            matches = sum(any(h in w for w in words) for h in _SERVICE_HEADERS)
+            return text if matches >= _MIN_HEADER_MATCHES else None
+        except (fitz.FileDataError, OSError, RuntimeError) as exc:
+            logger.error("Error reading PDF %s: %s", file_path.name, exc)
+            return None
+
+    @staticmethod
+    def read_table_text(file_path: Path) -> str | None:
+        """Extract text from the service table only, ignoring all other PDF content.
+
+        Uses pdfplumber to detect tables in each page. A table is considered
+        valid only if one of its rows matches the expected service-table headers
+        (Item, Codigo, Nombre, UND, Fina, Cant, Unitario, Total — at least
+        ``_MIN_HEADER_MATCHES`` of them must appear in one row).
+
+        Args:
+            file_path: Path to the PDF.
+
+        Returns:
+            Newline-joined rows of the first valid service table found, or
+            ``None`` if no table with the expected headers is detected.
+            ``None`` signals that the invoice should be marked DESCONOCIDO
+            rather than classified by keyword matching.
+        """
+        try:
             with pdfplumber.open(file_path) as pdf:
                 for page in pdf.pages:
                     for table in page.extract_tables():
-                        for row in table:
-                            rows.append(" | ".join(cell if cell else "" for cell in row))
-            return "\n".join(rows)
+                        if not table:
+                            continue
+                        if any(_is_service_header_row(row) for row in table):
+                            rows = [
+                                " | ".join(cell if cell else "" for cell in row)
+                                for row in table
+                            ]
+                            return "\n".join(rows)
+            return None  # No valid service table found in this PDF
         except Exception as exc:  # pdfplumber raises various errors on corrupt PDFs
             logger.error("Error reading tables from PDF %s: %s", file_path.name, exc)
-            return ""
+            return None
 
     @staticmethod
     def find_unreadable(files: list[Path]) -> list[Path]:

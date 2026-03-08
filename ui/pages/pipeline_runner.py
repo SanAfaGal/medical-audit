@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
@@ -83,17 +84,24 @@ def _categorize_invoices(
         return
 
     # Read all PDFs in parallel (I/O bound — threads give real speedup).
-    # Result: {Path: normalised uppercase table text}
+    # Result: {Path: str | None}
+    #   str  → normalised uppercase content of the valid service table
+    #   None → no valid service table detected; invoice will be DESCONOCIDO
     def _read(f):
-        raw = DocumentReader.read_table_text(f)
-        return f, remove_accents(raw).upper() if raw else ""
+        raw = DocumentReader.read_text_if_has_table(f)
+        return f, remove_accents(raw).upper() if raw is not None else None
 
     content_cache: dict = {}
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=min(32, (os.cpu_count() or 4) + 4)) as pool:
         futures = {pool.submit(_read, f): f for f in invoices}
         for future in as_completed(futures):
             path, content = future.result()
             content_cache[path] = content
+
+    # Invoices with no valid service table → mark DESCONOCIDO, skip keyword matching
+    no_table_dirs = {f.parent for f, content in content_cache.items() if content is None}
+    for d in no_table_dirs:
+        repo.set_tipos(hospital, period, d.name.upper(), ["DESCONOCIDO"])
 
     # Match all types/keywords against the cache (no more disk I/O)
     for inv_type in active_types:
@@ -101,7 +109,7 @@ def _categorize_invoices(
         keywords = [remove_accents(kw).upper() for kw in inv_type["keywords"]]
         matched_dirs: set = set()
         for f, content in content_cache.items():
-            if not content:
+            if content is None or not content:
                 continue
             if any(kw in content for kw in keywords):
                 matched_dirs.add(f.parent)
