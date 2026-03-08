@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -63,27 +64,47 @@ def _categorize_invoices(
     """Detect invoice types from PDF content using DB-configured keywords.
 
     Reads active invoice types and their keywords from the database, scans each
-    PDF, and calls ``add_tipo`` so that multi-type assignment is supported.
+    PDF once (table text only via pdfplumber), caches the normalised content in
+    memory, then matches all keywords against the cache — reducing PDF reads
+    from N×K to N (one per invoice, regardless of how many types/keywords exist).
 
     Args:
-        validator: InvoiceValidator instance.
+        validator: Kept for call-site compatibility; no longer used internally.
         invoices: List of invoice PDF paths.
         repo: AuditRepository instance.
         hospital: Active hospital key.
         period: Audit period string.
     """
-    active_types = repo.fetch_invoice_types()
+    from core.reader import DocumentReader
+    from core.helpers import remove_accents
+
+    active_types = [t for t in repo.fetch_invoice_types() if t["is_active"] and t["keywords"]]
+    if not active_types:
+        return
+
+    # Read all PDFs in parallel (I/O bound — threads give real speedup).
+    # Result: {Path: normalised uppercase table text}
+    def _read(f):
+        raw = DocumentReader.read_table_text(f)
+        return f, remove_accents(raw).upper() if raw else ""
+
+    content_cache: dict = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_read, f): f for f in invoices}
+        for future in as_completed(futures):
+            path, content = future.result()
+            content_cache[path] = content
+
+    # Match all types/keywords against the cache (no more disk I/O)
     for inv_type in active_types:
-        if not inv_type["is_active"]:
-            continue
-        keywords = inv_type["keywords"]
-        if not keywords:
-            continue
         code = inv_type["code"]
+        keywords = [remove_accents(kw).upper() for kw in inv_type["keywords"]]
         matched_dirs: set = set()
-        for kw in keywords:
-            dirs = validator.find_files_with_text(invoices, kw.upper(), return_parent=True)
-            matched_dirs.update(dirs)
+        for f, content in content_cache.items():
+            if not content:
+                continue
+            if any(kw in content for kw in keywords):
+                matched_dirs.add(f.parent)
         for d in matched_dirs:
             repo.add_tipo(hospital, period, d.name.upper(), code)
 
@@ -247,14 +268,44 @@ def _execute_pipeline(
             inserted = repo.upsert_invoices(df_processed, hospital=hospital, period=period)
             pipeline_logger.info("Invoices loaded into audit repository: %d", inserted)
 
-            if flags.get("ORGANIZE"):
+        if _cancelled():
+            return handler.getvalue()
+
+        # ── Organise ─────────────────────────────────────────────────────────
+        # Runs independently of LOAD_AND_PROCESS: reads eligible invoices from
+        # the DB (PRESENTE + no findings) and moves them to the AUDIT directory.
+        # On success each folder is marked AUDITADA.
+
+        if flags.get("ORGANIZE"):
+            df_to_organize = repo.fetch_organizable_invoices(hospital, period)
+            if df_to_organize.empty:
+                pipeline_logger.info(
+                    "ORGANIZE: no eligible invoices (must be PRESENTE with no findings)."
+                )
+            else:
+                pipeline_logger.info(
+                    "ORGANIZE: %d invoice(s) eligible for organization.", len(df_to_organize)
+                )
                 organizer = InvoiceOrganizer(
-                    df=df_processed,
-                    staging_base=staging_dir,
-                    final_base=archive_dir,
+                    df=df_to_organize,
+                    staging_dir=staging_dir,
+                    archive_dir=archive_dir,
                 )
                 result = organizer.organize(dry_run=False)
-                pipeline_logger.info("Organise result: %s", result)
+                pipeline_logger.info(
+                    "ORGANIZE complete — moved: %d, not found: %d, failed: %d",
+                    result.moved, result.not_found, result.failed,
+                )
+                if result.errors:
+                    for err in result.errors:
+                        pipeline_logger.error("ORGANIZE error: %s", err)
+                if result.moved_ids:
+                    repo.batch_update_folder_status(
+                        hospital, period, result.moved_ids, "AUDITADA"
+                    )
+                    pipeline_logger.info(
+                        "ORGANIZE: %d folder(s) marked AUDITADA.", len(result.moved_ids)
+                    )
 
         if _cancelled():
             return handler.getvalue()

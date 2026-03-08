@@ -113,6 +113,37 @@ class InvoiceValidator:
 
         return list(results)
 
+    def find_files_with_table_text(
+        self,
+        files: list[Path],
+        search_text: str,
+        return_parent: bool = True,
+    ) -> list[Path]:
+        """Like find_files_with_text but searches only table cell content.
+
+        Uses pdfplumber to extract table rows, ignoring headers and free text,
+        to reduce false-positive keyword matches in administrative sections.
+
+        Args:
+            files: PDF files to inspect.
+            search_text: Text to search for.
+            return_parent: If True, return the parent directory; else the file.
+
+        Returns:
+            Deduplicated list of matching paths.
+        """
+        results: set[Path] = set()
+        term = remove_accents(search_text).upper()
+
+        for f in files:
+            content = DocumentReader.read_table_text(f)
+            if not content:
+                continue
+            if term in remove_accents(content).upper():
+                results.add(f.parent if return_parent else f)
+
+        return list(results)
+
     def find_missing_invoice_code(self, files: list[Path]) -> list[Path]:
         """Return files whose content does not contain the invoice code from their name.
 

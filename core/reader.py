@@ -1,9 +1,10 @@
-"""PDF validity checking and text extraction using PyMuPDF (fitz)."""
+"""PDF validity checking and text extraction using PyMuPDF (fitz) and pdfplumber."""
 
 import logging
 from pathlib import Path
 
 import fitz
+import pdfplumber
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,32 @@ class DocumentReader:
                 return "".join(page.get_text() for page in doc)
         except (fitz.FileDataError, OSError, RuntimeError) as exc:
             logger.error("Error reading PDF %s: %s", file_path.name, exc)
+            return ""
+
+    @staticmethod
+    def read_table_text(file_path: Path) -> str:
+        """Extract text from table cells only, ignoring all other PDF content.
+
+        Uses pdfplumber to detect tables in each page and joins each row's
+        cells with \" | \". Only this structured content is returned, which
+        reduces false-positive keyword matches in administrative text sections.
+
+        Args:
+            file_path: Path to the PDF.
+
+        Returns:
+            Newline-joined rows from all tables, or empty string on failure.
+        """
+        try:
+            rows: list[str] = []
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    for table in page.extract_tables():
+                        for row in table:
+                            rows.append(" | ".join(cell if cell else "" for cell in row))
+            return "\n".join(rows)
+        except Exception as exc:  # pdfplumber raises various errors on corrupt PDFs
+            logger.error("Error reading tables from PDF %s: %s", file_path.name, exc)
             return ""
 
     @staticmethod
