@@ -549,7 +549,7 @@ def _execute_pipeline(
                 for it in repo.fetch_invoice_types()
                 if it["is_active"]
             }
-            all_invoice_ids = repo.fetch_invoice_ids(hospital, period)
+            all_invoice_ids = repo.fetch_by_folder_status(hospital, period, "PRESENTE")
             checked = 0
             findings_added = 0
 

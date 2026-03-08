@@ -88,27 +88,36 @@ class DocumentReader:
 
     @staticmethod
     def read_text_if_has_table(file_path: Path) -> str | None:
-        """Extract full text from a PDF, but only if it contains a valid service table.
+        """Extract the service-table section of a PDF using PyMuPDF.
 
-        Uses PyMuPDF (fitz) for fast text extraction (~5–15 ms/PDF vs ~500 ms for
-        pdfplumber). Validates that the extracted text contains at least
-        ``_MIN_HEADER_MATCHES`` service-table header keywords before returning.
-        Returns ``None`` if no valid service table is detected, signalling that the
-        invoice should be classified as DESCONOCIDO.
+        Scans the extracted text line by line with a sliding window to locate the
+        first region where at least ``_MIN_HEADER_MATCHES`` service-table header
+        keywords cluster together (e.g. Item, Codigo, Nombre, Cant, Unitario…).
+        Only the text **from that point onwards** is returned, deliberately
+        excluding the administrative header (patient, administrator, contract type)
+        that precedes the service table and may contain invoice-type words like
+        "URGENCIAS" as a contract descriptor.
 
         Args:
             file_path: Path to the PDF.
 
         Returns:
-            Full page text joined across all pages, or ``None`` if no service
-            table header is detected.
+            Text from the service-table header line onwards, or ``None`` if no
+            such header cluster is found (invoice should be marked DESCONOCIDO).
         """
+        _WINDOW = 8  # lines to scan together when searching for the header cluster
+
         try:
             with fitz.open(file_path) as doc:
                 text = "".join(page.get_text() for page in doc)
-            words = {w.strip().lower() for w in text.split()}
-            matches = sum(any(h in w for w in words) for h in _SERVICE_HEADERS)
-            return text if matches >= _MIN_HEADER_MATCHES else None
+            lines = text.splitlines()
+            for i in range(len(lines)):
+                window = " ".join(lines[i : i + _WINDOW]).lower()
+                words = set(window.split())
+                matches = sum(any(h in w for w in words) for h in _SERVICE_HEADERS)
+                if matches >= _MIN_HEADER_MATCHES:
+                    return "\n".join(lines[i:])
+            return None
         except (fitz.FileDataError, OSError, RuntimeError) as exc:
             logger.error("Error reading PDF %s: %s", file_path.name, exc)
             return None
