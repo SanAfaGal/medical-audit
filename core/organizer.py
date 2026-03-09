@@ -161,7 +161,7 @@ class InvoiceOrganizer:
             (
                 path
                 for name, path in self._staging_cache.items()
-                if name.upper().endswith(key)
+                if name.upper().endswith(key) or name.upper().startswith(key + " ")
             ),
             None,
         )
