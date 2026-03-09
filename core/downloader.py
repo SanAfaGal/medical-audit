@@ -127,7 +127,9 @@ class SihosDownloader:
                         invoice_number,
                     )
                 )
-                out_path = self._output_dir / (
+                invoice_folder = self._output_dir / f"{self._invoice_id_prefix}{invoice_number}"
+                invoice_folder.mkdir(parents=True, exist_ok=True)
+                out_path = invoice_folder / (
                     f"{self._invoice_prefix}_{self._hospital_nit}_{self._invoice_id_prefix}{invoice_number}.pdf"
                 )
                 try:
