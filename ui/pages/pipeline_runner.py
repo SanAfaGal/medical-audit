@@ -457,8 +457,8 @@ def _execute_pipeline(
 
         if flags.get("CHECK_DIRS"):
             from db.constants import FolderStatus
-            all_folders  = repo.fetch_invoice_ids(hospital, period)
-            missing_dirs = inspector.find_missing_dirs(expected_dirs=all_folders)
+            presente_folders = repo.fetch_by_folder_status(hospital, period, FolderStatus.PRESENT)
+            missing_dirs = inspector.find_missing_dirs(expected_dirs=presente_folders)
             pipeline_logger.info("Missing directories: %d", len(missing_dirs))
             for factura in missing_dirs:
                 repo.update_folder_status(hospital, period, factura, FolderStatus.MISSING)
