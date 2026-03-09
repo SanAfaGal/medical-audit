@@ -140,41 +140,6 @@ STAGES: dict[str, StageInfo] = {
             "no pueden ser leídos o están dañados."
         ),
     ),
-    "CHECK_HISTORIA": StageInfo(
-        label="Verificar historias clínicas",
-        description=(
-            "Comprueba que cada carpeta de factura (excepto laboratorios) "
-            "contenga el documento de historia clínica."
-        ),
-    ),
-    "CHECK_RESULTADOS": StageInfo(
-        label="Verificar archivos de resultados",
-        description=(
-            "Comprueba que las facturas de laboratorio, ECG y radiografía "
-            "contengan sus archivos de resultados."
-        ),
-    ),
-    "CHECK_FIRMA": StageInfo(
-        label="Verificar archivos de firma",
-        description=(
-            "Comprueba que todas las carpetas de facturas contengan el archivo "
-            "de firma del médico tratante."
-        ),
-    ),
-    "CHECK_VALIDACION": StageInfo(
-        label="Verificar archivos de validación",
-        description=(
-            "Comprueba que las carpetas de facturas (excepto urgencias) "
-            "contengan el documento de validación."
-        ),
-    ),
-    "CHECK_AUTORIZACION": StageInfo(
-        label="Verificar archivos de autorización",
-        description=(
-            "Comprueba que las carpetas de facturas de urgencias contengan "
-            "el documento de autorización."
-        ),
-    ),
     "CHECK_DIRS": StageInfo(
         label="Detectar directorios faltantes",
         description=(
@@ -222,11 +187,6 @@ STAGE_GROUPS: list[tuple[str, list[str]]] = [
         "CHECK_INVOICES",
         "CHECK_INVALID_FILES",
         "CHECK_REQUIRED_DOCS",
-        "CHECK_HISTORIA",
-        "CHECK_RESULTADOS",
-        "CHECK_FIRMA",
-        "CHECK_VALIDACION",
-        "CHECK_AUTORIZACION",
         "CHECK_DIRS",
     ]),
 ]

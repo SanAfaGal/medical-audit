@@ -138,9 +138,9 @@ def render(config_error: str | None) -> None:
     with st.expander("Resumen por tipo, estado de carpeta y hallazgos", expanded=False):
         br_col1, br_col2, br_col3 = st.columns(3)
         with br_col1:
-            st.caption("**Registros por tipo de factura**")
+            st.caption("**Registros por tipo de factura (solo presentes)**")
             tipo_counts = (
-                df.groupby("Tipo").size()
+                df[df["Estado carpeta"] == "PRESENTE"].groupby("Tipo").size()
                 .reset_index(name="Cantidad")
                 .sort_values("Cantidad", ascending=False)
             )

@@ -117,65 +117,6 @@ def _categorize_invoices(
             repo.add_tipo(hospital, period, d.name.upper(), code)
 
 
-_DOC_CHECK_STAGES = frozenset({
-    "CHECK_HISTORIA",
-    "CHECK_RESULTADOS",
-    "CHECK_FIRMA",
-    "CHECK_VALIDACION",
-    "CHECK_AUTORIZACION",
-})
-
-
-def _build_doc_check_context(
-    scanner,
-    inspector,
-    validator,
-    invoices: list,
-    skip_dirs: list,
-    repo,
-    hospital: str,
-    period: str,
-) -> dict:
-    """Compute shared directory groupings needed for individual document checks.
-
-    Args:
-        scanner: DocumentScanner instance.
-        inspector: FolderInspector instance.
-        validator: InvoiceValidator instance.
-        invoices: List of invoice PDF paths.
-        skip_dirs: Directories to skip (e.g. SOAT invoices).
-        repo: AuditRepository instance.
-        hospital: Active hospital key.
-        period: Audit period string.
-
-    Returns:
-        Dict with keys: ``emergency_dirs``, ``results_dirs``, ``history_dirs``,
-        ``dirs_lab_test``.
-    """
-    # Run dynamic categorisation (writes to DB)
-    _categorize_invoices(validator, invoices, repo, hospital, period)
-
-    all_dirs = scanner.list_dirs()
-
-    # Rebuild dir groups from DB after categorisation
-    lab_facturas      = repo.fetch_by_tipo(hospital, period, ["LABORATORIO", "ECG", "RADIOGRAFIA"])
-    polyclinic_facturas = repo.fetch_by_tipo(hospital, period, ["POLICLINICA"])
-    emergency_facturas  = repo.fetch_by_tipo(hospital, period, ["URGENCIAS", "AMBULANCIA"])
-
-    dirs_lab_test   = inspector.resolve_dir_paths(lab_facturas)
-    polyclinic_dirs = inspector.resolve_dir_paths(polyclinic_facturas)
-    emergency_dirs  = inspector.resolve_dir_paths(emergency_facturas)
-
-    results_dirs = list(set(dirs_lab_test) - set(polyclinic_dirs))
-    history_dirs = list(set(all_dirs) - set(polyclinic_dirs) - set(results_dirs))
-
-    return {
-        "emergency_dirs": emergency_dirs,
-        "results_dirs":   results_dirs,
-        "history_dirs":   history_dirs,
-        "dirs_lab_test":  dirs_lab_test,
-    }
-
 
 # ---------------------------------------------------------------------------
 # Main pipeline execution
@@ -481,61 +422,6 @@ def _execute_pipeline(
             invalid_pdfs = DocumentReader.find_unreadable(all_files)
             pipeline_logger.info("Unreadable PDF files: %d", len(invalid_pdfs))
 
-        # ── Document presence checks ─────────────────────────────────────────
-
-        if any(flags.get(k) for k in _DOC_CHECK_STAGES):
-            ctx = _build_doc_check_context(
-                scanner, inspector, validator, invoices, skip_dirs,
-                repo, hospital, period,
-            )
-            emergency_dirs = ctx["emergency_dirs"]
-            results_dirs   = ctx["results_dirs"]
-            history_dirs   = ctx["history_dirs"]
-            dirs_lab_test  = ctx["dirs_lab_test"]
-
-            def _log_missing(dirs: list, label: str) -> None:
-                pipeline_logger.info("%s — %d directorio(s):", label, len(dirs))
-                for d in dirs:
-                    pipeline_logger.info("  %s", d.name.upper())
-
-            if flags.get("CHECK_HISTORIA"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("HISTORIA", ""),
-                    skip=skip_dirs + dirs_lab_test,
-                    target_dirs=history_dirs,
-                )
-                _log_missing(missing, "Historias clínicas faltantes")
-
-            if flags.get("CHECK_RESULTADOS"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("RESULTADOS", ""),
-                    skip=skip_dirs + emergency_dirs,
-                    target_dirs=results_dirs,
-                )
-                _log_missing(missing, "Resultados faltantes")
-
-            if flags.get("CHECK_FIRMA"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("FIRMA", ""),
-                    skip=skip_dirs,
-                )
-                _log_missing(missing, "Firmas faltantes")
-
-            if flags.get("CHECK_VALIDACION"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("VALIDACION", ""),
-                    skip=skip_dirs + emergency_dirs,
-                )
-                _log_missing(missing, "Validaciones faltantes")
-
-            if flags.get("CHECK_AUTORIZACION"):
-                missing = inspector.find_dirs_missing_file(
-                    doc_standards.get("AUTORIZACION", ""),
-                    skip=skip_dirs,
-                    target_dirs=emergency_dirs,
-                )
-                _log_missing(missing, "Autorizaciones faltantes")
-
         # ── Dynamic document requirements check ──────────────────────────────
 
         if flags.get("CHECK_REQUIRED_DOCS"):
@@ -544,8 +430,8 @@ def _execute_pipeline(
                 for dt in repo.fetch_document_types()
                 if dt["is_active"]
             }
-            inv_types_req = {
-                it["code"]: it["required_docs"]
+            inv_types_info = {
+                it["code"]: {"sort_order": it["sort_order"], "required_docs": it["required_docs"]}
                 for it in repo.fetch_invoice_types()
                 if it["is_active"]
             }
@@ -558,9 +444,18 @@ def _execute_pipeline(
                 if "SOAT" in tipos:
                     continue
 
+                max_priority = max(
+                    (inv_types_info.get(t, {}).get("sort_order", 0) for t in tipos),
+                    default=0,
+                )
+                priority_types = [
+                    t for t in tipos
+                    if inv_types_info.get(t, {}).get("sort_order", 0) == max_priority
+                ]
+
                 required: set[str] = set()
-                for t in tipos:
-                    required.update(inv_types_req.get(t, []))
+                for t in priority_types:
+                    required.update(inv_types_info.get(t, {}).get("required_docs", []))
 
                 if not required:
                     checked += 1
