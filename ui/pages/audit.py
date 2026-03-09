@@ -195,8 +195,10 @@ def render(config_error: str | None) -> None:
             display_df["Comentario"].str.contains(hallazgo_search, case=False, na=False)
         ]
 
+    _HIDDEN_COLUMNS = {"Fecha": None, "Documento": None, "Numero": None, "Paciente": None, "Operario": None, "Nota": None}
     st.dataframe(
-        display_df.style.apply(_highlight_row, axis=1)
+        display_df.style.apply(_highlight_row, axis=1),
+        column_config=_HIDDEN_COLUMNS,
     )
 
     dl_col, *_ = st.columns([2, 6])

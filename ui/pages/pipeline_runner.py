@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,11 +22,19 @@ _cancel_event = threading.Event()
 
 _PIPE_RUNNING = "running"
 _PIPE_LOG     = "log"
+_PIPE_RESULTS = "results"
 
 _pipe: dict[str, object] = {
     _PIPE_RUNNING: False,
     _PIPE_LOG:     "",
+    _PIPE_RESULTS: [],
 }
+
+
+def _record_result(label: str, items: list[str]) -> None:
+    """Append a named list of failure items to the pipeline inspection results."""
+    if items:
+        cast(list, _pipe[_PIPE_RESULTS]).append({"label": label, "items": list(items)})
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +171,7 @@ def _execute_pipeline(
     handler = _LiveLogHandler(on_update or (lambda _: None))
     root = logging.getLogger()
     root.addHandler(handler)
+    _pipe[_PIPE_RESULTS] = []
 
     try:
         repo = AuditRepository(Settings.db_path)
@@ -324,6 +333,7 @@ def _execute_pipeline(
             pipeline_logger.info("Archivos con nombre inválido: %d", len(invalid_files))
             for f in invalid_files:
                 pipeline_logger.info("  %s", f.name)
+            _record_result("Archivos con nombre inválido", [f.name for f in invalid_files])
             standardizer = FilenameStandardizer(
                 nit=hospital_cfg["NIT"],
                 valid_prefixes=prefixes_accepted,
@@ -335,6 +345,7 @@ def _execute_pipeline(
         if flags.get("CHECK_INVOICE_NUMBER_ON_FILES"):
             mismatched = inspector.find_mismatched_files(skip_dirs=skip_dirs)
             pipeline_logger.info("Files mismatched to folder name: %d", len(mismatched))
+            _record_result("Archivos con número incorrecto", [f.name for f in mismatched])
 
         dirs_with_extra_text: list = []
         if flags.get("CHECK_FOLDERS_WITH_EXTRA_TEXT") or flags.get("NORMALIZE_DIR_NAMES"):
@@ -344,6 +355,7 @@ def _execute_pipeline(
             pipeline_logger.info(
                 "Directories with extra text in name: %d", len(dirs_with_extra_text)
             )
+            _record_result("Carpetas con texto extra en nombre", [d.name for d in dirs_with_extra_text])
 
         if flags.get("NORMALIZE_DIR_NAMES"):
             renamed = operations.standardize_dir_names(dirs_with_extra_text)
@@ -363,6 +375,7 @@ def _execute_pipeline(
             pipeline_logger.info("Invoice PDFs without extractable text: %d", len(no_text))
             for f in no_text:
                 pipeline_logger.info("  No text layer: %s", f.name)
+            _record_result("Facturas sin capa de texto (necesitan OCR)", [f.name for f in no_text])
 
         if flags.get("DELETE_UNREADABLE_PDFS"):
             to_delete = DocumentReader.find_needing_ocr(invoices)
@@ -391,11 +404,13 @@ def _execute_pipeline(
             )
             for f in missing_code:
                 pipeline_logger.info("  %s", f.name)
+            _record_result("Facturas sin número en PDF", [f.name for f in missing_code])
 
         if flags.get("VERIFY_CUFE"):
             pipeline_logger.info("Facturas sin CUFE: %d", len(missing_cufe))
             for f in missing_cufe:
                 pipeline_logger.info("  %s", f.name)
+            _record_result("Facturas sin CUFE", [f.name for f in missing_cufe])
 
         if flags.get("TAG_MISSING_CUFE"):
             if missing_cufe:
@@ -416,11 +431,13 @@ def _execute_pipeline(
             pipeline_logger.info("Missing directories: %d", len(missing_dirs))
             for factura in missing_dirs:
                 repo.update_folder_status(hospital, period, factura, FolderStatus.MISSING)
+            _record_result("Directorios faltantes", missing_dirs)
 
         if flags.get("CHECK_INVALID_FILES"):
             all_files    = scanner.find_by_extension()
             invalid_pdfs = DocumentReader.find_unreadable(all_files)
             pipeline_logger.info("Unreadable PDF files: %d", len(invalid_pdfs))
+            _record_result("PDFs corruptos o ilegibles", [f.name for f in invalid_pdfs])
 
         # ── Dynamic document requirements check ──────────────────────────────
 
@@ -438,6 +455,7 @@ def _execute_pipeline(
             all_invoice_ids = repo.fetch_by_folder_status(hospital, period, "PRESENTE")
             checked = 0
             findings_added = 0
+            factura_findings: dict[str, list[str]] = {}
 
             for factura in all_invoice_ids:
                 tipos = repo.fetch_tipos(hospital, period, factura)
@@ -466,12 +484,18 @@ def _execute_pipeline(
                     folder,
                     {code: doc_types_map.get(code, []) for code in required},
                 )
+                if missing_docs:
+                    factura_findings[factura] = missing_docs
                 for doc_code in missing_docs:
                     repo.record_finding(hospital, period, factura, doc_code)
                     findings_added += 1
 
                 checked += 1
 
+            _record_result(
+                "Documentos requeridos faltantes",
+                [f"{f}: {', '.join(docs)}" for f, docs in factura_findings.items()],
+            )
             pipeline_logger.info(
                 "Verificación de documentos requeridos: %d facturas revisadas, "
                 "%d hallazgos registrados",

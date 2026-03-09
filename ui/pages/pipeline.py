@@ -15,6 +15,7 @@ from ui.pages.pipeline_runner import (
     _execute_pipeline,
     _pipe,
     _PIPE_LOG,
+    _PIPE_RESULTS,
     _PIPE_RUNNING,
 )
 from ui.widgets import log_viewer, section_header
@@ -111,41 +112,57 @@ def render(config_error: str | None) -> None:
         _cancel_event.set()
         st.rerun()
 
-    # ── While pipeline is running: poll and refresh ──────────────────────────
+    # ── Two-column layout: log on the left, inspection panel on the right ────
 
-    if _pipe[_PIPE_RUNNING]:
-        st.markdown(
-            '<div class="status-bar info">Ejecutando — por favor espera…</div>',
-            unsafe_allow_html=True,
-        )
-        section_header("Salida del pipeline")
-        st.code(_pipe[_PIPE_LOG] or "Iniciando…", language=None)
-        time.sleep(0.4)
-        st.rerun()
+    log_col, results_col = st.columns([2, 1])
 
-    # ── Show last run result if available ───────────────────────────────────
-
-    elif _pipe[_PIPE_LOG]:
-        log_text  = str(_pipe[_PIPE_LOG])
-        has_error = "ERROR" in log_text or "CRITICAL" in log_text
-        cancelled = "cancelled by user" in log_text
-        if cancelled:
+    with log_col:
+        # While pipeline is running: poll and refresh
+        if _pipe[_PIPE_RUNNING]:
             st.markdown(
-                '<div class="status-bar info">Pipeline cancelado.</div>',
+                '<div class="status-bar info">Ejecutando — por favor espera…</div>',
                 unsafe_allow_html=True,
             )
-        elif has_error:
-            st.markdown(
-                '<div class="status-bar error">El pipeline terminó con errores. Ver log a continuación.</div>',
-                unsafe_allow_html=True,
-            )
+            section_header("Salida del pipeline")
+            st.code(_pipe[_PIPE_LOG] or "Iniciando…", language=None)
+            time.sleep(0.4)
+            st.rerun()
+
+        # Show last run result if available
+        elif _pipe[_PIPE_LOG]:
+            log_text  = str(_pipe[_PIPE_LOG])
+            has_error = "ERROR" in log_text or "CRITICAL" in log_text
+            cancelled = "cancelled by user" in log_text
+            if cancelled:
+                st.markdown(
+                    '<div class="status-bar info">Pipeline cancelado.</div>',
+                    unsafe_allow_html=True,
+                )
+            elif has_error:
+                st.markdown(
+                    '<div class="status-bar error">El pipeline terminó con errores. Ver log a continuación.</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    '<div class="status-bar success">Pipeline completado exitosamente.</div>',
+                    unsafe_allow_html=True,
+                )
+            section_header("Salida del pipeline")
+            log_viewer(log_text)
+
+    with results_col:
+        section_header("Items para revisión manual")
+        results = list(_pipe.get(_PIPE_RESULTS, []))
+        if not results:
+            st.caption("Ejecuta el pipeline para ver los ítems que requieren inspección manual.")
         else:
-            st.markdown(
-                '<div class="status-bar success">Pipeline completado exitosamente.</div>',
-                unsafe_allow_html=True,
-            )
-        section_header("Salida del pipeline")
-        log_viewer(log_text)
+            for entry in results:
+                label = entry["label"]
+                items = entry["items"]
+                with st.expander(f"{label}  ({len(items)})", expanded=True):
+                    for item in items:
+                        st.code(item, language=None)
 
     # ── Launch pipeline in background thread ─────────────────────────────────
 
