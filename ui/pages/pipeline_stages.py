@@ -35,6 +35,15 @@ STAGES: dict[str, StageInfo] = {
             "y las copia a STAGE para su procesamiento."
         ),
     ),
+    "DOWNLOAD_MISSING_DOCS": StageInfo(
+        label="Descargar documentos faltantes desde Drive",
+        description=(
+            "Lee los hallazgos de la BD, construye el nombre esperado de cada archivo "
+            "({PREFIJO}_{NIT}_{FACTURA}.pdf) con todos los prefijos posibles y lo busca "
+            "en Google Drive. Los archivos encontrados se guardan en la subcarpeta "
+            "correspondiente de cada factura."
+        ),
+    ),
     "DOWNLOAD_INVOICES_FROM_SIHOS": StageInfo(
         label="Descargar facturas del portal SIHOS",
         description=(
@@ -162,6 +171,7 @@ STAGE_GROUPS: list[tuple[str, list[str]]] = [
     ]),
     ("Descarga", [
         "DOWNLOAD_DRIVE",
+        "DOWNLOAD_MISSING_DOCS",
         "RUN_STAGING",
     ]),
     ("Organización", [

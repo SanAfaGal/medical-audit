@@ -359,6 +359,34 @@ class AuditRepository(RulesRepositoryMixin):
             ).fetchall()
         return [r["factura"] for r in rows]
 
+    def fetch_all_findings_grouped(
+        self, hospital: str, period: str
+    ) -> dict[str, list[str]]:
+        """Return a mapping of invoice_id → [finding_codes] for all invoices with findings.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+
+        Returns:
+            Dict mapping each factura to its list of finding type codes.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.factura, f.finding_type
+                FROM audit_findings f
+                JOIN invoices i ON i.id = f.invoice_id
+                WHERE i.hospital = ? AND i.period = ?
+                ORDER BY i.factura, f.id
+                """,
+                (hospital, period),
+            ).fetchall()
+        result: dict[str, list[str]] = {}
+        for row in rows:
+            result.setdefault(row["factura"], []).append(row["finding_type"])
+        return result
+
     def fetch_tipos(self, hospital: str, period: str, factura: str) -> list[str]:
         """Return the list of invoice types assigned to a single invoice.
 

@@ -284,6 +284,37 @@ def _execute_pipeline(
                 len(downloaded), len(missing_folders),
             )
 
+        # ── Download missing documents from Drive ────────────────────────────
+
+        if flags.get("DOWNLOAD_MISSING_DOCS"):
+            grouped_findings = repo.fetch_all_findings_grouped(hospital, period)
+            if not grouped_findings:
+                pipeline_logger.info("No hay hallazgos registrados para descargar.")
+            else:
+                drive = DriveSync(credentials_path=Settings.drive_credentials_path(hospital))
+                nit = hospital_cfg["NIT"]
+                doc_prefix_map = {
+                    dt["code"]: dt["prefixes"]
+                    for dt in repo.fetch_document_types()
+                    if dt["is_active"] and dt["prefixes"]
+                }
+                total_searched = 0
+                for invoice_id, finding_codes in grouped_findings.items():
+                    file_names = [
+                        f"{prefix}_{nit}_{invoice_id}.pdf"
+                        for code in finding_codes
+                        if code in doc_prefix_map
+                        for prefix in doc_prefix_map[code]
+                    ]
+                    if not file_names:
+                        continue
+                    drive.download_specific_files(file_names, staging_dir / invoice_id)
+                    total_searched += len(file_names)
+                pipeline_logger.info(
+                    "Búsqueda de documentos faltantes completada: %d archivo(s) buscados",
+                    total_searched,
+                )
+
         # ── Staging from BASE ────────────────────────────────────────────────
 
         if flags.get("RUN_STAGING"):
