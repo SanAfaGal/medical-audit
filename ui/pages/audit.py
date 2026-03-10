@@ -203,8 +203,8 @@ def render(config_error: str | None) -> None:
         selection_mode="multi-row",
         key="invoice_table",
     )
-    selected_rows     = event.selection.rows
-    selected_facturas = list(display_df.index[selected_rows])
+    valid_rows        = [r for r in event.selection.rows if r < len(display_df)]
+    selected_facturas = list(display_df.index[valid_rows])
     st.session_state["selected_facturas"] = selected_facturas
 
     dl_col, *_ = st.columns([2, 6])
