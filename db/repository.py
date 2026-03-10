@@ -305,6 +305,26 @@ class AuditRepository(RulesRepositoryMixin):
                 """,
                 (hospital, period, factura, finding_type),
             )
+            # If the invoice has no remaining findings and is PENDIENTE, restore to PRESENTE.
+            remaining = conn.execute(
+                """
+                SELECT COUNT(*) FROM audit_findings
+                WHERE invoice_id = (
+                    SELECT id FROM invoices
+                    WHERE hospital = ? AND period = ? AND factura = ?
+                )
+                """,
+                (hospital, period, factura),
+            ).fetchone()[0]
+            if remaining == 0:
+                conn.execute(
+                    """
+                    UPDATE invoices SET folder_status = 'PRESENTE'
+                    WHERE hospital = ? AND period = ? AND factura = ?
+                    AND folder_status = 'PENDIENTE'
+                    """,
+                    (hospital, period, factura),
+                )
 
     def delete_all_findings(self, hospital: str, period: str) -> int:
         """Delete every finding for all invoices of a given hospital + period.
