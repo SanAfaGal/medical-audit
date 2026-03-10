@@ -176,14 +176,32 @@ def render(config_error: str | None) -> None:
     tipo_options   = ["Todos"] + [it["code"] for it in inv_types_db]
     estado_options = ["Todos"] + [fs["code"] for fs in folder_stats]
 
-    f1, f2, f3, *_ = st.columns([2, 2, 2, 2])
-    tipo_filter    = f1.selectbox("Tipo de factura", tipo_options, key="tipo_filter")
-    estado_filter  = f2.selectbox("Estado de carpeta", estado_options, key="estado_filter")
+    # Apply clear-filters flag BEFORE widgets are instantiated.
+    if st.session_state.pop("_clear_filters", False):
+        st.session_state["tipo_filter"]       = "Todos"
+        st.session_state["estado_filter"]     = "Todos"
+        st.session_state["hallazgo_search"]   = ""
+        st.session_state["factura_search"]    = ""
+        st.session_state["selected_facturas"] = []
+
+    f1, f2, f3, f4, f5 = st.columns([2, 2, 2, 2, 1])
+    tipo_filter     = f1.selectbox("Tipo de factura", tipo_options, key="tipo_filter")
+    estado_filter   = f2.selectbox("Estado de carpeta", estado_options, key="estado_filter")
     hallazgo_search = f3.text_input(
         "Buscar hallazgo",
         placeholder="ej: Firma, CUFE…",
         key="hallazgo_search",
     )
+    factura_search  = f4.text_input(
+        "Buscar factura",
+        placeholder="ej: HSL354662",
+        key="factura_search",
+    )
+    f5.write("")
+    f5.write("")
+    if f5.button("Limpiar filtros", width="stretch"):
+        st.session_state["_clear_filters"] = True
+        st.rerun()
 
     display_df = df.copy()
     if tipo_filter != "Todos":
@@ -193,6 +211,10 @@ def render(config_error: str | None) -> None:
     if hallazgo_search:
         display_df = display_df[
             display_df["Comentario"].str.contains(hallazgo_search, case=False, na=False)
+        ]
+    if factura_search:
+        display_df = display_df[
+            display_df.index.str.contains(factura_search.strip(), case=False, na=False)
         ]
 
     _HIDDEN_COLUMNS = {"Fecha": None, "Documento": None, "Numero": None, "Paciente": None, "Operario": None, "Nota": None}
