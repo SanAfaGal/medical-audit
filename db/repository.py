@@ -306,6 +306,28 @@ class AuditRepository(RulesRepositoryMixin):
                 (hospital, period, factura, finding_type),
             )
 
+    def delete_all_findings(self, hospital: str, period: str) -> int:
+        """Delete every finding for all invoices of a given hospital + period.
+
+        Args:
+            hospital: Hospital key.
+            period: Audit period string.
+
+        Returns:
+            Number of findings deleted.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                DELETE FROM audit_findings
+                WHERE invoice_id IN (
+                    SELECT id FROM invoices WHERE hospital = ? AND period = ?
+                )
+                """,
+                (hospital, period),
+            )
+            return cur.rowcount
+
     # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------

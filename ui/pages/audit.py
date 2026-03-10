@@ -8,7 +8,7 @@ import logging
 import pandas as pd
 import streamlit as st
 
-from ui.widgets import finding_row, metric_card, section_header
+from ui.widgets import finding_chip, metric_card, section_header
 
 logger = logging.getLogger(__name__)
 
@@ -196,10 +196,16 @@ def render(config_error: str | None) -> None:
         ]
 
     _HIDDEN_COLUMNS = {"Fecha": None, "Documento": None, "Numero": None, "Paciente": None, "Operario": None, "Nota": None}
-    st.dataframe(
+    event = st.dataframe(
         display_df.style.apply(_highlight_row, axis=1),
         column_config=_HIDDEN_COLUMNS,
+        on_select="rerun",
+        selection_mode="multi-row",
+        key="invoice_table",
     )
+    selected_rows     = event.selection.rows
+    selected_facturas = list(display_df.index[selected_rows])
+    st.session_state["selected_facturas"] = selected_facturas
 
     dl_col, *_ = st.columns([2, 6])
     excel_bytes = _df_to_excel_bytes(df.reset_index())
@@ -212,20 +218,12 @@ def render(config_error: str | None) -> None:
     )
 
     # -----------------------------------------------------------------------
-    # Batch operations
+    # Context-sensitive panel: detail (1 row) or batch bar (N rows)
     # -----------------------------------------------------------------------
 
-    st.divider()
-    section_header("Operaciones en lote")
-
     known_facturas = set(df.index)
-    _shared_invoices = st.session_state.get("shared_invoices", "")
 
-    def _apply_batch(raw: str, fn, label: str) -> None:
-        facturas = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-        if not facturas:
-            st.warning("Ingresa al menos una factura.")
-            return
+    def _apply_batch(facturas: list[str], fn, label: str) -> None:
         ok, missing = [], []
         for f in facturas:
             if f in known_facturas:
@@ -240,97 +238,92 @@ def render(config_error: str | None) -> None:
         if ok:
             st.rerun()
 
-    with st.expander("Estado de carpeta en lote"):
-        status_opts = [fs["code"] for fs in folder_stats]
-        nuevo_fs    = st.selectbox("Nuevo estado", status_opts, key="batch_fs_val")
-        if st.button("Aplicar estado", key="btn_batch_fs", type="primary"):
-            _apply_batch(
-                _shared_invoices,
-                lambda f: repo.update_folder_status(hospital, period, f, nuevo_fs),
-                f"Estado '{nuevo_fs}'",
-            )
-
-    with st.expander("Agregar hallazgos en lote"):
-        nuevo_hf = st.selectbox(
-            "Tipo de hallazgo",
-            all_doc_codes,
-            format_func=lambda c: doc_labels.get(c, c),
-            key="batch_hf_val",
-        )
-        if st.button("Agregar hallazgo", key="btn_batch_hf", type="primary"):
-            _apply_batch(
-                _shared_invoices,
-                lambda f: repo.record_finding(hospital, period, f, nuevo_hf),
-                f"Hallazgo '{doc_labels.get(nuevo_hf, nuevo_hf)}'",
-            )
-
-    with st.expander("Eliminar hallazgos en lote"):
-        del_hf = st.selectbox(
-            "Hallazgo a eliminar",
-            all_doc_codes,
-            format_func=lambda c: doc_labels.get(c, c),
-            key="batch_del_hf_val",
-        )
-        if st.button("Eliminar hallazgo", key="btn_batch_del_hf", type="primary"):
-            _apply_batch(
-                _shared_invoices,
-                lambda f: repo.delete_finding(hospital, period, f, del_hf),
-                f"Hallazgo '{doc_labels.get(del_hf, del_hf)}' eliminado",
-            )
-
-    with st.expander("Tipo de factura en lote"):
-        tipo_opts = [it["code"] for it in inv_types_db]
-        nuevos_tp = st.multiselect(
-            "Tipos de factura",
-            tipo_opts,
-            format_func=lambda c: next((it["display_name"] for it in inv_types_db if it["code"] == c), c),
-            key="batch_tp_val",
-        )
-        if st.button("Aplicar tipos", key="btn_batch_tp", type="primary"):
-            if not nuevos_tp:
-                st.warning("Selecciona al menos un tipo.")
-            else:
-                _apply_batch(
-                    _shared_invoices,
-                    lambda f: repo.set_tipos(hospital, period, f, nuevos_tp),
-                    f"Tipos {nuevos_tp}",
-                )
-
     st.divider()
 
-    # --- Invoice detail ---
-    section_header("Detalle de factura y hallazgos")
-
-    detail_col, action_col = st.columns([5, 3])
-
-    with detail_col:
-        invoice_id = st.text_input(
-            "Número de factura",
-            placeholder="ej. FE12345 — escribe y presiona Enter",
+    if len(selected_facturas) == 1:
+        # ── Single-invoice detail panel ──────────────────────────────────────
+        invoice_id = selected_facturas[0]
+        row        = df.loc[invoice_id]
+        section_header(f"Factura: {invoice_id}")
+        st.markdown(
+            f'<span style="color:#94A3B8;font-size:.85rem;">'
+            f'Administradora: <b style="color:#CBD5E1">{row["Administradora"]}</b>'
+            f' &nbsp;|&nbsp; Estado: <b style="color:#CBD5E1">{row["Estado carpeta"]}</b>'
+            f"</span>",
+            unsafe_allow_html=True,
         )
-        if not invoice_id:
-            st.caption("Ingresa un número de factura para ver y gestionar sus hallazgos.")
-        elif invoice_id not in df.index:
-            st.error(f"Factura `{invoice_id}` no encontrada en este período.")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        findings = repo.fetch_findings(hospital, period, invoice_id)
+
+        # Chips row
+        if findings:
+            chips_html = " ".join(finding_chip(doc_labels.get(ft, ft)) for ft in findings)
+            st.markdown(
+                f'<div style="margin-bottom:.5rem;"><span style="color:#94A3B8;font-size:.82rem;'
+                f'margin-right:.5rem;">Hallazgos:</span>{chips_html}</div>',
+                unsafe_allow_html=True,
+            )
         else:
-            findings = repo.fetch_findings(hospital, period, invoice_id)
+            st.success("Esta carpeta no tiene hallazgos registrados.")
 
+        # Actions row
+        act_c1, act_c2 = st.columns(2)
+        with act_c1:
             if findings:
-                st.markdown("**Archivos faltantes:**")
-                cards_html = "".join(
-                    finding_row(doc_labels.get(ft, ft)) for ft in findings
+                ft_del = st.selectbox(
+                    "Eliminar hallazgo",
+                    findings,
+                    format_func=lambda c: doc_labels.get(c, c),
+                    key="del_ft",
                 )
-                st.markdown(cards_html, unsafe_allow_html=True)
+                if st.button("Eliminar", key="btn_del", type="primary", width="stretch"):
+                    repo.delete_finding(hospital, period, invoice_id, ft_del)
+                    st.success("Hallazgo eliminado.")
+                    st.rerun()
             else:
-                st.success("Esta carpeta no tiene archivos faltantes.")
+                st.caption("Sin hallazgos para eliminar.")
 
-            # Folder-level note
+        with act_c2:
+            ft_add = st.selectbox(
+                "Agregar hallazgo",
+                all_doc_codes,
+                format_func=lambda c: doc_labels.get(c, c),
+                key="add_ft",
+            )
+            if st.button("Agregar", key="btn_add", type="primary", width="stretch"):
+                repo.record_finding(hospital, period, invoice_id, ft_add)
+                st.success("Hallazgo agregado.")
+                st.rerun()
+
+        # Types + note row
+        tipo_c, nota_c = st.columns([3, 4])
+        with tipo_c:
+            section_header("Tipos de factura")
+            current_tipos_str = df.at[invoice_id, "Tipo"]
+            current_tipos     = [t.strip() for t in current_tipos_str.split(",") if t.strip()]
+            tipo_opts_list    = [it["code"] for it in inv_types_db]
+            new_tipos = st.multiselect(
+                "Tipos",
+                tipo_opts_list,
+                default=[t for t in current_tipos if t in tipo_opts_list],
+                format_func=lambda c: next((it["display_name"] for it in inv_types_db if it["code"] == c), c),
+                key="change_tipo",
+                label_visibility="collapsed",
+            )
+            st.caption("Selecciona **SOAT** para excluir de la verificación de documentos.")
+            if st.button("Guardar tipos", key="btn_tipo", width="stretch"):
+                repo.set_tipos(hospital, period, invoice_id, new_tipos or ["GENERAL"])
+                st.success(f"Tipos actualizados: {new_tipos or ['GENERAL']}")
+                st.rerun()
+
+        with nota_c:
             section_header("Nota de carpeta")
             current_nota = df.at[invoice_id, "Nota"]
             new_nota = st.text_area(
                 "Nota",
                 value=current_nota,
-                height=100,
+                height=90,
                 key="nota_input",
                 label_visibility="collapsed",
             )
@@ -339,57 +332,147 @@ def render(config_error: str | None) -> None:
                 st.success("Nota guardada.")
                 st.rerun()
 
-    with action_col:
-        if invoice_id and invoice_id in df.index:
-            findings       = repo.fetch_findings(hospital, period, invoice_id)
-            existing_types = findings
+    elif len(selected_facturas) > 1:
+        # ── Multi-row batch bar ───────────────────────────────────────────────
+        section_header(f"Operaciones en lote — {len(selected_facturas)} facturas seleccionadas")
+        bc1, bc2, bc3, bc4 = st.columns(4)
 
-            action = st.radio(
-                "Acción",
-                ["Agregar hallazgo", "Eliminar hallazgo", "Cambiar tipos"],
-                horizontal=False,
+        with bc1:
+            status_opts = [fs["code"] for fs in folder_stats]
+            nuevo_fs    = st.selectbox("Estado", status_opts, key="batch_fs_val")
+            if st.button("Aplicar estado", key="btn_batch_fs", type="primary", width="stretch"):
+                _apply_batch(
+                    selected_facturas,
+                    lambda f: repo.update_folder_status(hospital, period, f, nuevo_fs),
+                    f"Estado '{nuevo_fs}'",
+                )
+
+        with bc2:
+            nuevo_hf = st.selectbox(
+                "Agregar hallazgo",
+                all_doc_codes,
+                format_func=lambda c: doc_labels.get(c, c),
+                key="batch_hf_val",
             )
-
-            if action == "Agregar hallazgo":
-                ft_add = st.selectbox(
-                    "Tipo de documento faltante",
-                    all_doc_codes,
-                    format_func=lambda c: doc_labels.get(c, c),
-                    key="add_ft",
+            if st.button("Agregar", key="btn_batch_hf", type="primary", width="stretch"):
+                _apply_batch(
+                    selected_facturas,
+                    lambda f: repo.record_finding(hospital, period, f, nuevo_hf),
+                    f"Hallazgo '{doc_labels.get(nuevo_hf, nuevo_hf)}'",
                 )
-                if st.button("Agregar", type="primary", key="btn_add", width="stretch"):
-                    repo.record_finding(hospital, period, invoice_id, ft_add)
-                    st.success("Hallazgo agregado.")
-                    st.rerun()
 
-            elif action == "Eliminar hallazgo" and existing_types:
-                ft_del = st.selectbox(
-                    "Hallazgo a eliminar",
-                    existing_types,
-                    format_func=lambda c: doc_labels.get(c, c),
-                    key="del_ft",
+        with bc3:
+            del_hf = st.selectbox(
+                "Eliminar hallazgo",
+                all_doc_codes,
+                format_func=lambda c: doc_labels.get(c, c),
+                key="batch_del_hf_val",
+            )
+            if st.button("Eliminar", key="btn_batch_del_hf", type="primary", width="stretch"):
+                _apply_batch(
+                    selected_facturas,
+                    lambda f: repo.delete_finding(hospital, period, f, del_hf),
+                    f"Hallazgo '{doc_labels.get(del_hf, del_hf)}' eliminado",
                 )
-                if st.button("Eliminar", type="primary", key="btn_del", width="stretch"):
-                    repo.delete_finding(hospital, period, invoice_id, ft_del)
-                    st.success("Hallazgo eliminado.")
-                    st.rerun()
 
-            elif action == "Cambiar tipos":
-                current_tipos_str = df.at[invoice_id, "Tipo"]
-                current_tipos = [t.strip() for t in current_tipos_str.split(",") if t.strip()]
-                tipo_opts     = [it["code"] for it in inv_types_db]
-                new_tipos = st.multiselect(
-                    "Tipos de factura",
-                    tipo_opts,
-                    default=[t for t in current_tipos if t in tipo_opts],
-                    format_func=lambda c: next((it["display_name"] for it in inv_types_db if it["code"] == c), c),
-                    key="change_tipo",
+        with bc4:
+            tipo_opts_b = [it["code"] for it in inv_types_db]
+            nuevos_tp   = st.multiselect(
+                "Tipos de factura",
+                tipo_opts_b,
+                format_func=lambda c: next((it["display_name"] for it in inv_types_db if it["code"] == c), c),
+                key="batch_tp_val",
+            )
+            if st.button("Aplicar tipos", key="btn_batch_tp", type="primary", width="stretch"):
+                if not nuevos_tp:
+                    st.warning("Selecciona al menos un tipo.")
+                else:
+                    _apply_batch(
+                        selected_facturas,
+                        lambda f: repo.set_tipos(hospital, period, f, nuevos_tp),
+                        f"Tipos {nuevos_tp}",
+                    )
+
+    else:
+        # ── Nothing selected hint ─────────────────────────────────────────────
+        st.caption("Haz clic en una fila para gestionar sus hallazgos, o selecciona varias para operaciones en lote.")
+
+    # ── Batch ops via sidebar invoice list (legacy flow) ─────────────────────
+    _shared_invoices = st.session_state.get("shared_invoices", "")
+    if _shared_invoices.strip():
+        st.divider()
+        section_header("Operaciones en lote (lista de la barra lateral)")
+        sb1, sb2, sb3, sb4 = st.columns(4)
+
+        with sb1:
+            status_opts_sb = [fs["code"] for fs in folder_stats]
+            sb_fs          = st.selectbox("Estado", status_opts_sb, key="sb_fs_val")
+            if st.button("Aplicar estado", key="btn_sb_fs", type="primary", width="stretch"):
+                _apply_batch(
+                    [ln.strip() for ln in _shared_invoices.splitlines() if ln.strip()],
+                    lambda f: repo.update_folder_status(hospital, period, f, sb_fs),
+                    f"Estado '{sb_fs}'",
                 )
-                st.caption("Selecciona **SOAT** para excluir esta factura de la verificación de documentos.")
-                if st.button("Aplicar", type="primary", key="btn_tipo", width="stretch"):
-                    repo.set_tipos(hospital, period, invoice_id, new_tipos or ["GENERAL"])
-                    st.success(f"Tipos actualizados: {new_tipos or ['GENERAL']}")
-                    st.rerun()
 
-            elif not existing_types and action == "Eliminar hallazgo":
-                st.caption("Esta factura no tiene hallazgos para eliminar.")
+        with sb2:
+            sb_hf_add = st.selectbox(
+                "Agregar hallazgo",
+                all_doc_codes,
+                format_func=lambda c: doc_labels.get(c, c),
+                key="sb_hf_add_val",
+            )
+            if st.button("Agregar", key="btn_sb_hf_add", type="primary", width="stretch"):
+                _apply_batch(
+                    [ln.strip() for ln in _shared_invoices.splitlines() if ln.strip()],
+                    lambda f: repo.record_finding(hospital, period, f, sb_hf_add),
+                    f"Hallazgo '{doc_labels.get(sb_hf_add, sb_hf_add)}'",
+                )
+
+        with sb3:
+            sb_hf_del = st.selectbox(
+                "Eliminar hallazgo",
+                all_doc_codes,
+                format_func=lambda c: doc_labels.get(c, c),
+                key="sb_hf_del_val",
+            )
+            if st.button("Eliminar", key="btn_sb_hf_del", type="primary", width="stretch"):
+                _apply_batch(
+                    [ln.strip() for ln in _shared_invoices.splitlines() if ln.strip()],
+                    lambda f: repo.delete_finding(hospital, period, f, sb_hf_del),
+                    f"Hallazgo '{doc_labels.get(sb_hf_del, sb_hf_del)}' eliminado",
+                )
+
+        with sb4:
+            tipo_opts_sb = [it["code"] for it in inv_types_db]
+            sb_tp        = st.multiselect(
+                "Tipos de factura",
+                tipo_opts_sb,
+                format_func=lambda c: next((it["display_name"] for it in inv_types_db if it["code"] == c), c),
+                key="sb_tp_val",
+            )
+            if st.button("Aplicar tipos", key="btn_sb_tp", type="primary", width="stretch"):
+                if not sb_tp:
+                    st.warning("Selecciona al menos un tipo.")
+                else:
+                    _apply_batch(
+                        [ln.strip() for ln in _shared_invoices.splitlines() if ln.strip()],
+                        lambda f: repo.set_tipos(hospital, period, f, sb_tp),
+                        f"Tipos {sb_tp}",
+                    )
+
+    # ── Zona de peligro ───────────────────────────────────────────────────────
+    st.divider()
+    with st.expander("⚠️ Acciones avanzadas", expanded=False):
+        st.warning(
+            f"Esta acción eliminará **todos** los hallazgos de todas las facturas "
+            f"del período **{period}** del hospital **{hospital}**."
+        )
+        with st.popover("🗑️ Eliminar todos los hallazgos del período"):
+            st.markdown(
+                f"**¿Confirmas la eliminación de todos los hallazgos?**\n\n"
+                f"Hospital: `{hospital}` | Período: `{period}`"
+            )
+            if st.button("Sí, eliminar todos", type="primary", key="confirm_delete_all"):
+                count = repo.delete_all_findings(hospital, period)
+                st.success(f"Se eliminaron {count} hallazgo(s).")
+                st.rerun()

@@ -258,6 +258,23 @@ def run_summary(label: str, items: list[str], collapsed: bool = True) -> None:
             )
 
 
+def finding_chip(label: str) -> str:
+    """Return an HTML chip for a single finding label.
+
+    Args:
+        label: Human-readable finding label to display inside the chip.
+
+    Returns:
+        HTML string for the chip ``<span>``.
+    """
+    return (
+        '<span style="display:inline-flex;align-items:center;gap:6px;'
+        "background:#3D1F0A;color:#FED7AA;border:1px solid #92400E;"
+        'border-radius:6px;padding:3px 10px;font-size:0.82rem;margin:2px;">'
+        f"{html.escape(label)}</span>"
+    )
+
+
 def finding_row(finding_type: str, note: str = "") -> str:
     """Build an HTML finding-card row element.
 
