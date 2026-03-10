@@ -24,21 +24,24 @@ class FolderCopier:
         self.target_root = Path(target_root)
         self.target_root.mkdir(parents=True, exist_ok=True)
 
-    def copy_folders(self, folders: list[Path], use_prefix: bool = True) -> None:
-        """Copy a list of folders to the target root.
+    def move_folders(self, folders: list[Path], use_prefix: bool = True) -> None:
+        """Move a list of folders into the target root.
+
+        Uses shutil.move which resolves to an O(1) rename when source and
+        destination are on the same filesystem volume.
 
         Args:
-            folders: Source folder paths to copy.
+            folders: Source folder paths to move.
             use_prefix: When True, prefix the destination name with the parent
                 folder name to avoid name collisions.
         """
         for folder in folders:
             dest = self._build_destination(folder, use_prefix)
             try:
-                shutil.copytree(folder, dest, dirs_exist_ok=True)
-                logger.info("Copied %s to %s", folder.name, dest.name)
+                shutil.move(str(folder), dest)
+                logger.info("Moved %s to %s", folder.name, dest.name)
             except (shutil.Error, OSError) as exc:
-                logger.error("Failed to copy %s: %s", folder.name, exc)
+                logger.error("Failed to move %s: %s", folder.name, exc)
 
     def _build_destination(self, folder: Path, use_prefix: bool) -> Path:
         """Build the destination path, optionally prefixing with the parent name.

@@ -354,9 +354,9 @@ def _execute_pipeline(
             leaf_folders = leaf_finder.find_leaf_folders(base_dir)
             if leaf_folders:
                 copier = FolderCopier(staging_dir)
-                copier.copy_folders(leaf_folders, use_prefix=False)
+                copier.move_folders(leaf_folders, use_prefix=False)
                 pipeline_logger.info(
-                    "Leaf folders copied from BASE to STAGE: %d", len(leaf_folders)
+                    "Leaf folders moved from BASE to STAGE: %d", len(leaf_folders)
                 )
             else:
                 pipeline_logger.warning(

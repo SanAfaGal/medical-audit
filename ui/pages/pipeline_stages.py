@@ -29,10 +29,10 @@ STAGES: dict[str, StageInfo] = {
         ),
     ),
     "RUN_STAGING": StageInfo(
-        label="Copiar carpetas de BASE a STAGE",
+        label="Mover carpetas de BASE a STAGE",
         description=(
             "Busca carpetas hoja en BASE (ZIP extraído manualmente de Drive) "
-            "y las copia a STAGE para su procesamiento."
+            "y las mueve a STAGE para su procesamiento."
         ),
     ),
     "DOWNLOAD_MISSING_DOCS": StageInfo(
