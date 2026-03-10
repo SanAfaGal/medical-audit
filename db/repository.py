@@ -346,7 +346,16 @@ class AuditRepository(RulesRepositoryMixin):
                 """,
                 (hospital, period),
             )
-            return cur.rowcount
+            deleted = cur.rowcount
+            # Restore PENDIENTE invoices to PRESENTE — they have no findings anymore.
+            conn.execute(
+                """
+                UPDATE invoices SET folder_status = 'PRESENTE'
+                WHERE hospital = ? AND period = ? AND folder_status = 'PENDIENTE'
+                """,
+                (hospital, period),
+            )
+            return deleted
 
     # ------------------------------------------------------------------
     # Queries
