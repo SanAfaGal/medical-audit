@@ -433,6 +433,13 @@ def _execute_pipeline(
         invoice_prefix = doc_standards.get("FACTURA", "")
         invoices       = scanner.find_by_prefix(invoice_prefix) if invoice_prefix else []
 
+        # Restrict to PRESENTE invoices only — skip FALTANTE, PENDIENTE, AUDITADA folders
+        # so that already-processed or already-flagged invoices are not reprocessed.
+        if invoices:
+            from db.constants import FolderStatus
+            presente_ids = set(repo.fetch_by_folder_status(hospital, period, FolderStatus.PRESENT))
+            invoices = [f for f in invoices if f.parent.name.upper() in presente_ids]
+
         if flags.get("LIST_UNREADABLE_PDFS"):
             no_text = DocumentReader.find_needing_ocr(invoices)
             pipeline_logger.info("Invoice PDFs without extractable text: %d", len(no_text))
@@ -565,6 +572,16 @@ def _execute_pipeline(
                 checked,
                 findings_added,
             )
+
+            # Invoices that received findings → PENDIENTE so future pipeline runs skip them.
+            if factura_findings:
+                from db.constants import FolderStatus
+                updated = repo.batch_update_folder_status(
+                    hospital, period, list(factura_findings.keys()), FolderStatus.PENDING
+                )
+                pipeline_logger.info(
+                    "Facturas con hallazgos marcadas como PENDIENTE: %d", updated
+                )
 
         # ── SIHOS invoice download ────────────────────────────────────────────
 
