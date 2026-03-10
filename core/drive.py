@@ -2,6 +2,7 @@
 
 import io
 import logging
+import time
 from pathlib import Path
 
 from google.oauth2 import service_account
@@ -20,6 +21,11 @@ _DRIVE_SCOPES: list[str] = ["https://www.googleapis.com/auth/drive.readonly"]
 _DRIVE_SEARCH_PAGE_SIZE: int = 1000
 _DRIVE_SINGLE_PAGE_SIZE: int = 1
 
+# Transient HTTP status codes that warrant a retry (5xx server errors + 429 rate-limit).
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES: int = 4
+_RETRY_BACKOFF_BASE: float = 2.0  # seconds; doubles on each attempt
+
 
 class DriveSync:
     """Client for the Google Drive API.
@@ -36,6 +42,36 @@ class DriveSync:
         )
         self.service = build("drive", "v3", credentials=self.creds)
 
+    def _execute_with_retry(self, request) -> dict:
+        """Execute a Drive API request, retrying on transient server errors.
+
+        Uses exponential backoff for HTTP 429 / 5xx responses.
+
+        Args:
+            request: A googleapiclient HttpRequest object (not yet executed).
+
+        Returns:
+            The parsed JSON response dict.
+
+        Raises:
+            HttpError: Re-raised after all retries are exhausted, or immediately
+                for non-retryable status codes (4xx other than 429).
+        """
+        delay = _RETRY_BACKOFF_BASE
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                return request.execute()
+            except HttpError as exc:
+                if exc.status_code not in _RETRYABLE_STATUS or attempt == _MAX_RETRIES:
+                    raise
+                logger.warning(
+                    "Drive API HTTP %s — retrying in %.0fs (attempt %d/%d)…",
+                    exc.status_code, delay, attempt + 1, _MAX_RETRIES,
+                )
+                time.sleep(delay)
+                delay *= 2
+        raise RuntimeError("unreachable")  # pragma: no cover
+
     def find_folders_by_name(self, folder_name: str) -> list[dict]:
         """Search Drive for folders whose names contain the given string.
 
@@ -50,15 +86,12 @@ class DriveSync:
             f"and mimeType = '{_DRIVE_FOLDER_MIME}' "
             "and trashed = false"
         )
-        results = (
-            self.service.files()
-            .list(
-                q=query,
-                fields="files(id, name, parents)",
-                pageSize=_DRIVE_SEARCH_PAGE_SIZE,
-            )
-            .execute()
+        request = self.service.files().list(
+            q=query,
+            fields="files(id, name, parents)",
+            pageSize=_DRIVE_SEARCH_PAGE_SIZE,
         )
+        results = self._execute_with_retry(request)
         return results.get("files", [])
 
     def download_file(
