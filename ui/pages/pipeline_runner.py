@@ -112,6 +112,7 @@ def _categorize_invoices(
         repo.set_tipos(hospital, period, d.name.upper(), ["DESCONOCIDO"])
 
     # Match all types/keywords against the cache (no more disk I/O)
+    all_matched_dirs: set = set()
     for inv_type in active_types:
         code = inv_type["code"]
         keywords = [remove_accents(kw).upper() for kw in inv_type["keywords"]]
@@ -121,8 +122,39 @@ def _categorize_invoices(
                 continue
             if any(kw in content for kw in keywords):
                 matched_dirs.add(f.parent)
+        all_matched_dirs |= matched_dirs
         for d in matched_dirs:
             repo.add_tipo(hospital, period, d.name.upper(), code)
+
+    # Log billed services for invoices that matched no specific type (will stay GENERAL).
+    # Uses the already-built content_cache — no extra I/O.
+    dirs_with_content = {f.parent for f, content in content_cache.items() if content}
+    unmatched_dirs = dirs_with_content - all_matched_dirs - no_table_dirs
+    if unmatched_dirs:
+        _HEADER_WORDS = {"ITEM", "CODIGO", "NOMBRE", "UND", "FINA", "CANT", "UNITARIO", "TOTAL"}
+        for d in sorted(unmatched_dirs):
+            lines: list[str] = []
+            for f, content in content_cache.items():
+                if f.parent == d and content:
+                    lines.extend(content.splitlines())
+
+            unique_services: set[str] = set()
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                if set(line.split()) & _HEADER_WORDS:
+                    continue  # skip table header rows
+                unique_services.add(line)
+
+            if unique_services:
+                logger.info(
+                    "GENERAL %s — servicios facturados: %s",
+                    d.name,
+                    "; ".join(sorted(unique_services)),
+                )
+            else:
+                logger.info("GENERAL %s — sin servicios identificados.", d.name)
 
 
 
