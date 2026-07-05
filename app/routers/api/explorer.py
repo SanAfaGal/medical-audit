@@ -433,7 +433,7 @@ async def reorder_pages(body: ReorderRequest, db: AsyncSession = Depends(get_db)
         import fitz
 
         doc = fitz.open(str(src))
-        page_count = doc.page_count
+        page_count: int = doc.page_count
         order = list(body.page_order)
 
         if not order:
