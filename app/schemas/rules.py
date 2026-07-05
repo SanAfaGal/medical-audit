@@ -96,5 +96,3 @@ class PrefixCorrectionCreate(BaseModel):
 class PrefixCorrectionUpdate(BaseModel):
     correct_prefix: str | None = None
     notes: str | None = None
-
-

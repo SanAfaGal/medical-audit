@@ -36,7 +36,7 @@ class ApiKeyAuthMiddleware(BaseHTTPMiddleware):
         password = ""
         if header.startswith(_BASIC_PREFIX):
             try:
-                decoded = base64.b64decode(header[len(_BASIC_PREFIX):]).decode("utf-8")
+                decoded = base64.b64decode(header[len(_BASIC_PREFIX) :]).decode("utf-8")
                 username, _, password = decoded.partition(":")
             except (ValueError, UnicodeDecodeError):
                 username = ""

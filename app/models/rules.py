@@ -48,5 +48,3 @@ class PrefixCorrection(Base):
     wrong_prefix: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
     correct_prefix: Mapped[str] = mapped_column(String(20), nullable=False)
     notes: Mapped[str | None] = mapped_column(String(200))
-
-

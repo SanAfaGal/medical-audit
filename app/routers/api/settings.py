@@ -21,7 +21,6 @@ from app.schemas.rules import (
     ServiceTypeCreate,
     ServiceTypeOut,
     ServiceTypeUpdate,
-
 )
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -199,5 +198,3 @@ async def delete_prefix_correction(correction_id: int, db: AsyncSession = Depend
     if not deleted:
         raise HTTPException(404, "Corrección no encontrada")
     await db.commit()
-
-

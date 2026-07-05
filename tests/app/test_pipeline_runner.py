@@ -195,9 +195,7 @@ class TestRemoveNonPdfStage:
 
 
 class TestDeleteUnreadablePdfsStage:
-    async def test_moves_files_to_quarantine_instead_of_deleting(
-        self, minimal_institution, minimal_period, tmp_path
-    ):
+    async def test_moves_files_to_quarantine_instead_of_deleting(self, minimal_institution, minimal_period, tmp_path):
         inst = SimpleNamespace(**vars(minimal_institution))
         period = SimpleNamespace(**vars(minimal_period))
         period.period_label = "."
@@ -215,10 +213,7 @@ class TestDeleteUnreadablePdfsStage:
             patch("app.services.pipeline_runner.audit_data_root", tmp_path),
             patch("core.reader.DocumentReader.find_needing_ocr", return_value=[pdf_path]),
         ):
-            lines = [
-                line
-                async for line in execute("DELETE_UNREADABLE_PDFS", inst, period, db)
-            ]
+            lines = [line async for line in execute("DELETE_UNREADABLE_PDFS", inst, period, db)]
 
         assert not pdf_path.exists()
         quarantined = stage_dir / "_CUARENTENA_SIN_TEXTO" / "HSL123" / "FEV_900123456_HSL123.pdf"

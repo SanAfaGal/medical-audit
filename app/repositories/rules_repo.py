@@ -205,4 +205,3 @@ class RulesRepo:
         await self.db.delete(obj)
         await self.db.flush()
         return True
-

@@ -13,9 +13,7 @@ pytestmark = pytest.mark.db
 class TestInstitutionCRUD:
     async def test_create_and_get_by_name_roundtrip(self, seeded: AsyncSession):
         repo = InstitutionRepo(seeded)
-        created = await repo.create(
-            {"name": "ROUNDTRIP_HOSP", "display_name": "Roundtrip Hosp", "nit": "555555555"}
-        )
+        created = await repo.create({"name": "ROUNDTRIP_HOSP", "display_name": "Roundtrip Hosp", "nit": "555555555"})
         fetched = await repo.get_by_name("ROUNDTRIP_HOSP")
         assert fetched is not None
         assert fetched.id == created.id

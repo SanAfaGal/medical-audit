@@ -58,9 +58,7 @@ _StageHandler = Callable[..., AsyncGenerator[str, None]]
 # ---------------------------------------------------------------------------
 
 
-def _build_context(
-    institution: Institution, period: AuditPeriod, db: AsyncSession, extra: dict
-) -> dict:
+def _build_context(institution: Institution, period: AuditPeriod, db: AsyncSession, extra: dict) -> dict:
     base = audit_data_root / institution.name / period.period_label
     return {
         "institution": institution,
@@ -609,9 +607,7 @@ async def _delete_unreadable_pdfs(ctx: dict) -> AsyncGenerator[str, None]:
         try:
             dest = await executor(_quarantine, f)
             moved += 1
-            yield plog(
-                "INFO", f"Movido a cuarentena: {f.name} → {dest.relative_to(stage_path)}", folder=f.parent.name
-            )
+            yield plog("INFO", f"Movido a cuarentena: {f.name} → {dest.relative_to(stage_path)}", folder=f.parent.name)
         except OSError as exc:
             yield plog("ERROR", f"No se pudo mover a cuarentena {f.name}: {exc}", folder=f.parent.name)
     yield plog("INFO", f"Total movidos a cuarentena: {moved}")
@@ -1621,7 +1617,8 @@ async def _compress_audit(ctx: dict) -> AsyncGenerator[str, None]:
     for i, chunk in enumerate(chunks, 1):
         _chunk = chunk
         result: dict[str, int] = await loop.run_in_executor(
-            None, lambda c=_chunk: DocumentProcessor.batch_compress(c, "ebook", workers)  # type: ignore[misc]
+            None,
+            lambda c=_chunk: DocumentProcessor.batch_compress(c, "ebook", workers),  # type: ignore[misc]
         )
         for key in totals:
             totals[key] += result[key]

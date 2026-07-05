@@ -194,7 +194,9 @@ class InvoiceRepo:
         if actual is not None and actual != folder_status_id:
             logger.warning(
                 "update_folder_status: trigger overrode requested folder_status_id=%s with %s for invoice_id=%s",
-                folder_status_id, actual, invoice_id,
+                folder_status_id,
+                actual,
+                invoice_id,
             )
 
     async def batch_update_status(self, invoice_ids: list[int], folder_status_id: int) -> None:
@@ -292,7 +294,9 @@ class InvoiceRepo:
         if corrected:
             logger.warning(
                 "batch_update_folder_status: trigger overrode requested status %r for %d invoice(s): %s",
-                status_code, len(corrected), corrected,
+                status_code,
+                len(corrected),
+                corrected,
             )
         return len(rows)
 

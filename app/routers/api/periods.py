@@ -88,9 +88,7 @@ async def get_period_disk_usage(period_id: int, db: AsyncSession = Depends(get_d
         raise HTTPException(404, "Institución no encontrada")
 
     base = audit_data_root / institution.name / period.period_label
-    sizes = await asyncio.to_thread(
-        lambda: {name: _dir_size(base / name) for name in _PERIOD_SUBDIRS}
-    )
+    sizes = await asyncio.to_thread(lambda: {name: _dir_size(base / name) for name in _PERIOD_SUBDIRS})
     return {
         "total_bytes": sum(sizes.values()),
         "drive_bytes": sizes["DRIVE"],

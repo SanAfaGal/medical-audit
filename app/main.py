@@ -44,6 +44,7 @@ app = FastAPI(
 
 app.add_middleware(ApiKeyAuthMiddleware, app_password=settings.app_password)
 
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     """Log every request with method, path, status code and latency."""

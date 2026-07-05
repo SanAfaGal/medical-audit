@@ -71,9 +71,7 @@ class TestPreviewSplit:
         _make_pdf(sandbox / "test.pdf", 5)
 
         with patch("app.routers.api.explorer.audit_data_root", tmp_path):
-            result = await preview_split(
-                institution_id=1, period_id=1, path="test.pdf", ranges=None, db=db
-            )
+            result = await preview_split(institution_id=1, period_id=1, path="test.pdf", ranges=None, db=db)
         assert result.groups == [[0], [1], [2], [3], [4]]
 
     async def test_valid_ranges_returns_expected_groups(self, tmp_path):
@@ -86,9 +84,7 @@ class TestPreviewSplit:
         _make_pdf(sandbox / "test.pdf", 5)
 
         with patch("app.routers.api.explorer.audit_data_root", tmp_path):
-            result = await preview_split(
-                institution_id=1, period_id=1, path="test.pdf", ranges="1-3, 5", db=db
-            )
+            result = await preview_split(institution_id=1, period_id=1, path="test.pdf", ranges="1-3, 5", db=db)
         assert result.groups == [[0, 1, 2], [4]]
 
     async def test_malformed_ranges_returns_400(self, tmp_path):
@@ -102,7 +98,5 @@ class TestPreviewSplit:
 
         with patch("app.routers.api.explorer.audit_data_root", tmp_path):
             with pytest.raises(HTTPException) as exc_info:
-                await preview_split(
-                    institution_id=1, period_id=1, path="test.pdf", ranges="abc", db=db
-                )
+                await preview_split(institution_id=1, period_id=1, path="test.pdf", ranges="abc", db=db)
         assert exc_info.value.status_code == 400

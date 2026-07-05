@@ -9,7 +9,7 @@ class FileNode(BaseModel):
     name: str
     path: str  # relativo al sandbox, ej: "DRIVE/sub/doc.pdf"
     is_dir: bool
-    size: int | None = None        # bytes para archivos
+    size: int | None = None  # bytes para archivos
     file_count: int | None = None  # total de archivos (recursivo) para carpetas
 
 

@@ -178,9 +178,7 @@ async def load_drive_zip(
     if not period:
         raise HTTPException(404, "Período no encontrado")
 
-    drive_path: Path = (
-        audit_data_root / institution.name / period.period_label / "DRIVE"
-    )
+    drive_path: Path = audit_data_root / institution.name / period.period_label / "DRIVE"
     drive_path.mkdir(parents=True, exist_ok=True)
 
     filename = file.filename or ""
