@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Medical Audit v2",
+    title="Medical Audit",
     version="2.0.0",
     lifespan=lifespan,
     # Swagger UI and ReDoc are only available when DOCS_ENABLED=true (dev)

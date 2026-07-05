@@ -1,4 +1,4 @@
-# Medical Audit v2
+# Medical Audit
 
 Aplicación web de producción para automatizar la auditoría de documentos de facturación médica en instituciones de salud colombianas. Ingesta facturas desde SIHOS, valida carpetas físicas de documentos contra las reglas de documentación requerida por tipo de servicio, y lleva el estado de auditoría por periodo de facturación.
 
