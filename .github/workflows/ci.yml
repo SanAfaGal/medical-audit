@@ -112,6 +112,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql+asyncpg://audit:audit@localhost:5432/audit_test
+      TEST_DATABASE_URL: postgresql+asyncpg://audit:audit@localhost:5432/audit_test
       SECRET_KEY: dGVzdHNlY3JldGtleWZvcmNpdGVzdGluZ29ubHkxMjM0NTY3
       APP_PASSWORD: test-app-password-for-ci-only
       DOCS_ENABLED: "false"
