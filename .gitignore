@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env*
+
+# Alembic (keep versions, ignore runtime artifacts)
+alembic/__pycache__/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# uv
+.python-version
+
+# Snapshots de base de datos — comitear manualmente si se desea versionar
+backups/*.sql
+
+# Datos de auditoría locales (bind mount por defecto)
+audit_data/
+!audit_data/.gitkeep
+
+.claude/

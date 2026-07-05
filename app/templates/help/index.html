@@ -1,0 +1,1125 @@
+{% extends "base.html" %}
+
+{% block title %}Ayuda — Auditoría Médica{% endblock %}
+{% block page_title %}Ayuda y Tutoriales{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Layout ────────────────────────────────────────────── */
+  .help-layout {
+    display: flex; gap: 1.5rem; align-items: flex-start;
+  }
+
+  /* ── Sidebar nav ───────────────────────────────────────── */
+  .guide-nav {
+    width: 13.5rem; flex-shrink: 0; position: sticky; top: 1rem;
+    border-radius: 0.75rem; overflow: hidden;
+    border: 1px solid var(--border); background: var(--bg-surface);
+  }
+  .guide-nav-header {
+    padding: 0.75rem 0.875rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .guide-nav-header p {
+    font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--text-3);
+  }
+  .guide-nav-section-label {
+    padding: 0.625rem 0.875rem 0.25rem;
+    font-size: 0.625rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-3);
+  }
+  .guide-nav-group { padding: 0.25rem 0.5rem; }
+  .nav-guide-btn {
+    display: flex; align-items: center; gap: 0.625rem;
+    width: 100%; padding: 0.5rem 0.625rem; border-radius: 0.5rem;
+    font-size: 0.8125rem; cursor: pointer; border: none;
+    background: transparent; text-align: left;
+    transition: background .12s, color .12s;
+    color: var(--text-2);
+  }
+  .nav-guide-btn:hover { background: var(--bg-subtle); color: var(--text-1); }
+  .nav-guide-btn.active {
+    background: var(--violet-soft); color: var(--violet);
+    font-weight: 600;
+  }
+  .nav-guide-icon {
+    width: 1.5rem; height: 1.5rem; border-radius: 0.375rem;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; flex-shrink: 0;
+    background: var(--bg-subtle); border: 1px solid var(--border);
+    color: var(--text-3);
+  }
+  .nav-guide-btn.active .nav-guide-icon {
+    background: var(--violet-soft); border-color: var(--violet-border); color: var(--violet);
+  }
+  .nav-coming {
+    display: flex; align-items: center; gap: 0.625rem;
+    padding: 0.5rem 0.625rem; border-radius: 0.5rem;
+    font-size: 0.8125rem; color: var(--text-3); opacity: .5;
+  }
+
+  /* ── Guide article ─────────────────────────────────────── */
+  .guide-article { flex: 1; min-width: 0; }
+
+  /* Guide banner */
+  .guide-banner {
+    border-radius: 0.875rem; padding: 1.375rem 1.75rem 1.25rem;
+    margin-bottom: 1.75rem;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    position: relative; overflow: hidden;
+  }
+  .guide-banner::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, var(--violet-soft) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .guide-banner-eyebrow {
+    font-size: 0.6875rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--violet); margin-bottom: 0.375rem;
+    display: flex; align-items: center; gap: 0.375rem;
+    position: relative;
+  }
+  .guide-banner h1 {
+    font-size: 1.125rem; font-weight: 700; color: var(--text-1);
+    margin-bottom: 0.375rem; position: relative;
+  }
+  .guide-banner p {
+    font-size: 0.8125rem; color: var(--text-2); line-height: 1.6;
+    position: relative;
+  }
+  .guide-banner-meta {
+    display: flex; align-items: center; gap: 1rem; margin-top: 0.875rem;
+    position: relative;
+  }
+  .guide-badge {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.2rem 0.625rem; border-radius: 2rem;
+    font-size: 0.7rem; font-weight: 600;
+  }
+  .guide-badge.violet { background: var(--violet-soft); color: var(--violet); border: 1px solid var(--violet-border); }
+  .guide-badge.sky    { background: var(--sky-soft);    color: var(--sky);    border: 1px solid var(--sky-border); }
+
+  /* ── Prereq ────────────────────────────────────────────── */
+  .prereq {
+    display: flex; align-items: flex-start; gap: 0.75rem;
+    padding: 0.875rem 1rem; border-radius: 0.625rem;
+    border: 1px solid var(--amber-border); background: var(--amber-soft);
+    margin-bottom: 1.75rem; font-size: 0.8125rem; color: var(--text-1);
+    line-height: 1.6;
+  }
+  .prereq i { color: var(--amber); margin-top: 2px; flex-shrink: 0; font-size: 0.8rem; line-height: 1; }
+
+  /* ── Step sections (blog-style) ────────────────────────── */
+  .step-section {
+    margin-bottom: 0;
+    padding-bottom: 1.75rem;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .step-section:last-child { border-bottom: none; padding-bottom: 0; }
+
+  .step-header {
+    display: flex; align-items: flex-start; gap: 1rem;
+    margin-bottom: 0.875rem;
+  }
+  .step-num-large {
+    width: 2.25rem; height: 2.25rem; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8125rem; font-weight: 700; flex-shrink: 0;
+    background: var(--bg-subtle); border: 1.5px solid var(--border);
+    color: var(--text-3); margin-top: 1px;
+  }
+  .step-section.highlight .step-num-large {
+    background: var(--sky-soft); border-color: var(--sky-border); color: var(--sky);
+  }
+  .step-section.highlight-violet .step-num-large {
+    background: var(--violet-soft); border-color: var(--violet-border); color: var(--violet);
+  }
+  .step-title-block { flex: 1; }
+  .step-title-block h2 {
+    font-size: 0.9375rem; font-weight: 700; color: var(--text-1); margin-bottom: 0.125rem;
+  }
+  .step-title-block p {
+    font-size: 0.8rem; color: var(--text-3);
+  }
+
+  .step-body { padding-left: 3.25rem; }
+  .step-body p {
+    font-size: 0.8125rem; color: var(--text-2); line-height: 1.65;
+    margin-bottom: 0.625rem;
+  }
+  .step-body p:last-child { margin-bottom: 0; }
+  .step-body ol, .step-body ul {
+    font-size: 0.8125rem; color: var(--text-2);
+    padding-left: 1.25rem; line-height: 2; margin: 0.375rem 0;
+  }
+  .step-body li strong { color: var(--text-1); }
+
+  /* ── Nav path ──────────────────────────────────────────── */
+  .nav-path {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    font-size: 0.8rem; color: var(--text-2); flex-wrap: wrap;
+    margin: 0.5rem 0;
+  }
+  .crumb {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.2rem 0.5rem; border-radius: 0.3rem;
+    background: var(--bg-subtle); border: 1px solid var(--border);
+    font-weight: 500; color: var(--text-1); font-size: 0.8rem;
+  }
+  /* Solo los separadores (hijos directos), no los iconos dentro de .crumb */
+  .nav-path > i { color: var(--text-3); font-size: 0.6rem; }
+
+  /* ── Filter table ──────────────────────────────────────── */
+  .config-table {
+    width: 100%; border: 1px solid var(--border);
+    border-radius: 0.5rem; overflow: hidden;
+    font-size: 0.8125rem; margin: 0.625rem 0;
+  }
+  .config-table tr { border-bottom: 1px solid var(--border-soft); }
+  .config-table tr:last-child { border-bottom: none; }
+  .config-table td { padding: 0.5rem 0.75rem; }
+  .config-table td:first-child {
+    color: var(--text-3); font-size: 0.75rem;
+    width: 11rem; background: var(--bg-subtle);
+  }
+  .config-table td:last-child { color: var(--text-1); font-weight: 500; }
+
+  /* ── Field tags ────────────────────────────────────────── */
+  .field-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; margin: 0.5rem 0; }
+  .field-tag {
+    display: inline-flex; align-items: center; gap: 0.375rem;
+    padding: 0.25rem 0.625rem; border-radius: 0.375rem;
+    font-size: 0.75rem; font-weight: 500;
+    background: var(--bg-subtle); border: 1px solid var(--border); color: var(--text-2);
+  }
+  .field-tag i { font-size: 0.55rem; color: var(--violet); }
+
+  /* ── Callouts ──────────────────────────────────────────── */
+  .callout {
+    display: flex; align-items: flex-start; gap: 0.625rem;
+    padding: 0.625rem 0.875rem; border-radius: 0.5rem;
+    font-size: 0.8rem; margin: 0.625rem 0; line-height: 1.5;
+  }
+  .callout.info  { background: var(--sky-soft);    border: 1px solid var(--sky-border);    }
+  .callout.warn  { background: var(--amber-soft);  border: 1px solid var(--amber-border);  }
+  .callout.ok    { background: var(--emerald-soft);border: 1px solid var(--emerald-border);}
+  .callout.new   { background: var(--violet-soft); border: 1px solid var(--violet-border); }
+  .callout i { margin-top: 2px; flex-shrink: 0; font-size: 0.8rem; line-height: 1; }
+  .callout.info  i { color: var(--sky); }
+  .callout.warn  i { color: var(--amber); }
+  .callout.ok    i { color: var(--emerald); }
+  .callout.new   i { color: var(--violet); }
+  .callout span { color: var(--text-1); }
+  .callout strong { color: inherit; }
+
+  /* ── Code inline ───────────────────────────────────────── */
+  .ic {
+    font-family: monospace; font-size: 0.75rem;
+    background: var(--bg-subtle); border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 4px; color: var(--sky);
+  }
+
+  /* ── Download button ───────────────────────────────────── */
+  .dl-btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 1.125rem; border-radius: 0.5rem;
+    font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+    border: none; margin-top: 0.625rem;
+    background: var(--violet); color: #fff;
+    transition: opacity .15s, transform .1s;
+    box-shadow: 0 2px 8px rgba(124,58,237,.2);
+  }
+  .dl-btn:hover { opacity: .88; transform: translateY(-1px); }
+  .dl-btn:active { transform: translateY(0); }
+
+  /* ── Script instruction box ────────────────────────────── */
+  .script-box {
+    background: var(--bg-subtle); border: 1px solid var(--border);
+    border-radius: 0.625rem; padding: 0.875rem; margin: 0.625rem 0;
+  }
+  .script-box-title {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--text-2); margin-bottom: 0.5rem;
+    display: flex; align-items: center; gap: 0.375rem;
+  }
+  .script-box-title i { color: var(--violet); line-height: 1; }
+
+  /* ── TOMA Y ENVIO highlight box ────────────────────────── */
+  .transform-box {
+    border: 1.5px solid var(--violet-border);
+    border-radius: 0.625rem; overflow: hidden; margin: 0.75rem 0;
+  }
+  .transform-box-header {
+    background: var(--violet-soft); padding: 0.5rem 0.875rem;
+    font-size: 0.75rem; font-weight: 700; color: var(--violet);
+    display: flex; align-items: center; gap: 0.375rem;
+    border-bottom: 1px solid var(--violet-border);
+  }
+  .transform-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0.875rem; font-size: 0.8rem;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .transform-row:last-child { border-bottom: none; }
+  .t-label { font-size: 0.7rem; color: var(--text-3); width: 5.5rem; flex-shrink: 0; }
+  .t-val {
+    font-family: monospace; font-size: 0.75rem;
+    padding: 0.2rem 0.5rem; border-radius: 0.3rem;
+    font-weight: 600;
+  }
+  .t-val.from { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-border); }
+  .t-val.to   { background: var(--emerald-soft); color: var(--emerald); border: 1px solid var(--emerald-border); }
+  .t-arrow { color: var(--text-3); font-size: 0.65rem; line-height: 1; flex-shrink: 0; }
+
+  /* ── Guide separator ───────────────────────────────────── */
+  .step-divider {
+    height: 1px; background: var(--border-soft);
+    margin: 1.5rem 0;
+  }
+
+  /* Scrollable steps container */
+  .steps-container {
+    display: flex; flex-direction: column; gap: 1.5rem;
+  }
+</style>
+
+<div class="help-layout" x-data="{ guide: 'download' }">
+
+  <!-- ── Sidebar ──────────────────────────────────────────── -->
+  <nav class="guide-nav">
+    <div class="guide-nav-header">
+      <p>Tutoriales</p>
+    </div>
+    <div style="padding: 0.375rem 0; border-bottom: 1px solid var(--border)">
+      <div class="guide-nav-section-label">SIHOS</div>
+      <div class="guide-nav-group">
+        <button class="nav-guide-btn" :class="guide === 'download' && 'active'"
+                @click="guide = 'download'">
+          <span class="nav-guide-icon"><i class="fa-solid fa-download"></i></span>
+          <span>Descargar reporte</span>
+        </button>
+        <button class="nav-guide-btn" :class="guide === 'prepare' && 'active'"
+                @click="guide = 'prepare'">
+          <span class="nav-guide-icon"><i class="fa-solid fa-file-excel"></i></span>
+          <span>Preparar archivo</span>
+        </button>
+      </div>
+    </div>
+    <div style="padding: 0.375rem 0; border-bottom: 1px solid var(--border)">
+      <div class="guide-nav-section-label">Google Drive</div>
+      <div class="guide-nav-group">
+        <button class="nav-guide-btn" :class="guide === 'drive-setup' && 'active'"
+                @click="guide = 'drive-setup'">
+          <span class="nav-guide-icon"><i class="fa-brands fa-google-drive"></i></span>
+          <span>Cuenta de servicio</span>
+        </button>
+      </div>
+    </div>
+    <div style="padding: 0.375rem 0">
+      <div class="guide-nav-section-label">Próximamente</div>
+      <div class="guide-nav-group">
+        <div class="nav-coming"><span class="nav-guide-icon"><i class="fa-solid fa-folder-open"></i></span> Organizar carpetas</div>
+        <div class="nav-coming"><span class="nav-guide-icon"><i class="fa-solid fa-pills"></i></span> Hojas de medicamentos</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Guide: Descargar reporte ─────────────────────────── -->
+  <div class="guide-article" x-show="guide === 'download'" x-cloak>
+
+    <div class="guide-banner">
+      <div class="guide-banner-eyebrow">
+        <i class="fa-solid fa-download"></i> Tutorial · SIHOS
+      </div>
+      <h1>Descargar el reporte de SIHOS</h1>
+      <p>Cómo exportar el reporte de liquidación desde el portal SIHOS con los campos y filtros exactos que requiere el sistema.</p>
+      <div class="guide-banner-meta">
+        <span class="guide-badge violet"><i class="fa-solid fa-list-check"></i> 4 pasos</span>
+        <span class="guide-badge sky"><i class="fa-solid fa-globe"></i> Requiere acceso a SIHOS</span>
+      </div>
+    </div>
+
+    <div class="prereq">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>
+        <strong style="color:var(--amber)">Antes de comenzar:</strong> debes haber iniciado sesión en el portal SIHOS
+        correspondiente al hospital que estás auditando. Si aún no lo has hecho, autentica tu cuenta antes de seguir estos pasos.
+      </div>
+    </div>
+
+    <div class="steps-container">
+
+      <!-- Step 1 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">1</div>
+          <div class="step-title-block">
+            <h2>Navegar al reporte de liquidación</h2>
+            <p>Ubicar la sección correcta dentro del portal SIHOS</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Dentro del portal SIHOS, navega a la siguiente ruta:</p>
+          <div class="nav-path">
+            <span class="crumb"><i class="fa-solid fa-chart-bar" style="color:var(--violet);font-size:0.7rem"></i>Reportes</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Liquidación de servicios</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Liquidación</span>
+          </div>
+          <div class="callout info">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>El menú de <strong>Reportes</strong> suele estar en la barra de navegación superior o en el menú lateral del portal.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">2</div>
+          <div class="step-title-block">
+            <h2>Seleccionar los campos del reporte</h2>
+            <p>Marcar exactamente los campos requeridos — ni más, ni menos</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>En la sección de <strong>campos</strong> o <strong>columnas</strong>, selecciona únicamente los siguientes:</p>
+          <div class="field-tags">
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Administradora</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Tipo Usuario</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Tipo Servicio</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Actividad / Suministro</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Operario</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Paciente</span>
+          </div>
+          <div class="callout warn">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>No selecciones más campos de los indicados. El script de preparación espera exactamente estas columnas y fallará si encuentra columnas adicionales o faltantes.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">3</div>
+          <div class="step-title-block">
+            <h2>Configurar los filtros del reporte</h2>
+            <p>Estado, tipo de liquidación, rango de fechas y formato de salida</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Configura los filtros con los siguientes valores exactos:</p>
+          <table class="config-table">
+            <tr><td>Estado</td><td><code class="ic">Confirmado</code></td></tr>
+            <tr><td>Liquidación generada</td><td><code class="ic">Entidad</code></td></tr>
+            <tr><td>Fecha y hora inicial</td><td>Primer día del período a auditar</td></tr>
+            <tr><td>Fecha y hora final</td><td>Último día del período a auditar</td></tr>
+            <tr><td>Reporte</td><td><code class="ic">Horizontal</code></td></tr>
+            <tr><td>Opción seleccionada</td><td><code class="ic">Facturadas</code></td></tr>
+          </table>
+          <div class="callout info">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>El rango de fechas debe coincidir exactamente con el período de auditoría configurado en la aplicación.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">4</div>
+          <div class="step-title-block">
+            <h2>Generar y exportar el reporte</h2>
+            <p>Aceptar, esperar la carga y exportar a Excel</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <ol>
+            <li>Haz clic en <strong>Aceptar</strong> para generar el reporte.</li>
+            <li>Espera a que la tabla cargue con los datos del período.</li>
+            <li>Busca el botón <strong>Exportar a Excel</strong> y haz clic en él.</li>
+            <li>El archivo <code class="ic">.xls</code> se descargará automáticamente a tu carpeta de Descargas.</li>
+          </ol>
+          <div class="callout ok">
+            <i class="fa-solid fa-circle-check"></i>
+            <span>El archivo se guardará con extensión <strong>.xls</strong> (no .xlsx). Esto es normal — lo convertiremos en el siguiente tutorial al preparar el archivo.</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /steps -->
+
+    <!-- Next guide CTA -->
+    <div style="margin-top:1.75rem;padding:1.125rem 1.375rem;border-radius:0.75rem;border:1px solid var(--border);background:var(--bg-surface);display:flex;align-items:center;gap:1rem">
+      <div style="width:2.25rem;height:2.25rem;border-radius:50%;background:var(--violet-soft);border:1px solid var(--violet-border);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="fa-solid fa-arrow-right" style="color:var(--violet);font-size:0.75rem"></i>
+      </div>
+      <div style="flex:1">
+        <p style="font-size:0.875rem;font-weight:700;color:var(--text-1);margin-bottom:0.125rem">Continúa con el siguiente paso</p>
+        <p style="font-size:0.8rem;color:var(--text-2)">Una vez descargado el reporte, sigue el tutorial de <strong>Preparar archivo</strong> para procesarlo y subirlo.</p>
+      </div>
+      <button @click="guide = 'prepare'"
+              style="flex-shrink:0;display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 1rem;border-radius:0.5rem;background:var(--violet);color:#fff;font-size:0.8125rem;font-weight:600;border:none;cursor:pointer">
+        Preparar archivo <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+  </div><!-- /download guide -->
+
+  <!-- ── Guide: Preparar archivo ───────────────────────────── -->
+  <div class="guide-article" x-show="guide === 'prepare'" x-cloak>
+
+    <div class="guide-banner">
+      <div class="guide-banner-eyebrow">
+        <i class="fa-solid fa-file-excel"></i> Tutorial · SIHOS
+      </div>
+      <h1>Preparar el archivo de SIHOS</h1>
+      <p>Cómo limpiar el archivo exportado con el script de Office, aplicar las correcciones necesarias y subirlo a la aplicación.</p>
+      <div class="guide-banner-meta">
+        <span class="guide-badge violet"><i class="fa-solid fa-list-check"></i> 5 pasos</span>
+        <span class="guide-badge sky"><i class="fa-solid fa-wand-magic-sparkles"></i> Requiere Microsoft 365</span>
+      </div>
+    </div>
+
+    <div class="prereq">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>
+        <strong style="color:var(--amber)">Antes de comenzar:</strong> debes tener el archivo <code class="ic">.xls</code> descargado desde SIHOS.
+        Si aún no lo has descargado, sigue primero el tutorial <strong>Descargar reporte</strong>.
+      </div>
+    </div>
+
+    <div class="steps-container">
+
+      <!-- Step 1 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">1</div>
+          <div class="step-title-block">
+            <h2>Abrir el archivo y habilitar edición</h2>
+            <p>Preparar el documento antes de ejecutar el script</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <ol>
+            <li>Abre el archivo <code class="ic">.xls</code> descargado con <strong>Microsoft Excel</strong>.</li>
+            <li>Si aparece la barra amarilla de <em>"Vista protegida"</em>, haz clic en <strong>Habilitar edición</strong>.</li>
+            <li>Elimina la <strong>imagen o logo</strong> que suele aparecer en la cabecera del documento — haz clic encima del logo y presiona la tecla <code class="ic">Supr</code>.</li>
+          </ol>
+          <div class="callout warn">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>Si no eliminas la imagen, el script puede fallar al procesar las primeras filas. Asegúrate de que no quede ningún objeto flotante en la hoja.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step-section highlight-violet">
+        <div class="step-header">
+          <div class="step-num-large">2</div>
+          <div class="step-title-block">
+            <h2>Ejecutar el script de preparación</h2>
+            <p>Requiere Microsoft 365 con Office Scripts habilitado</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>
+            El script limpia y transforma el archivo automáticamente: elimina filas y columnas innecesarias,
+            renombra cabeceras, convierte todo a mayúsculas, reordena las columnas, aplica formato de tabla
+            y <strong>corrige automáticamente los registros de "TOMA Y"</strong>.
+          </p>
+
+          <div class="script-box">
+            <div class="script-box-title">
+              <i class="fa-solid fa-upload"></i> Cómo importar el script en Excel
+            </div>
+            <ol style="font-size:0.8rem;color:var(--text-2);padding-left:1.25rem;line-height:2;margin:0">
+              <li>En Excel, ve a la pestaña <strong style="color:var(--text-1)">Automatizar</strong> en la cinta de opciones.</li>
+              <li>Haz clic en <strong style="color:var(--text-1)">Nuevo script</strong>.</li>
+              <li>En el editor que se abre, <strong style="color:var(--text-1)">borra todo el contenido</strong> existente.</li>
+              <li>Descarga el archivo del script con el botón de abajo y <strong style="color:var(--text-1)">copia su contenido</strong>.</li>
+              <li>Pega el contenido en el editor y haz clic en <strong style="color:var(--text-1)">Guardar script</strong>.</li>
+              <li>Haz clic en <strong style="color:var(--text-1)">Ejecutar</strong> y espera a que finalice.</li>
+            </ol>
+          </div>
+
+          <div class="callout warn">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>La pestaña <strong>Automatizar</strong> solo aparece si tienes <strong>Microsoft 365</strong> con Office Scripts habilitado. No funciona con versiones antiguas de Office ni con Excel descargado sin suscripción activa.</span>
+          </div>
+
+          <button class="dl-btn" onclick="downloadScript()">
+            <i class="fa-solid fa-download"></i>
+            Descargar script (.ts)
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3 — TOMA Y ENVIO (new) -->
+      <div class="step-section highlight">
+        <div class="step-header">
+          <div class="step-num-large">3</div>
+          <div class="step-title-block">
+            <h2>Verificar registros "TOMA Y ENVIO"</h2>
+            <p>El script los corrige automáticamente — este paso es solo de verificación</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>
+            El script detecta automáticamente todas las filas donde la columna <strong>ACTIVIDAD</strong> contiene
+            el texto <code class="ic">TOMA Y</code> y cambia su <strong>SERVICIO</strong> a <code class="ic">TOMA Y ENVIO</code>.
+            Esto ocurre durante la ejecución del script, por lo que no necesitas hacerlo manualmente.
+          </p>
+
+          <div class="transform-box">
+            <div class="transform-box-header">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              Transformación aplicada por el script
+            </div>
+            <div class="transform-row">
+              <span class="t-label">Condición</span>
+              <span>Columna <code class="ic">ACTIVIDAD</code> contiene <code class="ic">TOMA Y</code></span>
+            </div>
+            <div class="transform-row">
+              <span class="t-label">Columna</span>
+              <span style="font-size:0.8rem;color:var(--text-2)">SERVICIO</span>
+            </div>
+            <div class="transform-row">
+              <span class="t-label">Antes</span>
+              <span class="t-val from">LABORATORIO CLÍNICO</span>
+              <i class="fa-solid fa-arrow-right t-arrow"></i>
+              <span class="t-label" style="width:auto;margin-left:0.25rem">Después</span>
+              <span class="t-val to">TOMA Y ENVIO</span>
+            </div>
+          </div>
+
+          <div class="callout new">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>Si quieres verificar que la corrección se aplicó correctamente, filtra la columna <strong>ACTIVIDAD</strong> por <code class="ic">TOMA Y</code> y confirma que todas las filas muestren <code class="ic">TOMA Y ENVIO</code> en la columna <strong>SERVICIO</strong>.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">4</div>
+          <div class="step-title-block">
+            <h2>Guardar el archivo como .xlsx</h2>
+            <p>Convertir al formato requerido por la aplicación</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <ol>
+            <li>Ve a <strong>Archivo → Guardar como</strong>.</li>
+            <li>En el tipo de archivo, selecciona <strong>Libro de Excel (.xlsx)</strong>.</li>
+            <li>Guarda el archivo en una ubicación que recuerdes.</li>
+          </ol>
+          <div class="callout info">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>La app solo acepta archivos <strong>.xlsx</strong>. El archivo original <strong>.xls</strong> descargado de SIHOS no es compatible — este paso es obligatorio.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">5</div>
+          <div class="step-title-block">
+            <h2>Subir el archivo a la aplicación</h2>
+            <p>Etapa "Cargar reporte de SIHOS" en el Pipeline</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <ol>
+            <li>Ve a la sección <strong>Pipeline</strong> en el menú lateral.</li>
+            <li>Asegúrate de tener seleccionado el hospital y período correctos.</li>
+            <li>Busca la etapa <strong>Cargar reporte de SIHOS</strong>.</li>
+            <li>Haz clic en el botón de carga y selecciona el archivo <code class="ic">.xlsx</code> que guardaste.</li>
+            <li>Espera a que el proceso finalice. Las facturas quedarán registradas en el sistema.</li>
+          </ol>
+          <div class="callout ok">
+            <i class="fa-solid fa-circle-check"></i>
+            <span>Si la carga fue exitosa, verás el conteo de facturas importadas y podrás continuar con las siguientes etapas del pipeline.</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /steps -->
+
+    <!-- Final CTA -->
+    <div style="margin-top:1.75rem;padding:1.125rem 1.375rem;border-radius:0.75rem;border:1px solid var(--emerald-border);background:var(--emerald-soft);display:flex;align-items:center;gap:1rem">
+      <div style="width:2.25rem;height:2.25rem;border-radius:50%;background:var(--emerald);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="fa-solid fa-trophy" style="color:#fff;font-size:0.8rem"></i>
+      </div>
+      <div style="flex:1">
+        <p style="font-size:0.875rem;font-weight:700;color:var(--text-1);margin-bottom:0.125rem">¡Archivo listo para auditar!</p>
+        <p style="font-size:0.8rem;color:var(--text-2)">Las facturas están cargadas en el sistema. Dirígete al Pipeline para continuar con las demás etapas.</p>
+      </div>
+      <a href="/" style="flex-shrink:0;display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 1rem;border-radius:0.5rem;background:var(--emerald);color:#fff;font-size:0.8125rem;font-weight:600;text-decoration:none">
+        Ir al Pipeline <i class="fa-solid fa-arrow-right"></i>
+      </a>
+    </div>
+
+  </div><!-- /prepare guide -->
+
+  <!-- ── Guide: Google Drive — Cuenta de servicio ─────────── -->
+  <div class="guide-article" x-show="guide === 'drive-setup'" x-cloak>
+
+    <div class="guide-banner">
+      <div class="guide-banner-eyebrow">
+        <i class="fa-brands fa-google-drive"></i> Tutorial · Google Drive
+      </div>
+      <h1>Conectar Google Drive con cuenta de servicio</h1>
+      <p>Configura el acceso a las carpetas de Drive para que el pipeline pueda descargar documentos automáticamente.</p>
+      <div class="guide-banner-meta">
+        <span class="guide-badge violet"><i class="fa-solid fa-list-check"></i> 6 pasos</span>
+        <span class="guide-badge sky"><i class="fa-solid fa-cloud"></i> Google Cloud</span>
+      </div>
+    </div>
+
+    <div class="prereq">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>
+        <strong style="color:var(--amber)">Antes de comenzar:</strong> Debes iniciar sesión en Google con el <strong>correo institucional del hospital</strong> (no una cuenta personal). Necesitas acceso a Google Cloud Console y permisos de propietario sobre las carpetas de Drive de la institución.
+      </div>
+    </div>
+
+    <div class="steps-container">
+
+      <!-- Paso 1 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">1</div>
+          <div class="step-title-block">
+            <h2>Crear o seleccionar un proyecto GCP</h2>
+            <p>Necesitas un proyecto en Google Cloud Platform para habilitar APIs</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Abre <code class="ic">console.cloud.google.com</code> en tu navegador e inicia sesión con el correo del hospital. La consola puede verse confusa al principio — aquí te orientamos:</p>
+          <div class="callout info">
+            <i class="fa-solid fa-bars"></i>
+            <span>El <strong>menú hamburguesa</strong> en la esquina superior izquierda despliega toda la navegación de GCP: APIs, IAM, facturación, etc. Es el punto de partida para encontrar cualquier sección.</span>
+          </div>
+          <p style="margin-top:0.625rem">Junto al logo de Google Cloud verás el <strong>selector de proyecto</strong> (un nombre con una flecha desplegable). Haz clic ahí para cambiar o crear proyectos.</p>
+          <ol>
+            <li>Haz clic en el <strong>selector de proyecto</strong> (barra superior, junto al logo).</li>
+            <li>Si ya tienes un proyecto para esta app, selecciónalo y ve al paso 2.</li>
+            <li>Para crear uno nuevo, haz clic en <strong>Nuevo proyecto</strong> (esquina superior derecha del diálogo).</li>
+            <li>Asigna un <strong>nombre</strong> descriptivo (ej. <code class="ic">medical-audit</code>) y selecciona tu organización.</li>
+            <li>Haz clic en <strong>Crear</strong> y espera unos segundos. La consola te redirigirá al nuevo proyecto.</li>
+          </ol>
+          <details style="margin-top:0.625rem">
+            <summary style="font-size:0.75rem;color:var(--text-3);cursor:pointer;user-select:none;display:flex;align-items:center;gap:0.375rem;list-style:none">
+              <i class="fa-solid fa-terminal" style="font-size:0.65rem"></i> Para usuarios avanzados — comando gcloud
+            </summary>
+            <div class="script-box" style="margin-top:0.5rem">
+              <div class="script-box-title"><i class="fa-solid fa-terminal"></i> gcloud CLI</div>
+              <code style="font-family:monospace;font-size:0.8rem;color:var(--sky);display:block">gcloud projects create NOMBRE_PROYECTO --name="Medical Audit"</code>
+              <code style="font-family:monospace;font-size:0.8rem;color:var(--sky);display:block;margin-top:0.375rem">gcloud config set project NOMBRE_PROYECTO</code>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- Paso 2 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">2</div>
+          <div class="step-title-block">
+            <h2>Habilitar la Google Drive API</h2>
+            <p>Sin esta API activa, la cuenta de servicio no podrá acceder a Drive</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Haz clic en el <strong>menú hamburguesa</strong> (<i class="fa-solid fa-bars" style="font-size:0.7rem"></i>) y busca la sección <strong>APIs y servicios</strong>. También puedes usar la barra de búsqueda superior de GCP y escribir directamente <code class="ic">Google Drive API</code>.</p>
+          <div class="nav-path">
+            <span class="crumb"><i class="fa-solid fa-bars"></i> Menú</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb"><i class="fa-solid fa-puzzle-piece"></i> APIs y servicios</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Biblioteca</span>
+          </div>
+          <ol>
+            <li>En el buscador escribe <code class="ic">Google Drive API</code>.</li>
+            <li>Haz clic en el resultado <strong>Google Drive API</strong>.</li>
+            <li>Haz clic en el botón azul <strong>Habilitar</strong>.</li>
+          </ol>
+          <div class="callout warn">
+            <i class="fa-solid fa-clock"></i>
+            <span>La activación puede tardar hasta <strong>2 minutos</strong>. Espera a que la página se actualice antes de continuar.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paso 3 -->
+      <div class="step-section highlight">
+        <div class="step-header">
+          <div class="step-num-large">3</div>
+          <div class="step-title-block">
+            <h2>Crear la cuenta de servicio</h2>
+            <p>La cuenta de servicio es el "usuario" que accederá a Drive en nombre de la app</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Abre el <strong>menú hamburguesa</strong> (<i class="fa-solid fa-bars" style="font-size:0.7rem"></i>) y busca <strong>IAM y administración</strong> en la lista. Si no lo ves de inmediato, desplázate hacia abajo o escríbelo en la barra de búsqueda superior.</p>
+          <div class="nav-path">
+            <span class="crumb"><i class="fa-solid fa-bars"></i> Menú</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb"><i class="fa-solid fa-shield-halved"></i> IAM y administración</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Cuentas de servicio</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Crear cuenta de servicio</span>
+          </div>
+          <ol>
+            <li>En <strong>Nombre</strong>, escribe algo descriptivo, ej. <code class="ic">medical-audit-drive</code>.</li>
+            <li>El <strong>ID</strong> se genera automáticamente — puedes dejarlo así.</li>
+            <li>La <strong>Descripción</strong> es opcional. Haz clic en <strong>Crear y continuar</strong>.</li>
+            <li>En "Otorgar acceso a este proyecto": busca y selecciona el rol <code class="ic">Visualizador</code> (Viewer). No se necesita Editor.</li>
+            <li>Haz clic en <strong>Continuar</strong> y luego en <strong>Listo</strong>.</li>
+          </ol>
+          <div class="callout info">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>Anota el <strong>email de la cuenta de servicio</strong> (termina en <code class="ic">@....iam.gserviceaccount.com</code>) — lo necesitarás en el paso 5.</span>
+          </div>
+          <details style="margin-top:0.625rem">
+            <summary style="font-size:0.75rem;color:var(--text-3);cursor:pointer;user-select:none;display:flex;align-items:center;gap:0.375rem;list-style:none">
+              <i class="fa-solid fa-terminal" style="font-size:0.65rem"></i> Para usuarios avanzados — comando gcloud
+            </summary>
+            <div class="script-box" style="margin-top:0.5rem">
+              <div class="script-box-title"><i class="fa-solid fa-terminal"></i> gcloud CLI</div>
+              <code style="font-family:monospace;font-size:0.8rem;color:var(--sky);display:block">gcloud iam service-accounts create medical-audit-drive \</code>
+              <code style="font-family:monospace;font-size:0.8rem;color:var(--sky);display:block;padding-left:1rem">--display-name="Medical Audit Drive"</code>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- Paso 4 -->
+      <div class="step-section highlight-violet">
+        <div class="step-header">
+          <div class="step-num-large">4</div>
+          <div class="step-title-block">
+            <h2>Generar y descargar la clave JSON</h2>
+            <p>Este es el archivo <code class="ic">service_account.json</code> que subirás a la app</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <ol>
+            <li>En la lista de cuentas de servicio, haz clic en la cuenta recién creada.</li>
+            <li>Ve a la pestaña <strong>Claves</strong>.</li>
+            <li>Haz clic en <strong>Agregar clave</strong> → <strong>Crear nueva clave</strong>.</li>
+            <li>Selecciona tipo <strong>JSON</strong> y haz clic en <strong>Crear</strong>.</li>
+            <li>El archivo se descarga automáticamente. Guárdalo en un lugar seguro.</li>
+          </ol>
+          <div class="callout warn">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span><strong>Importante:</strong> Este archivo solo se puede descargar <strong>una vez</strong>. Si lo pierdes, tendrás que generar una clave nueva desde la misma pestaña.</span>
+          </div>
+          <div class="callout ok">
+            <i class="fa-solid fa-circle-check"></i>
+            <span>El archivo descargado es el <code class="ic">service_account.json</code> que se sube en el paso 6.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paso 5 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">5</div>
+          <div class="step-title-block">
+            <h2>Compartir la carpeta del año con la cuenta de servicio</h2>
+            <p>Debes compartir la carpeta del año en curso, no carpetas individuales de facturas</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <div class="callout new">
+            <i class="fa-solid fa-star"></i>
+            <span><strong>Clave:</strong> La carpeta a compartir es la <strong>carpeta del año en curso</strong> (ej. <code class="ic">2026</code>), no la raíz ni carpetas individuales de facturas. Esto da acceso a todas las subcarpetas automáticamente.</span>
+          </div>
+          <ol>
+            <li>Abre <code class="ic">drive.google.com</code> con tu cuenta de Google.</li>
+            <li>Navega hasta la carpeta del año activo (ej. <code class="ic">2026</code>).</li>
+            <li>Haz clic derecho sobre la carpeta → <strong>Compartir</strong>.</li>
+            <li>En el campo de personas, pega el email de la cuenta de servicio del paso 3.</li>
+            <li>Asigna el rol <strong>Lector</strong> (solo lectura es suficiente).</li>
+            <li>Haz clic en <strong>Enviar</strong>.</li>
+          </ol>
+          <div class="callout info">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>Al compartir la carpeta del año, todas las subcarpetas de facturas quedan accesibles automáticamente sin configuración adicional.</span>
+          </div>
+          <div class="callout warn">
+            <i class="fa-solid fa-rotate"></i>
+            <span><strong>Renovación anual:</strong> Cada año nuevo debes repetir este paso compartiendo la carpeta del nuevo año (ej. <code class="ic">2027</code>). La carpeta anterior no necesita ningún cambio.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paso 6 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">6</div>
+          <div class="step-title-block">
+            <h2>Subir el archivo en la aplicación</h2>
+            <p>El último paso — vincular la institución con las credenciales de Drive</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Regresa a la aplicación y ve a los ajustes de la institución:</p>
+          <div class="nav-path">
+            <span class="crumb"><i class="fa-solid fa-sliders"></i>Configuración</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">seleccionar institución</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Credenciales Google Drive</span>
+          </div>
+          <ol>
+            <li>Haz clic en el botón <strong>Subir .json</strong>.</li>
+            <li>Selecciona el archivo <code class="ic">service_account.json</code> descargado en el paso 4.</li>
+            <li>Espera la confirmación de éxito (aparecerá un check verde).</li>
+          </ol>
+          <div class="callout ok">
+            <i class="fa-solid fa-lock"></i>
+            <span>Las credenciales quedan <strong>cifradas con AES-256</strong> y almacenadas de forma segura. Nunca se exponen en texto plano.</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /steps-container -->
+
+    <!-- Final CTA -->
+    <div style="margin-top:1.75rem;padding:1.125rem 1.375rem;border-radius:0.75rem;border:1px solid var(--emerald-border);background:var(--emerald-soft);display:flex;align-items:center;gap:1rem">
+      <div style="width:2.25rem;height:2.25rem;border-radius:50%;background:var(--emerald);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="fa-solid fa-trophy" style="color:#fff;font-size:0.8rem"></i>
+      </div>
+      <div style="flex:1">
+        <p style="font-size:0.875rem;font-weight:700;color:var(--text-1);margin-bottom:0.125rem">¡Configuración completa!</p>
+        <p style="font-size:0.8rem;color:var(--text-2)">La cuenta de servicio está activa y conectada. El pipeline ya puede descargar documentos desde Google Drive automáticamente.</p>
+      </div>
+      <a href="/settings" style="flex-shrink:0;display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 1rem;border-radius:0.5rem;background:var(--emerald);color:#fff;font-size:0.8125rem;font-weight:600;text-decoration:none">
+        Ir a Ajustes <i class="fa-solid fa-arrow-right"></i>
+      </a>
+    </div>
+
+  </div><!-- /drive-setup guide -->
+
+</div><!-- /help-layout -->
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const OFFICE_SCRIPT = `function main(workbook: ExcelScript.Workbook): void {
+    const sheet = workbook.getActiveWorksheet();
+
+    // ─── 1. Eliminar primeras 11 filas ───────────────────────────────────────────
+    // Única operación de delete necesaria — no hay forma de evitarla.
+    const initUsed = sheet.getUsedRange();
+    sheet.getRangeByIndexes(0, 0, 11, initUsed.getColumnCount()).delete(
+        ExcelScript.DeleteShiftDirection.up
+    );
+
+    // ─── 2. Lectura única de toda la hoja ────────────────────────────────────────
+    // Se lee TODO de una sola vez. El resto del script opera en memoria
+    // y solo escribe al final, minimizando viajes a Excel.
+    const fullRange = sheet.getUsedRange();
+    const totalRows = fullRange.getRowCount();
+    const totalCols = fullRange.getColumnCount();
+    let data = fullRange.getValues();
+
+    // ─── 3. Separar celda combinada "Paciente" y nombrar sub-columnas ────────────
+    // El unmerge es necesario hacerlo en Excel (no se puede en memoria),
+    // pero solo se ejecuta una vez sobre la fila de encabezados.
+    sheet.getRangeByIndexes(0, 0, 1, totalCols).unmerge();
+
+    // Localizar "Paciente" en los encabezados y asignar sub-columnas por posición
+    let pacienteSourceIdx = -1;
+    for (let c = 0; c < totalCols; c++) {
+        if (String(data[0][c]).trim().toLowerCase().includes("paciente")) {
+            pacienteSourceIdx = c;
+            break;
+        }
+    }
+    if (pacienteSourceIdx >= 0) {
+        data[0][pacienteSourceIdx] = "Documento";
+        data[0][pacienteSourceIdx + 1] = "Numero";
+        data[0][pacienteSourceIdx + 2] = "Paciente";
+    }
+
+    // ─── 4. Renombrar encabezados en memoria ─────────────────────────────────────
+    const renameMap: { [key: string]: string } = {
+        "num factura": "Factura",
+        "admisión": "Admision",
+        "tipo usuario": "Contrato",
+        "tipo servicio": "Servicio",
+        "actividad/suministro": "Actividad",
+        "operario": "Operario",
+        "paciente": "Paciente",
+        "fecha": "Fecha",
+        "administradora": "Administradora",
+        "documento": "Documento",
+        "numero": "Numero",
+    };
+    for (let c = 0; c < totalCols; c++) {
+        const normalized = String(data[0][c]).trim().toLowerCase();
+        if (renameMap[normalized] !== undefined) {
+            data[0][c] = renameMap[normalized];
+        }
+    }
+
+    // ─── 5. Identificar columnas a conservar por nombre ──────────────────────────
+    const headersToKeep: string[] = [
+        "Fecha", "Factura", "Admision", "Administradora",
+        "Contrato", "Servicio", "Actividad", "Operario",
+        "Documento", "Numero", "Paciente",
+    ];
+
+    // Construir mapa de columnas a conservar y sus índices destino
+    const keepColIndices: number[] = [];
+    for (let c = 0; c < totalCols; c++) {
+        const hVal = String(data[0][c]).trim();
+        if (headersToKeep.includes(hVal)) keepColIndices.push(c);
+    }
+
+    // Filtrar columnas en memoria: conservar solo las necesarias
+    const dataFiltered: (string | number | boolean)[][] = [];
+    for (let r = 0; r < totalRows; r++) {
+        const newRow: (string | number | boolean)[] = [];
+        for (const c of keepColIndices) {
+            newRow.push(data[r][c] as string | number | boolean);
+        }
+        dataFiltered.push(newRow);
+    }
+    data = dataFiltered;
+    const filteredCols = keepColIndices.length;
+
+    // ─── 6. Eliminar filas donde Factura sea 0 o vacía ───────────────────────────
+    // Se hace filtrando la matriz en memoria — sin ningún delete() en loop.
+    let facturaColIdx = -1;
+    for (let c = 0; c < filteredCols; c++) {
+        if (String(data[0][c]).trim() === "Factura") { facturaColIdx = c; break; }
+    }
+
+    const dataNoEmpty: (string | number | boolean)[][] = [data[0]]; // conservar encabezado
+    for (let r = 1; r < data.length; r++) {
+        const cellVal = data[r][facturaColIdx];
+        const isEmpty = cellVal === null || String(cellVal).trim() === "";
+        const isZero = !isEmpty && (Number(cellVal) === 0 || String(cellVal).trim() === "0");
+        if (!isEmpty && !isZero) dataNoEmpty.push(data[r]);
+    }
+    data = dataNoEmpty;
+
+    // ─── 7. Convertir todo a mayúsculas en memoria ───────────────────────────────
+    for (let r = 0; r < data.length; r++) {
+        for (let c = 0; c < data[r].length; c++) {
+            const v = data[r][c];
+            if (typeof v === "string" && v.trim() !== "") {
+                data[r][c] = v.toUpperCase();
+            }
+        }
+    }
+
+    // ─── 8. Normalizar "TOMA Y*" → "TOMA Y ENVIO" en columna SERVICIO ────────────
+    let actividadIdx = -1;
+    let servicioIdx = -1;
+    for (let c = 0; c < data[0].length; c++) {
+        const h = String(data[0][c]).trim();
+        if (h === "ACTIVIDAD") actividadIdx = c;
+        if (h === "SERVICIO") servicioIdx = c;
+    }
+    if (actividadIdx >= 0 && servicioIdx >= 0) {
+        for (let r = 1; r < data.length; r++) {
+            if (String(data[r][actividadIdx]).includes("TOMA Y")) {
+                data[r][servicioIdx] = "TOMA Y ENVIO";
+            }
+        }
+    }
+
+    // ─── 9. Reordenar columnas en memoria ─────────────────────────────────────────
+    const desiredOrder: string[] = [
+        "FACTURA", "ADMISION", "FECHA", "DOCUMENTO", "NUMERO",
+        "PACIENTE", "ADMINISTRADORA", "CONTRATO", "SERVICIO",
+        "ACTIVIDAD", "OPERARIO",
+    ];
+
+    const headerIndexMap: { [key: string]: number } = {};
+    for (let c = 0; c < data[0].length; c++) {
+        headerIndexMap[String(data[0][c]).trim()] = c;
+    }
+
+    const dataReordered: (string | number | boolean)[][] = [];
+    for (let r = 0; r < data.length; r++) {
+        const newRow: (string | number | boolean)[] = [];
+        for (const colName of desiredOrder) {
+            const srcCol = headerIndexMap[colName];
+            newRow.push(srcCol !== undefined ? data[r][srcCol] : "");
+        }
+        dataReordered.push(newRow);
+    }
+    data = dataReordered;
+
+    // ─── 10. ESCRITURA ÚNICA en Excel ────────────────────────────────────────────
+    // Limpiar hoja y escribir toda la matriz de una sola vez.
+    sheet.getUsedRange().clear(ExcelScript.ClearApplyTo.all);
+    const outputRows = data.length;
+    const outputCols = desiredOrder.length;
+    sheet.getRangeByIndexes(0, 0, outputRows, outputCols).setValues(data);
+
+    // ─── 11. Formatos de columna ─────────────────────────────────────────────────
+    if (outputRows > 1) {
+        const fechaIdx = desiredOrder.indexOf("FECHA");
+        const admisionIdx = desiredOrder.indexOf("ADMISION");
+
+        if (fechaIdx >= 0) {
+            sheet.getRangeByIndexes(1, fechaIdx, outputRows - 1, 1)
+                .setNumberFormat("dd/mm/yyyy");
+        }
+        if (admisionIdx >= 0) {
+            sheet.getRangeByIndexes(1, admisionIdx, outputRows - 1, 1)
+                .setNumberFormat("0");
+        }
+    }
+
+    // ─── 12. Alineación ──────────────────────────────────────────────────────────
+    const finalUsed = sheet.getUsedRange();
+    finalUsed.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+    finalUsed.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+
+    // ─── 13. Formato de tabla ─────────────────────────────────────────────────────
+    const existingTable = workbook.getTable("TblFacturas");
+    if (existingTable) existingTable.delete();
+
+    const table = sheet.addTable(
+        sheet.getRangeByIndexes(0, 0, outputRows, outputCols),
+        true
+    );
+    table.setName("TblFacturas");
+    table.setPredefinedTableStyle("TableStyleMedium2");
+
+    // ─── 14. Autofit ──────────────────────────────────────────────────────────────
+    sheet.getUsedRange().getFormat().autofitColumns();
+    sheet.getUsedRange().getFormat().autofitRows();
+}`;
+
+function downloadScript() {
+    const blob = new Blob([OFFICE_SCRIPT], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'preparar_sihos.ts';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

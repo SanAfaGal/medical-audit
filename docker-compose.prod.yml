@@ -1,0 +1,68 @@
+name: medical-audit-prod
+
+# Stack de producción completo: db + backend (Ghostscript + Playwright) + nginx
+#
+# Uso (ver ./deploy.sh help para todos los comandos):
+#   ./deploy.sh up      # primer deploy: build + up + migrate + seed
+#   ./deploy.sh update  # actualizar tras git pull
+#   ./deploy.sh down    # detener
+#   ./deploy.sh logs    # ver logs
+#
+# Variables requeridas en .env:
+#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, SECRET_KEY
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    container_name: medical-audit-prod-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB:       ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI + Ghostscript + Playwright ──────────────────────────────────────
+  # El nombre del servicio "backend" debe coincidir con el upstream en nginx/nginx.conf:
+  #   upstream backend { server backend:8000; }
+  backend:
+    container_name: medical-audit-prod-backend
+    build:
+      context: .
+      target: full
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:      postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SECRET_KEY:        ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      APP_PASSWORD:      ${APP_PASSWORD:?APP_PASSWORD must be set in .env}
+      LOG_LEVEL:         ${LOG_LEVEL:-INFO}
+      DOCS_ENABLED:      "false"
+      AUDIT_DATA_ROOT:   /audit_data
+    volumes:
+      - audit_data:/audit_data
+
+  # ── Nginx — proxy inverso, rate limiting, gzip, SSE ───────────────────────
+  nginx:
+    container_name: medical-audit-prod-nginx
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  pgdata:
+  audit_data:

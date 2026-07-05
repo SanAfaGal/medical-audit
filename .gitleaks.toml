@@ -1,0 +1,3 @@
+[allowlist]
+description = "CI workflow dummy test keys are not real secrets"
+paths = ['''.github/workflows/ci.yml''']

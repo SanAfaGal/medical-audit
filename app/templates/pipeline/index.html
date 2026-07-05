@@ -1,0 +1,1723 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline — Auditoría Médica{% endblock %}
+{% block page_title %}Pipeline de Auditoría{% endblock %}
+
+{% block content %}
+<div x-data="pipeline()" class="flex gap-4 overflow-hidden"
+     style="margin:-1.5rem; height:calc(100vh - 58px); background:var(--bg-page); padding:14px;">
+
+  <!-- ═══════════════════════════ LEFT PANEL ═══════════════════════════ -->
+  <div :class="$store.ui.flowOpen ? 'w-[264px]' : 'w-[36px]'"
+       class="shrink-0 flex flex-col rounded-xl overflow-hidden transition-all duration-300"
+       style="background:var(--bg-surface); border:1px solid var(--border); box-shadow:0 1px 8px rgba(0,0,0,0.06)">
+
+    <!-- Collapsed strip (solo botón para expandir) -->
+    <template x-if="!$store.ui.flowOpen">
+      <div class="flex flex-col items-center py-3 h-full gap-2">
+        <button @click="$store.ui.flowOpen = true"
+                class="p-1.5 rounded-md transition-colors"
+                style="color:var(--text-3)"
+                onmouseover="this.style.color='var(--sky)'" onmouseout="this.style.color='var(--text-3)'"
+                title="Mostrar flujo de auditoría">
+          <i class="fa-solid fa-chevron-right text-[10px]"></i>
+        </button>
+        <div class="flex-1 flex items-center">
+          <span class="text-[9px] font-bold uppercase tracking-widest whitespace-nowrap"
+                style="color:var(--text-3);writing-mode:vertical-rl;transform:rotate(180deg)">Flujo de auditoría</span>
+        </div>
+      </div>
+    </template>
+
+    <!-- Expanded content -->
+    <template x-if="$store.ui.flowOpen">
+      <div class="flex flex-col h-full overflow-hidden">
+
+    <!-- Header -->
+    <div class="shrink-0 px-4 pt-4 pb-3" style="border-bottom:1px solid var(--border)">
+      <div x-show="!$store.ctx.institutionId || !$store.ctx.periodId" x-transition
+           class="mb-3 flex items-center gap-2 px-2.5 py-2 rounded-lg text-[10.5px]"
+           style="background:var(--amber-soft);border:1px solid var(--amber-border);color:var(--amber)">
+        <i class="fa-solid fa-triangle-exclamation text-[9px] shrink-0"></i>
+        <span>Selecciona hospital y período</span>
+      </div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-semibold uppercase tracking-widest" style="color:var(--text-3)">Flujo de auditoría</span>
+        <div class="flex gap-1">
+          <button @click="selectAll(false)"
+                  class="text-[9px] px-2 py-0.5 rounded-md transition-all font-medium"
+                  style="border:1px solid var(--border);color:var(--text-2);background:var(--bg-subtle)"
+                  onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red-border)'" onmouseout="this.style.color='var(--text-2)';this.style.borderColor='var(--border)'"
+                  title="Deseleccionar todas las etapas">
+            <i class="fa-solid fa-xmark text-[9px]"></i>
+          </button>
+          <button @click="$store.ui.flowOpen = false"
+                  class="text-[9px] px-1.5 py-0.5 rounded-md transition-all"
+                  style="border:1px solid var(--border);color:var(--text-3);background:var(--bg-subtle)"
+                  onmouseover="this.style.color='var(--text-1)'" onmouseout="this.style.color='var(--text-3)'"
+                  title="Ocultar flujo">
+            <i class="fa-solid fa-chevron-left text-[9px]"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Progress -->
+      <div x-show="selectedStages.length > 0">
+        <div class="flex justify-between mb-1">
+          <span class="text-[9.5px]" style="color:var(--text-3)" x-text="selectedStages.length + ' etapas seleccionadas'"></span>
+          <span x-show="running || completedCount > 0"
+                class="text-[9.5px] font-bold tabular-nums"
+                :style="progressPct===100 ? 'color:var(--emerald)' : 'color:var(--sky)'"
+                x-text="completedCount + '/' + selectedStages.length"></span>
+        </div>
+        <div class="h-1 rounded-full overflow-hidden" style="background:var(--border)">
+          <div class="h-full rounded-full transition-all duration-500"
+               :style="`width:${progressPct}%;background:${progressPct===100?'var(--emerald)':'linear-gradient(to right,var(--sky),var(--indigo))'}`"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stage flow (scrollable) -->
+    <div class="flex-1 overflow-y-auto px-2 py-2 stage-scroll">
+      <template x-for="(item, i) in stageFlow" :key="i">
+        <div>
+
+          <!-- Phase header -->
+          <template x-if="item.type === 'phase'">
+            <div class="flex items-center gap-2 px-2 pt-3 pb-1">
+              <i :class="item.icon" :style="`color:${item.color};font-size:9px`"></i>
+              <span class="text-[9px] font-extrabold uppercase tracking-[0.14em]"
+                    :style="`color:${item.color}`" x-text="item.label"></span>
+              <div class="flex-1 h-px" :style="`background:${item.color}40`"></div>
+            </div>
+          </template>
+
+          <!-- Decision point -->
+          <template x-if="item.type === 'decision'">
+            <div class="mx-1 my-2 px-2.5 py-2 rounded-lg" style="background:#eef2ff;border:1px solid #c7d2fe">
+              <div class="flex items-center gap-1.5 mb-1">
+                <i class="fa-solid fa-code-fork text-[9px]" style="color:#4338ca"></i>
+                <span class="text-[8.5px] font-extrabold uppercase tracking-wider" style="color:#4338ca">Punto de decisión</span>
+              </div>
+              <p class="text-[9px] leading-relaxed" style="color:#6366f1" x-text="item.label"></p>
+            </div>
+          </template>
+
+          <!-- Fork path separator (replaces branch) -->
+          <template x-if="item.type === 'fork'">
+            <div class="flex items-center gap-1.5 px-2 pt-2 pb-0.5 ml-2">
+              <div class="w-1 h-3.5 rounded-full shrink-0"
+                   :style="`background:${item.path==='A'?'#dc2626':'#2563eb'}`"></div>
+              <span class="text-[8.5px] font-extrabold uppercase tracking-wider"
+                    :style="`color:${item.path==='A'?'#dc2626':'#2563eb'}`"
+                    x-text="item.label"></span>
+            </div>
+          </template>
+
+          <!-- Note (advertencia amber) -->
+          <template x-if="item.type === 'note'">
+            <div class="mx-1 my-2 px-2.5 py-2 rounded-lg"
+                 style="background:var(--amber-soft);border:1px solid var(--amber-border)">
+              <div class="flex items-center gap-1.5 mb-1">
+                <i class="fa-solid fa-triangle-exclamation text-[9px]" style="color:var(--amber)"></i>
+                <span class="text-[8.5px] font-extrabold uppercase tracking-wider" style="color:var(--amber)"
+                      x-text="item.label || 'Atención'"></span>
+              </div>
+              <p class="text-[9px] leading-relaxed" style="color:var(--amber)" x-text="item.text"></p>
+            </div>
+          </template>
+
+          <!-- Info (informativo sky) -->
+          <template x-if="item.type === 'info'">
+            <div class="mx-1 my-2 px-2.5 py-2 rounded-lg"
+                 style="background:var(--sky-soft);border:1px solid var(--sky-border)">
+              <div class="flex items-center gap-1.5 mb-1">
+                <i class="fa-solid fa-circle-info text-[9px]" style="color:var(--sky)"></i>
+                <span class="text-[8.5px] font-extrabold uppercase tracking-wider" style="color:var(--sky)"
+                      x-text="item.label || 'Información'"></span>
+              </div>
+              <p class="text-[9px] leading-relaxed" style="color:var(--sky)" x-text="item.text"></p>
+            </div>
+          </template>
+
+          <!-- Stage card -->
+          <template x-if="item.type === 'stage'">
+            <label class="stage-card relative flex items-center gap-2.5 px-3 py-2 my-0.5 rounded-lg cursor-pointer select-none"
+                   :class="[selectedStages.includes(item.id) ? 'stage-sel' : '', item.path ? 'ml-4' : '']"
+                   @mouseenter="hoveredStage=item.id"
+                   @mouseleave="hoveredStage=null">
+
+              <!-- Colored left bar -->
+              <div class="absolute left-0 top-1 bottom-1 w-0.5 rounded-full transition-opacity"
+                   :style="`background:${item.phaseColor};opacity:${selectedStages.includes(item.id)?0.8:0}`"></div>
+
+              <input type="checkbox" :value="item.id" x-model="selectedStages"
+                     class="shrink-0 w-3.5 h-3.5 rounded cursor-pointer" style="accent-color:#38bdf8" />
+
+              <i :class="item.icon + ' shrink-0 w-3.5 text-center'" style="font-size:10px"
+                 :style="`color:${selectedStages.includes(item.id) ? item.phaseColor : item.phaseColor+'88'}`"></i>
+
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <p class="text-[11.5px] font-medium leading-snug transition-colors"
+                     :style="selectedStages.includes(item.id) ? 'color:var(--text-1)' : 'color:var(--text-2)'"
+                     x-text="item.label"></p>
+                  <template x-if="item.heavy">
+                    <span class="shrink-0 text-[7px] font-bold px-1 py-px rounded leading-none"
+                          style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">⏱</span>
+                  </template>
+                </div>
+                <template x-if="stageResults[item.id]">
+                  <p class="text-[9px] mt-0.5 truncate" style="color:var(--text-3)" x-text="stageResults[item.id]"></p>
+                </template>
+              </div>
+
+              <!-- Status -->
+              <div class="shrink-0 w-4 text-center">
+                <template x-if="stageStatuses[item.id]==='running'"><i class="fa-solid fa-spinner fa-spin" style="font-size:9px;color:var(--sky)"></i></template>
+                <template x-if="stageStatuses[item.id]==='done'"><i class="fa-solid fa-check" style="font-size:9px;color:var(--emerald)"></i></template>
+                <template x-if="stageStatuses[item.id]==='warn'"><i class="fa-solid fa-triangle-exclamation" style="font-size:9px;color:var(--amber)"></i></template>
+                <template x-if="stageStatuses[item.id]==='error'"><i class="fa-solid fa-xmark" style="font-size:9px;color:var(--red)"></i></template>
+              </div>
+            </label>
+          </template>
+
+        </div>
+      </template>
+    </div>
+
+    <!-- Excel upload -->
+    <div x-show="selectedStages.includes('LOAD_AND_PROCESS')" x-transition
+         class="shrink-0 px-3 pb-2" style="border-top:1px solid var(--border);padding-top:10px">
+      <div @dragover.prevent="dragOver=true" @dragleave.prevent="dragOver=false"
+           @drop.prevent="handleDrop($event)" @click="$refs.fileInput.click()"
+           class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all"
+           :style="dragOver ? 'border:1px dashed var(--sky);background:var(--sky-soft)'
+                 : excelFile ? 'border:1px solid var(--emerald-border);background:var(--emerald-soft)'
+                             : 'border:1px dashed var(--border);background:var(--bg-subtle)'">
+        <input type="file" accept=".xlsx,.xls" x-ref="fileInput" @change="setFile($event)" class="hidden" />
+        <template x-if="!excelFile">
+          <div class="flex items-center gap-2 w-full">
+            <i class="fa-solid fa-file-excel text-xs shrink-0" style="color:var(--emerald)"></i>
+            <span class="text-[10px]" style="color:var(--text-3)">Excel SIHOS — <span style="color:var(--sky)">selecciona o arrastra</span></span>
+          </div>
+        </template>
+        <template x-if="excelFile">
+          <div class="flex items-center gap-2 w-full">
+            <i class="fa-solid fa-file-excel text-xs shrink-0" style="color:var(--emerald)"></i>
+            <span class="text-[10px] truncate flex-1" style="color:var(--text-1)" x-text="excelFile.name"></span>
+            <button @click.stop="excelFile=null" class="shrink-0" style="color:var(--text-3)"
+                    onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text-3)'">
+              <i class="fa-solid fa-xmark text-[10px]"></i>
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ZIP upload -->
+    <div x-show="selectedStages.includes('LOAD_DRIVE_ZIP')" x-transition
+         class="shrink-0 px-3 pb-2" style="border-top:1px solid var(--border);padding-top:10px">
+      <div @dragover.prevent="zipDragOver=true" @dragleave.prevent="zipDragOver=false"
+           @drop.prevent="handleZipDrop($event)" @click="$refs.zipInput.click()"
+           class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all"
+           :style="zipDragOver ? 'border:1px dashed var(--sky);background:var(--sky-soft)'
+                 : zipFile ? 'border:1px solid var(--emerald-border);background:var(--emerald-soft)'
+                           : 'border:1px dashed var(--border);background:var(--bg-subtle)'">
+        <input type="file" accept=".zip,.7z,.rar" x-ref="zipInput" @change="setZipFile($event)" class="hidden" />
+        <template x-if="!zipFile">
+          <div class="flex items-center gap-2 w-full">
+            <i class="fa-solid fa-file-zipper text-xs shrink-0" style="color:var(--violet)"></i>
+            <span class="text-[10px]" style="color:var(--text-3)">.zip / .7z / .rar — <span style="color:var(--sky)">selecciona o arrastra</span></span>
+          </div>
+        </template>
+        <template x-if="zipFile">
+          <div class="flex items-center gap-2 w-full">
+            <i class="fa-solid fa-file-zipper text-xs shrink-0" style="color:var(--violet)"></i>
+            <span class="text-[10px] truncate flex-1" style="color:var(--text-1)" x-text="zipFile.name"></span>
+            <button @click.stop="zipFile=null" class="shrink-0" style="color:var(--text-3)"
+                    onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text-3)'">
+              <i class="fa-solid fa-xmark text-[10px]"></i>
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Invoice doc type selector -->
+    <div x-show="selectedStages.includes('DOWNLOAD_INVOICES_FROM_SIHOS')" x-transition
+         class="shrink-0 px-3 pb-2" style="border-top:1px solid var(--border);padding-top:10px">
+      <p class="text-[9px] font-semibold uppercase tracking-widest mb-1.5" style="color:var(--text-3)">
+        <i class="fa-solid fa-cloud-arrow-down mr-1" style="color:var(--sky)"></i>Tipo de documento a descargar
+      </p>
+      <select x-model="invoiceDocTypeId"
+              class="w-full text-[10px] rounded-lg px-2.5 py-2 outline-none transition-all"
+              style="background:var(--bg-subtle);border:1px solid var(--border);color:var(--text-1)">
+        <option value="">— Seleccionar tipo —</option>
+        <template x-for="dt in docTypes" :key="dt.id">
+          <option :value="dt.id" x-text="dt.prefix ? `${dt.code} — ${dt.prefix}` : dt.code"></option>
+        </template>
+      </select>
+    </div>
+
+    <!-- Medication sheet doc type selector -->
+    <div x-show="selectedStages.includes('DOWNLOAD_MEDICATION_SHEETS')" x-transition
+         class="shrink-0 px-3 pb-2" style="border-top:1px solid var(--border);padding-top:10px">
+      <p class="text-[9px] font-semibold uppercase tracking-widest mb-1.5" style="color:var(--text-3)">
+        <i class="fa-solid fa-pills mr-1" style="color:#4338ca"></i>Tipo de documento a descargar
+      </p>
+      <select x-model="medSheetDocTypeId"
+              class="w-full text-[10px] rounded-lg px-2.5 py-2 outline-none transition-all"
+              style="background:var(--bg-subtle);border:1px solid var(--border);color:var(--text-1)">
+        <option value="">— Seleccionar tipo —</option>
+        <template x-for="dt in docTypes" :key="dt.id">
+          <option :value="dt.id" x-text="dt.prefix ? `${dt.code} — ${dt.prefix}` : dt.code"></option>
+        </template>
+      </select>
+    </div>
+
+    <!-- Drive folders manual list -->
+    <div x-show="selectedStages.includes('DOWNLOAD_DRIVE')" x-transition
+         class="shrink-0 px-3 pb-2" style="border-top:1px solid var(--border);padding-top:10px">
+      <p class="text-[9px] font-semibold uppercase tracking-widest mb-1.5" style="color:var(--text-3)">
+        <i class="fa-brands fa-google-drive mr-1" style="color:#166534"></i>Carpetas a descargar (opcional, una por línea)
+      </p>
+      <textarea x-model="downloadDriveFolders" rows="4"
+                class="w-full text-[10px] font-mono rounded-lg px-2.5 py-2 outline-none resize-y transition-all"
+                style="background:var(--bg-subtle);border:1px solid var(--border);color:var(--text-1)"
+                placeholder="12345&#10;67890&#10;..."></textarea>
+      <p class="text-[9px] mt-1" style="color:var(--text-3)">Si se deja vacío, se descargan las carpetas marcadas como FALTANTE en BD.</p>
+    </div>
+
+    <!-- Run button -->
+    <div class="shrink-0 px-3 py-3 flex gap-2" style="border-top:1px solid var(--border)">
+      <button @click="runPipeline()"
+              :disabled="running || !$store.ctx.institutionId || !$store.ctx.periodId || selectedStages.length===0"
+              class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg font-bold text-[11.5px] transition-all"
+              :style="running
+                ? 'background:var(--sky-soft);color:var(--sky);cursor:not-allowed;border:1px solid var(--sky-border)'
+                : (!$store.ctx.institutionId||!$store.ctx.periodId||selectedStages.length===0)
+                  ? 'background:var(--bg-subtle);color:var(--text-3);cursor:not-allowed;border:1px solid var(--border)'
+                  : 'background:var(--sky);color:#fff;box-shadow:0 2px 12px rgba(2,132,199,0.2)'">
+        <i class="fa-solid fa-play text-[10px]" x-show="!running"></i>
+        <i class="fa-solid fa-spinner fa-spin text-[10px]" x-show="running"></i>
+        <span x-text="running ? 'Ejecutando…' : 'Ejecutar' + (selectedStages.length>0 ? ' ('+selectedStages.length+')' : '')"></span>
+      </button>
+      <button @click="cancelPipeline()" x-show="running"
+              class="px-3 rounded-lg font-bold text-[11.5px] transition-all"
+              style="border:1px solid var(--red-border);color:var(--red);background:var(--red-soft)"
+              onmouseover="this.style.background='var(--red)';this.style.color='#fff'"
+              onmouseout="this.style.background='var(--red-soft)';this.style.color='var(--red)'"
+              title="Detener pipeline">
+        <i class="fa-solid fa-stop text-[10px]"></i>
+      </button>
+      <button @click="clearLog()" x-show="logLines.length>0" :disabled="running"
+              class="px-3 rounded-lg transition-all disabled:opacity-30"
+              style="border:1px solid var(--border);color:var(--text-3)"
+              onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red-border)'"
+              onmouseout="this.style.color='var(--text-3)';this.style.borderColor='var(--border)'"
+              title="Limpiar consola">
+        <i class="fa-solid fa-trash-can text-[10px]"></i>
+      </button>
+    </div>
+
+      </div><!-- /expanded flex col -->
+    </template><!-- /x-if flowOpen -->
+
+  </div><!-- /LEFT PANEL -->
+
+  <!-- ═══════════════════════════ RIGHT PANEL ══════════════════════════ -->
+  <div class="flex-1 flex flex-col gap-2 min-w-0 overflow-hidden">
+
+    <!-- Stage description bar — appears on hover -->
+    <div x-show="hoveredStage && stageById(hoveredStage)"
+         x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0 -translate-y-1"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-100"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="shrink-0 flex items-start gap-3 px-4 py-3 rounded-xl"
+         style="background:var(--bg-surface);border:1px solid var(--border);box-shadow:0 1px 4px rgba(0,0,0,0.05)">
+      <i :class="(stageFlow.find(s=>s.id===hoveredStage)||{}).icon||'fa-solid fa-circle'"
+         class="shrink-0 mt-px"
+         style="font-size:11px"
+         :style="`color:${(stageFlow.find(s=>s.id===hoveredStage)||{}).phaseColor||'var(--sky)'}`"></i>
+      <div class="min-w-0">
+        <p class="text-[11px] font-semibold mb-0.5" style="color:var(--text-1)"
+           x-text="stageById(hoveredStage)?.label || ''"></p>
+        <p class="text-[10.5px] leading-relaxed" style="color:var(--text-2)"
+           x-text="stageById(hoveredStage)?.description || ''"></p>
+      </div>
+    </div>
+
+    <!-- Terminal card -->
+    <div x-show="$store.ui.consoleOpen"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-y-95 origin-bottom"
+         x-transition:enter-end="opacity-100 scale-y-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100 scale-y-100 origin-bottom"
+         x-transition:leave-end="opacity-0 scale-y-95"
+         class="flex-1 flex flex-col rounded-xl overflow-hidden min-h-0"
+         style="background:#0d1117; border:1px solid rgba(255,255,255,0.07); box-shadow:0 4px 24px rgba(0,0,0,0.4)">
+
+      <!-- Titlebar -->
+      <div class="shrink-0 flex items-center gap-3 px-4 py-2.5"
+           style="background:#161b22; border-bottom:1px solid rgba(255,255,255,0.07)">
+        <div class="flex items-center gap-1.5">
+          <div class="w-3 h-3 rounded-full" style="background:rgba(239,68,68,0.55)"></div>
+          <div class="w-3 h-3 rounded-full" style="background:rgba(234,179,8,0.55)"></div>
+          <div class="w-3 h-3 rounded-full" style="background:rgba(34,197,94,0.55)"></div>
+        </div>
+        <div class="flex-1 font-mono text-[10.5px]">
+          <span style="color:#475569" x-show="!running && logLines.length===0">pipeline — listo</span>
+          <span class="flex items-center gap-2" x-show="running">
+            <span class="inline-flex gap-0.5 items-end" style="height:14px">
+              <span class="w-0.5 rounded-sm animate-pulse" style="background:#38bdf8;height:40%"></span>
+              <span class="w-0.5 rounded-sm animate-pulse" style="background:#38bdf8;height:70%;animation-delay:150ms"></span>
+              <span class="w-0.5 rounded-sm animate-pulse" style="background:#38bdf8;height:100%;animation-delay:300ms"></span>
+              <span class="w-0.5 rounded-sm animate-pulse" style="background:#38bdf8;height:60%;animation-delay:450ms"></span>
+            </span>
+            <span class="font-semibold" style="color:#38bdf8" x-text="currentStageLabel"></span>
+          </span>
+          <span style="color:#64748b" x-show="!running && logLines.length>0">pipeline — finalizado</span>
+        </div>
+        <span class="font-mono text-[9px]" style="color:#475569"
+              x-show="logLines.length>0" x-text="logLines.length + ' líneas'"></span>
+      </div>
+
+      <!-- Log output -->
+      <div class="flex-1 min-h-0 overflow-y-auto px-5 py-4 font-mono log-scroll"
+           style="font-size:12px; line-height:1.75" x-ref="logContainer">
+
+        <div x-show="logLines.length===0"
+             class="h-full flex flex-col items-center justify-center select-none">
+          <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+               style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05)">
+            <i class="fa-solid fa-terminal text-xl" style="color:#334155"></i>
+          </div>
+          <p class="text-sm font-semibold" style="color:#475569">Consola vacía</p>
+          <p class="text-xs mt-1" style="color:#334155">Selecciona etapas y presiona Ejecutar</p>
+        </div>
+
+        <template x-for="(line, idx) in logLines" :key="idx">
+          <div class="log-line" :class="lineClass(line)">
+            <template x-if="line.startsWith('───')">
+              <div class="flex items-center gap-3 py-2 mt-1.5 mb-0.5">
+                <div class="h-px flex-1" style="background:rgba(255,255,255,0.07)"></div>
+                <span class="text-[9.5px] font-bold uppercase tracking-[0.14em]" style="color:#475569"
+                      x-text="line.replace(/─+/g,'').trim()"></span>
+                <div class="h-px flex-1" style="background:rgba(255,255,255,0.07)"></div>
+              </div>
+            </template>
+            <template x-if="!line.startsWith('───')">
+              <div class="flex gap-3 py-px rounded px-1.5 -mx-1.5 hover:bg-white/[0.02] transition-colors">
+                <span class="shrink-0 mt-px w-10 text-right" x-html="linePrefix(line)"></span>
+                <span x-text="lineBody(line)"></span>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+
+      <!-- Unmapped overlay -->
+      <div x-show="unmappedConfirm"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-y-3"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           x-transition:leave="transition ease-in duration-150"
+           x-transition:leave-start="opacity-100 translate-y-0"
+           x-transition:leave-end="opacity-0 translate-y-3"
+           class="absolute bottom-0 right-0 p-5 overflow-y-auto rounded-xl shadow-xl"
+           style="left:calc(264px + 14px + 14px);background:var(--bg-surface);border:1px solid var(--amber-border);max-height:65%;bottom:14px;right:14px">
+
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+               style="background:var(--amber-soft)">
+            <i class="fa-solid fa-triangle-exclamation" style="color:var(--amber)"></i>
+          </div>
+          <div>
+            <p class="font-semibold mb-1" style="font-size:13px;color:var(--amber)">Registros sin mapear detectados</p>
+            <p class="leading-relaxed" style="font-size:11px;color:var(--text-2)">
+              <strong style="color:var(--text-1)">Corregir</strong> guarda estos valores en la BD para que puedas mapearlos en
+              <strong style="color:var(--text-1)">Configuración → Mapeos</strong>, sin insertar facturas.
+              <strong style="color:var(--text-1)">Continuar</strong> inserta las facturas aunque queden campos sin mapear.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-3 mb-4">
+          <template x-for="col in [{key:'admins',icon:'fa-building-user',label:'Admins'},{key:'contracts',icon:'fa-file-contract',label:'Contratos'},{key:'services',icon:'fa-stethoscope',label:'Servicios'}]" :key="col.key">
+            <template x-if="unmappedConfirm">
+              <div class="rounded-xl p-3 transition-opacity"
+                   :style="`background:var(--bg-subtle);border:1px solid var(--border);opacity:${unmappedConfirm[col.key].length===0?0.5:1}`">
+                <p class="text-[9px] font-bold uppercase tracking-wider mb-2"
+                   :style="unmappedConfirm[col.key].length>0 ? 'color:var(--amber)' : 'color:var(--text-3)'">
+                  <i class="fa-solid mr-1"
+                     :class="unmappedConfirm[col.key].length>0 ? col.icon : 'fa-check'"
+                     :style="unmappedConfirm[col.key].length===0?'color:var(--emerald)':''"></i>
+                  <span x-text="col.label+(unmappedConfirm[col.key].length>0?' ('+unmappedConfirm[col.key].length+')':'')"></span>
+                </p>
+                <ul x-show="unmappedConfirm[col.key].length>0" class="space-y-0.5 max-h-20 overflow-y-auto">
+                  <template x-for="v in unmappedConfirm[col.key]" :key="v">
+                    <li class="text-[10px] font-mono truncate" style="color:var(--text-2)" x-text="v"></li>
+                  </template>
+                </ul>
+                <p x-show="unmappedConfirm[col.key].length===0" class="text-[10px] italic" style="color:var(--text-3)">Todo mapeado</p>
+              </div>
+            </template>
+          </template>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button @click="unmappedConfirm && unmappedConfirm.resolve('cancel')"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg transition-all"
+                  style="border:1px solid var(--border);color:var(--text-2);font-size:13px"
+                  onmouseover="this.style.color='var(--text-1)'" onmouseout="this.style.color='var(--text-2)'">
+            <i class="fa-solid fa-arrow-left text-xs"></i> Cancelar
+          </button>
+          <button @click="unmappedConfirm && unmappedConfirm.resolve('save')"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors"
+                  style="background:var(--sky-soft);color:var(--sky);border:1px solid var(--sky-border);font-size:13px"
+                  onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <i class="fa-solid fa-floppy-disk text-xs"></i> Corregir
+          </button>
+          <button @click="unmappedConfirm && unmappedConfirm.resolve('continue')"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-colors"
+                  style="background:var(--amber);color:#fff;font-size:13px"
+                  onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+            <i class="fa-solid fa-circle-check text-xs"></i> Continuar
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /Terminal card -->
+
+    <!-- Annul folders review panel (CHECK_FOLDERS_WITH_EXTRA_TEXT) -->
+    <template x-if="annulData && annulData.length > 0">
+      <div :class="$store.ui.consoleOpen ? 'shrink-0' : 'flex-1 min-h-0'"
+           class="rounded-xl overflow-hidden flex flex-col"
+           style="border:1px solid var(--border);background:var(--bg-surface)">
+        <!-- Header -->
+        <div class="px-4 py-3 flex items-center justify-between border-b"
+             style="border-color:var(--border);background:var(--bg-subtle)">
+          <div class="flex items-center gap-2 flex-wrap">
+            <i class="fa-solid fa-folder-open text-sm" style="color:var(--rose,#e11d48)"></i>
+            <span class="text-sm font-semibold" style="color:var(--text-1)">Carpetas con texto extra</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
+                  style="background:#fff0f3;color:#e11d48;border:1px solid #fecdd3"
+                  x-text="annulData.length + ' carpeta(s)'"></span>
+            <!-- Bulk action buttons -->
+            <button @click="annulData.forEach(f => f.action = 'annul')"
+                    class="ml-2 text-[10px] px-2 py-0.5 rounded font-semibold transition-colors"
+                    style="background:#fff0f3;color:#e11d48;border:1px solid #fecdd3">
+              Todas → Anular y eliminar
+            </button>
+            <button @click="annulData.forEach(f => f.action = 'skip')"
+                    class="text-[10px] px-2 py-0.5 rounded font-semibold transition-colors"
+                    style="background:var(--bg-subtle);color:var(--text-2);border:1px solid var(--border)">
+              Todas → Ignorar
+            </button>
+          </div>
+          <button @click="annulData = null" class="p-1 rounded-md transition-colors" style="color:var(--text-3)"
+                  title="Cerrar panel">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+
+        <!-- Folder list -->
+        <div :class="$store.ui.consoleOpen ? 'max-h-64' : 'flex-1'"
+             class="divide-y overflow-y-auto" style="border-color:var(--border)">
+          <template x-for="folder in annulData" :key="folder.folder_path">
+            <div class="flex items-center gap-3 px-4 py-2.5">
+              <!-- Folder name -->
+              <i class="fa-solid fa-folder text-sm shrink-0" style="color:var(--text-3)"></i>
+              <div class="flex-1 min-w-0">
+                <div class="text-xs font-medium truncate select-text cursor-text"
+                     style="color:var(--text-1)" x-text="folder.folder_name"></div>
+                <div x-show="folder.invoice_number"
+                     class="text-[10px]" style="color:var(--text-3)"
+                     x-text="'Factura: ' + folder.invoice_number"></div>
+              </div>
+              <!-- Action select -->
+              <select x-model="folder.action"
+                      class="text-xs border rounded-md px-2 py-1 shrink-0"
+                      style="border-color:var(--border);color:var(--text-1);background:var(--bg-surface)"
+                      :style="folder.action === 'annul'
+                              ? 'border-color:#fecdd3;color:#e11d48;background:#fff0f3'
+                              : ''">
+                <option value="skip">Ignorar por ahora</option>
+                <option value="annul">Anular y eliminar carpeta</option>
+              </select>
+            </div>
+          </template>
+        </div>
+
+        <!-- Footer: apply button -->
+        <div class="px-4 py-3 border-t flex items-center justify-between gap-3"
+             style="border-color:var(--border);background:var(--bg-subtle)">
+          <span class="text-[11px]" style="color:var(--text-3)"
+                x-text="annulData.filter(f=>f.action==='annul').length + ' carpeta(s) se anularán y eliminarán del disco'"></span>
+          <button @click="applyAnnulDecisions()"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                  style="background:#e11d48;color:#fff">
+            <i class="fa-solid fa-check text-[10px]"></i>
+            Aplicar decisiones
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Surplus review panel -->
+    <template x-if="surplusData && surplusData.length > 0">
+      <div :class="$store.ui.consoleOpen ? 'shrink-0' : 'flex-1 min-h-0'"
+           class="rounded-xl overflow-hidden flex flex-col"
+           style="border:1px solid var(--border);background:var(--bg-surface)">
+        <!-- Header -->
+        <div class="px-4 py-3 flex items-center justify-between border-b"
+             style="border-color:var(--border);background:var(--bg-subtle)">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-file-circle-exclamation text-sm" style="color:var(--amber)"></i>
+            <span class="text-sm font-semibold" style="color:var(--text-1)">Archivos sobrantes pendientes de revisión</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
+                  style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)"
+                  x-text="surplusData.reduce((s,r)=>s+r.sobrantes.length,0) + ' archivos'"></span>
+          </div>
+          <button @click="surplusData = null" class="p-1 rounded-md transition-colors" style="color:var(--text-3)"
+                  title="Cerrar panel">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+
+        <!-- Per-invoice groups -->
+        <div :class="$store.ui.consoleOpen ? 'max-h-64' : 'flex-1'"
+             class="divide-y overflow-y-auto" style="border-color:var(--border)">
+          <template x-for="inv in surplusData" :key="inv.invoice_id">
+            <div>
+              <!-- Invoice header -->
+              <div class="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 transition-colors">
+                <!-- toggle button — solo el chevron -->
+                <button @click="inv._collapsed = !inv._collapsed"
+                        class="shrink-0 w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-slate-200"
+                        :title="inv._collapsed ? 'Expandir' : 'Colapsar'">
+                  <i class="fa-solid text-[9px]"
+                     :class="inv._collapsed ? 'fa-chevron-right' : 'fa-chevron-down'"
+                     style="color:var(--text-3)"></i>
+                </button>
+                <!-- número de factura — texto seleccionable -->
+                <span class="text-xs font-semibold select-text cursor-text"
+                      style="color:var(--text-1)" x-text="inv.invoice_number"></span>
+                <!-- admin type badge -->
+                <span x-show="inv.admin_type"
+                      class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                      style="background:var(--sky-soft);color:var(--sky);border:1px solid var(--sky-border)"
+                      x-text="inv.admin_type"></span>
+                <!-- service type badge -->
+                <span x-show="inv.service_type"
+                      class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                      style="background:var(--bg-subtle);color:var(--text-2);border:1px solid var(--border)"
+                      x-text="inv.service_type"></span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded ml-auto shrink-0"
+                      style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)"
+                      x-text="inv.sobrantes.filter(s=>!s._done).length + '/' + inv.sobrantes.length"></span>
+              </div>
+
+              <!-- Sobrante rows -->
+              <div x-show="!inv._collapsed" class="px-4 pb-3 space-y-1.5">
+                <template x-for="(sob, idx) in inv.sobrantes" :key="sob.filename">
+                  <div>
+                    <!-- Pending state -->
+                    <div class="flex items-center gap-2 text-xs" x-show="!sob._done">
+                      <!-- filename — prioridad de espacio -->
+                      <span class="flex-1 min-w-0 truncate font-mono text-[11px]"
+                            style="color:var(--text-1)" x-text="sob.filename" :title="sob.filename"></span>
+                      <!-- confidence badge -->
+                      <span x-show="sob.confidence === 'high'"
+                            class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                            style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                        alta
+                      </span>
+                      <span x-show="sob.confidence === 'low'"
+                            class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                            style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                        baja
+                      </span>
+                      <!-- select tipo — solo código, sin descripción -->
+                      <select x-model="sob.selected_doc_type_id"
+                              class="text-[11px] rounded-lg px-2 py-1 border appearance-none shrink-0"
+                              style="border-color:var(--border);background:var(--bg-subtle);color:var(--text-1);max-width:110px">
+                        <option value="">— Tipo —</option>
+                        <template x-for="f in inv.faltantes" :key="f.doc_type_id">
+                          <option :value="f.doc_type_id" x-text="f.code"></option>
+                        </template>
+                      </select>
+                      <!-- acciones -->
+                      <button @click="applyRename(inv, sob)"
+                              :disabled="!sob.selected_doc_type_id"
+                              class="text-[11px] font-semibold px-2.5 py-1 rounded-lg shrink-0 disabled:opacity-40"
+                              style="background:var(--sky-soft);color:var(--sky);border:1px solid var(--sky-border)"
+                              title="Renombrar archivo">
+                        <i class="fa-solid fa-pencil text-[10px]"></i>
+                      </button>
+                      <button @click="applyDelete(inv, sob)"
+                              class="text-[11px] font-semibold px-2 py-1 rounded-lg shrink-0"
+                              style="background:var(--red-soft,rgba(239,68,68,0.08));color:#ef4444;border:1px solid rgba(239,68,68,0.2)"
+                              title="Eliminar archivo del disco">
+                        <i class="fa-solid fa-trash-can text-[10px]"></i>
+                      </button>
+                      <button @click="sob._done = true; sob._skipped = true"
+                              class="text-[11px] px-2 py-1 rounded-lg shrink-0"
+                              style="color:var(--text-3);border:1px solid var(--border)"
+                              title="Omitir (no hace nada en el sistema de archivos)">
+                        <i class="fa-solid fa-xmark text-[10px]"></i>
+                      </button>
+                    </div>
+                    <!-- Renamed -->
+                    <div x-show="sob._done && !sob._deleted && !sob._skipped"
+                         class="flex items-center gap-2 text-[11px] py-0.5" style="color:var(--emerald)">
+                      <i class="fa-solid fa-check shrink-0"></i>
+                      <span class="truncate" x-text="sob._new_filename || sob.filename"></span>
+                    </div>
+                    <!-- Deleted -->
+                    <div x-show="sob._done && sob._deleted"
+                         class="flex items-center gap-2 text-[11px] py-0.5" style="color:#ef4444">
+                      <i class="fa-solid fa-trash-can shrink-0"></i>
+                      <span class="truncate" x-text="sob.filename"></span>
+                      <span style="color:#ef4444">— eliminado</span>
+                    </div>
+                    <!-- Skipped -->
+                    <div x-show="sob._done && sob._skipped && !sob._deleted"
+                         class="flex items-center gap-2 text-[11px] py-0.5" style="color:var(--text-3)">
+                      <i class="fa-solid fa-minus shrink-0"></i>
+                      <span class="truncate" x-text="sob.filename"></span>
+                      <span>— omitido</span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- REMOVE_NON_PDF: panel de revisión de archivos problemáticos -->
+    <template x-if="nonPdfData && (nonPdfData.non_pdf.length > 0 || nonPdfData.corrupt_pdfs.length > 0)">
+      <div class="rounded-xl overflow-hidden flex flex-col shrink-0"
+           style="border:1px solid var(--border);background:var(--bg-surface);max-height:420px">
+
+        <!-- Header -->
+        <div class="px-4 py-3 flex items-center justify-between"
+             style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-file-circle-xmark text-sm" style="color:#ef4444"></i>
+            <span class="text-sm font-semibold" style="color:var(--text-1)">Revisión de archivos — REMOVE_NON_PDF</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                  style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25)"
+                  x-text="(nonPdfData.non_pdf.filter(f=>!f._done).length + nonPdfData.corrupt_pdfs.filter(f=>!f._done).length) + ' pendientes'">
+            </span>
+          </div>
+          <button @click="nonPdfData = null" class="p-1 rounded-md transition-colors"
+                  style="color:var(--text-3)" title="Cerrar panel">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+
+        <!-- Scrollable body -->
+        <div class="overflow-y-auto flex-1 divide-y" style="border-color:var(--border)">
+
+          <!-- Section A: Archivos no-PDF -->
+          <template x-if="nonPdfData.non_pdf.length > 0">
+            <div>
+              <!-- Sub-header with bulk action -->
+              <div class="px-4 py-2 flex items-center justify-between sticky top-0 z-10"
+                   style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+                <span class="text-[10px] font-bold uppercase tracking-widest" style="color:var(--text-3)">
+                  <i class="fa-solid fa-file-slash mr-1"></i>Archivos no-PDF
+                  (<span x-text="nonPdfData.non_pdf.filter(f=>!f._done).length"></span>)
+                </span>
+                <button @click="nonPdfData.non_pdf.forEach(f => { if (!f._done) f.action = 'delete' })"
+                        class="text-[10px] px-2 py-1 rounded-lg transition-opacity hover:opacity-75"
+                        style="color:#ef4444;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.07)">
+                  <i class="fa-solid fa-trash-can mr-1 text-[9px]"></i>Eliminar todo
+                </button>
+              </div>
+              <!-- File rows -->
+              <template x-for="f in nonPdfData.non_pdf" :key="f.rel_path">
+                <div>
+                  <!-- Pending row -->
+                  <div x-show="!f._done"
+                       class="flex items-center gap-3 px-4 py-2 text-xs transition-colors hover:bg-white/[0.02]">
+                    <!-- Extension badge -->
+                    <span class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded w-10 text-center"
+                          :style="f.is_image
+                            ? 'background:rgba(59,130,246,0.12);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)'
+                            : 'background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)'"
+                          x-text="f.extension || '?'"></span>
+                    <!-- Path -->
+                    <span class="flex-1 min-w-0 font-mono text-[11px] truncate"
+                          style="color:var(--text-1)" x-text="f.rel_path" :title="f.rel_path"></span>
+                    <!-- Size -->
+                    <span class="shrink-0 text-[10px] tabular-nums"
+                          style="color:var(--text-3)" x-text="f.size_kb + ' KB'"></span>
+                    <!-- Preview button (images only) -->
+                    <template x-if="f.is_image">
+                      <button @click="previewFile = { rel_path: f.rel_path, filename: f.filename }"
+                              class="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:opacity-75"
+                              style="color:#60a5fa;border:1px solid rgba(59,130,246,0.3);background:rgba(59,130,246,0.1)"
+                              title="Vista previa">
+                        <i class="fa-solid fa-eye text-[10px]"></i>
+                      </button>
+                    </template>
+                    <!-- Action: dropdown for images, fixed label for others -->
+                    <template x-if="f.is_image">
+                      <select x-model="f.action"
+                              class="shrink-0 text-[11px] rounded-lg px-2 py-1 border appearance-none cursor-pointer"
+                              style="border-color:var(--border);background:var(--bg-subtle);color:var(--text-1)">
+                        <option value="convert">Convertir a PDF</option>
+                        <option value="delete">Eliminar</option>
+                      </select>
+                    </template>
+                    <template x-if="!f.is_image">
+                      <span class="shrink-0 text-[10px] px-2 py-1 rounded"
+                            style="color:#ef4444;border:1px solid rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">
+                        <i class="fa-solid fa-trash-can mr-1 text-[9px]"></i>Eliminar
+                      </span>
+                    </template>
+                  </div>
+                  <!-- Done row -->
+                  <div x-show="f._done"
+                       class="flex items-center gap-2 px-4 py-1.5 text-[11px]"
+                       style="color:var(--text-3)">
+                    <i :class="f.action === 'convert' ? 'fa-solid fa-file-pdf' : 'fa-solid fa-trash-can text-[9px]'"
+                       :style="f.action === 'convert' ? 'color:var(--emerald)' : 'color:#ef4444'"></i>
+                    <span class="font-mono truncate" x-text="f.filename"></span>
+                    <span x-text="f.action === 'convert' ? '— convertido a PDF' : '— eliminado'"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Section B: PDFs corruptos -->
+          <template x-if="nonPdfData.corrupt_pdfs.length > 0">
+            <div>
+              <div class="px-4 py-2 flex items-center justify-between sticky top-0 z-10"
+                   style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+                <span class="text-[10px] font-bold uppercase tracking-widest" style="color:var(--text-3)">
+                  <i class="fa-solid fa-file-circle-exclamation mr-1"></i>PDFs corruptos
+                  (<span x-text="nonPdfData.corrupt_pdfs.filter(f=>!f._done).length"></span>)
+                </span>
+                <span class="text-[10px] italic" style="color:var(--text-3)">Solo eliminación disponible</span>
+              </div>
+              <template x-for="f in nonPdfData.corrupt_pdfs" :key="f.rel_path">
+                <div>
+                  <div x-show="!f._done"
+                       class="flex items-center gap-3 px-4 py-2 text-xs transition-colors hover:bg-white/[0.02]">
+                    <span class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded w-10 text-center"
+                          style="background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.25)">pdf</span>
+                    <span class="flex-1 min-w-0 font-mono text-[11px] truncate"
+                          style="color:var(--text-1)" x-text="f.rel_path" :title="f.rel_path"></span>
+                    <span class="shrink-0 text-[10px] tabular-nums"
+                          style="color:var(--text-3)" x-text="f.size_kb + ' KB'"></span>
+                    <span class="shrink-0 text-[10px] px-2 py-1 rounded"
+                          style="color:#ef4444;border:1px solid rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">
+                      <i class="fa-solid fa-trash-can mr-1 text-[9px]"></i>Eliminar
+                    </span>
+                  </div>
+                  <div x-show="f._done"
+                       class="flex items-center gap-2 px-4 py-1.5 text-[11px]"
+                       style="color:var(--text-3)">
+                    <i class="fa-solid fa-trash-can text-[9px]" style="color:#ef4444"></i>
+                    <span class="font-mono truncate" x-text="f.filename"></span>
+                    <span>— eliminado</span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-4 py-3 flex items-center justify-between"
+             style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <p class="text-[11px]" style="color:var(--text-3)">
+            <i class="fa-solid fa-circle-info mr-1"></i>
+            Imágenes convertidas se guardan en la misma carpeta con extensión .pdf
+          </p>
+          <button @click="confirmNonPdf()"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-opacity hover:opacity-85"
+                  style="background:#ef4444;color:#fff">
+            <i class="fa-solid fa-circle-check text-xs"></i>
+            Confirmar selección
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Export download banner — aparece tras EXPORTAR_AUDITADOS -->
+    <div x-show="exportReady" x-transition
+         class="shrink-0 flex items-center gap-4 px-5 py-4 rounded-xl"
+         style="background:linear-gradient(135deg,#064e3b,#065f46);border:2px solid #059669;box-shadow:0 4px 20px rgba(5,150,105,0.3)">
+      <i class="fa-solid fa-circle-check text-2xl shrink-0" style="color:#34d399"></i>
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-bold mb-0.5" style="color:#6ee7b7">Exportación lista</p>
+        <p class="text-[11px]" style="color:#a7f3d0">Haz click para descargar todos los documentos auditados.</p>
+      </div>
+      <a :href="`/api/pipeline/stream-audit-zip?institution_id=${$store.ctx.institutionId}&period_id=${$store.ctx.periodId}`"
+         download
+         class="shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all"
+         style="background:#059669;color:#fff;border:1px solid #34d399"
+         onmouseover="this.style.background='#047857'"
+         onmouseout="this.style.background='#059669'">
+        <i class="fa-solid fa-cloud-arrow-down"></i>
+        Descargar ZIP
+      </a>
+    </div>
+
+  </div><!-- /RIGHT PANEL -->
+
+<!-- ── Modal de confirmación: eliminar archivo sobrante ───────────────────── -->
+<template x-if="deleteConfirmPending">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       style="background:rgba(0,0,0,0.55);backdrop-filter:blur(3px)"
+       @click.self="deleteConfirmPending = null"
+       @keydown.escape.window="deleteConfirmPending = null">
+    <div class="flex flex-col gap-4 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+         style="background:var(--bg-surface);border:1px solid var(--border)">
+      <!-- Icono + título -->
+      <div class="flex items-start gap-3">
+        <div class="shrink-0 w-9 h-9 rounded-full flex items-center justify-center"
+             style="background:rgba(239,68,68,0.1)">
+          <i class="fa-solid fa-trash text-red-500 text-sm"></i>
+        </div>
+        <div>
+          <div class="text-sm font-semibold mb-1" style="color:var(--text-1)">Eliminar archivo</div>
+          <div class="text-xs leading-relaxed" style="color:var(--text-2)">
+            ¿Eliminar del disco
+            <span class="font-mono font-semibold px-1 py-0.5 rounded text-xs"
+                  style="background:var(--bg-subtle);color:var(--text-1)"
+                  x-text="deleteConfirmPending.sob.filename"></span>?
+            Esta acción no se puede deshacer.
+          </div>
+        </div>
+      </div>
+      <!-- Acciones -->
+      <div class="flex gap-2 justify-end">
+        <button @click="deleteConfirmPending = null"
+                class="px-4 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                style="background:var(--bg-subtle);color:var(--text-2);border:1px solid var(--border)">
+          Cancelar
+        </button>
+        <button @click="executeDeleteSurplus()"
+                class="px-4 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors bg-red-500 hover:bg-red-600">
+          <i class="fa-solid fa-trash mr-1.5"></i>
+          Sí, eliminar
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ── Toast stack ────────────────────────────────────────────────────────── -->
+<div class="fixed bottom-5 right-5 z-50 flex flex-col-reverse gap-2 items-end max-w-xs pointer-events-none">
+  <template x-for="t in toasts" :key="t.id">
+    <div class="pointer-events-auto w-full"
+         x-show="true"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 translate-y-2"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100 translate-y-0"
+         x-transition:leave-end="opacity-0 translate-y-2">
+      <div :class="{
+             'border-emerald-200 text-emerald-800 shadow-emerald-100': t.type === 'ok',
+             'border-amber-200  text-amber-800  shadow-amber-100':  t.type === 'warn',
+             'border-red-200    text-red-800    shadow-red-100':    t.type === 'err'
+           }"
+           class="bg-white px-4 py-3 rounded-xl border text-xs flex items-center gap-2.5 shadow-lg">
+        <i :class="{
+             'fa-solid fa-circle-check text-emerald-500':       t.type === 'ok',
+             'fa-solid fa-triangle-exclamation text-amber-500': t.type === 'warn',
+             'fa-solid fa-circle-xmark text-red-500':           t.type === 'err'
+           }"
+           class="shrink-0"></i>
+        <span x-text="t.message" class="flex-1"></span>
+        <button @click="toasts = toasts.filter(x => x.id !== t.id)"
+                class="opacity-40 hover:opacity-80 transition-opacity ml-1">
+          <i class="fa-solid fa-xmark text-[10px]"></i>
+        </button>
+      </div>
+    </div>
+  </template>
+</div>
+
+<!-- Image preview modal -->
+<template x-if="previewFile">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       style="background:rgba(0,0,0,0.75);backdrop-filter:blur(4px)"
+       @click.self="previewFile = null"
+       @keydown.escape.window="previewFile = null">
+    <div class="relative flex flex-col rounded-xl overflow-hidden max-w-3xl w-full max-h-[90vh]"
+         style="background:var(--bg-surface);border:1px solid var(--border)">
+      <!-- Modal header -->
+      <div class="px-4 py-3 flex items-center justify-between shrink-0"
+           style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="fa-solid fa-image text-sm shrink-0" style="color:#60a5fa"></i>
+          <span class="text-sm font-mono truncate" style="color:var(--text-1)"
+                x-text="previewFile.filename"></span>
+        </div>
+        <button @click="previewFile = null"
+                class="shrink-0 ml-3 p-1.5 rounded-lg transition-colors hover:opacity-75"
+                style="color:var(--text-3)">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <!-- Image -->
+      <div class="overflow-auto flex items-center justify-center p-4 flex-1"
+           style="background:repeating-conic-gradient(#1a1a1a 0% 25%,#111 0% 50%) 0 0/16px 16px">
+        <img :src="`/api/pipeline/file-preview?institution_id=${$store.ctx.institutionId}&period_id=${$store.ctx.periodId}&rel_path=${encodeURIComponent(previewFile.rel_path)}`"
+             :alt="previewFile.filename"
+             class="max-w-full max-h-[70vh] object-contain rounded shadow-lg"
+             style="image-rendering:auto" />
+      </div>
+    </div>
+  </div>
+</template>
+
+
+</div>
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+<style>
+  [x-cloak] { display: none !important; }
+
+  .stage-scroll::-webkit-scrollbar { width: 4px; }
+  .stage-scroll::-webkit-scrollbar-track { background: transparent; }
+  .stage-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .stage-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+  .log-scroll::-webkit-scrollbar { width: 4px; }
+  .log-scroll::-webkit-scrollbar-track { background: transparent; }
+  .log-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+  .stage-card { background: transparent; transition: background 0.1s; }
+  .stage-card:hover { background: var(--bg-subtle); }
+  .stage-card.stage-sel { background: var(--sky-soft); }
+
+  @keyframes logFadeIn {
+    from { opacity: 0; transform: translateX(-2px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .log-line { animation: logFadeIn 0.1s ease; }
+</style>
+
+<script>
+function pipeline() {
+  return {
+    selectedStages: [],
+    running: false,
+    logLines: [],
+    currentStageLabel: '',
+    excelFile: null,
+    dragOver: false,
+    zipFile: null,
+    zipDragOver: false,
+    invoiceDocTypeId: '',
+    medSheetDocTypeId: '',
+    downloadDriveFolders: '',
+    docTypes: [],
+    unmappedConfirm: null,
+    surplusData: null,
+    annulData: null,
+    nonPdfData: null,
+    exportReady: false,
+    previewFile: null,
+    toasts: [],
+    _toastId: 0,
+    deleteConfirmPending: null,
+    stageStatuses: {},
+    stageResults: {},
+    hoveredStage: null,
+    taskId: null,
+    _evtSource: null,
+
+    stageFlow: [
+
+      // ── 1. CARGA DE DATOS ────────────────────────────────────────────────
+      { type:'phase', label:'Carga de datos', color:'#0284c7', icon:'fa-solid fa-database' },
+      { type:'stage', id:'LOAD_AND_PROCESS',    label:'Ingestar reporte SIHOS',    icon:'fa-solid fa-file-excel',    phaseColor:'#0284c7' },
+      { type:'stage', id:'RECATEGORIZE_SERVICES', label:'Re-categorizar servicios', icon:'fa-solid fa-arrows-rotate', phaseColor:'#0284c7' },
+      { type:'stage', id:'LOAD_DRIVE_ZIP',      label:'Descomprimir archivos',     icon:'fa-solid fa-file-zipper',   phaseColor:'#0284c7', heavy:true },
+      { type:'stage', id:'RUN_STAGING',         label:'Mover archivos a STAGE',    icon:'fa-solid fa-truck-moving',  phaseColor:'#0284c7' },
+
+      // ── 2. LIMPIEZA ──────────────────────────────────────────────────────
+      { type:'phase', label:'Limpieza', color:'#7c3aed', icon:'fa-solid fa-broom' },
+      { type:'stage', id:'REMOVE_NON_PDF',                label:'Eliminar archivos inválidos',        icon:'fa-solid fa-file-circle-xmark',      phaseColor:'#7c3aed', heavy:true },
+      { type:'stage', id:'CHECK_NESTED_FOLDERS',          label:'Detectar subcarpetas',               icon:'fa-solid fa-folder-tree',            phaseColor:'#7c3aed' },
+      { type:'stage', id:'CHECK_FOLDERS_WITH_EXTRA_TEXT', label:'Detectar carpetas con texto extra',  icon:'fa-solid fa-folder-open',            phaseColor:'#7c3aed' },
+      { type:'stage', id:'NORMALIZE_DIR_NAMES',           label:'Corregir nombres de carpetas',       icon:'fa-solid fa-folder',                 phaseColor:'#7c3aed' },
+      { type:'stage', id:'NORMALIZE_FILES',               label:'Corregir nombres de archivos',       icon:'fa-solid fa-tag',                    phaseColor:'#7c3aed' },
+
+      // ── 3. CALIDAD DE PDFs ───────────────────────────────────────────────
+      { type:'phase', label:'Calidad de PDFs', color:'#4338ca', icon:'fa-solid fa-file-pdf' },
+      { type:'stage', id:'LIST_UNREADABLE_PDFS', label:'Detectar PDFs ilegibles', icon:'fa-solid fa-list-check', phaseColor:'#4338ca' },
+      { type:'stage', id:'DELETE_UNREADABLE_PDFS', label:'Eliminar PDFs ilegibles',   icon:'fa-solid fa-file-circle-minus',    phaseColor:'#dc2626' },
+
+      // ── 4. AUDITORÍA ─────────────────────────────────────────────────────
+      { type:'phase', label:'Auditoría', color:'#b45309', icon:'fa-solid fa-magnifying-glass-chart' },
+      { type:'stage', id:'VERIFY_INVOICE_CODE',           label:'Verificar número en PDF',         icon:'fa-solid fa-magnifying-glass',       phaseColor:'#b45309' },
+      { type:'stage', id:'CHECK_INVOICE_NUMBER_ON_FILES', label:'Verificar nombres de archivos',   icon:'fa-solid fa-file-circle-check',      phaseColor:'#b45309' },
+      { type:'stage', id:'CHECK_DIRS',                    label:'Detectar carpetas faltantes',     icon:'fa-solid fa-folder-minus',           phaseColor:'#b45309' },
+      { type:'info', label:'Revisión manual', text:'Las facturas de tipo SOAT deben ser auditadas manualmente por el auditor responsable. Actualiza su estado en Auditoría antes de ejecutar las siguientes etapas para excluirlas del procesamiento automático.' },
+      { type:'stage', id:'MARK_UNKNOWN_DIRS',             label:'Marcar carpetas desconocidas',    icon:'fa-solid fa-circle-question',           phaseColor:'#b45309' },
+      { type:'stage', id:'CHECK_REQUIRED_DOCS',           label:'Verificar documentos requeridos', icon:'fa-solid fa-file-circle-question',   phaseColor:'#b45309' },
+      { type:'stage', id:'REVISAR_SOBRANTES',             label:'Revisar archivos sobrantes',      icon:'fa-solid fa-file-circle-exclamation',phaseColor:'#b45309' },
+      { type:'stage', id:'VERIFY_CUFE',                   label:'Verificar CUFE',                  icon:'fa-solid fa-qrcode',                 phaseColor:'#b45309' },
+
+      // ── 5. CIERRE ────────────────────────────────────────────────────────
+      { type:'phase', label:'Cierre', color:'#059669', icon:'fa-solid fa-box-archive' },
+      { type:'stage', id:'ORGANIZE',       label:'Organizar en AUDIT',   icon:'fa-solid fa-boxes-stacked', phaseColor:'#059669' },
+      { type:'stage', id:'COMPRESS_AUDIT',       label:'Comprimir documentos',      icon:'fa-solid fa-file-zipper',   phaseColor:'#059669', heavy:true },
+      { type:'stage', id:'EXPORTAR_AUDITADOS',   label:'Exportar documentos auditados', icon:'fa-solid fa-file-export', phaseColor:'#059669', heavy:true },
+
+      // ── 6. DESCARGAS — SIHOS ────────────────────────────────────────────
+      { type:'phase', label:'Descargas · SIHOS', color:'#0369a1', icon:'fa-solid fa-hospital' },
+      { type:'stage', id:'DOWNLOAD_INVOICES_FROM_SIHOS', label:'Descargar facturas desde SIHOS',    icon:'fa-solid fa-cloud-arrow-down',  phaseColor:'#0369a1', heavy:true },
+      { type:'stage', id:'DOWNLOAD_MEDICATION_SHEETS',   label:'Descargar hojas de medicamentos',  icon:'fa-solid fa-pills',             phaseColor:'#0369a1', heavy:true },
+
+      // ── 7. DESCARGAS — DRIVE ────────────────────────────────────────────
+      { type:'phase', label:'Descargas · Drive', color:'#166534', icon:'fa-brands fa-google-drive' },
+      { type:'note', label:'Requiere reprocesamiento', text:'Los archivos descargados desde Drive no han sido procesados. Tras ejecutar estas etapas, vuelve a correr el ciclo desde Limpieza para normalizarlos, verificarlos y auditarlos.' },
+      { type:'stage', id:'DOWNLOAD_DRIVE',               label:'Descargar carpetas faltantes',     icon:'fa-brands fa-google-drive',     phaseColor:'#166534', heavy:true },
+      { type:'stage', id:'DOWNLOAD_MISSING_DOCS',        label:'Descargar documentos faltantes',   icon:'fa-solid fa-file-arrow-down',   phaseColor:'#166534', heavy:true },
+
+    ],
+
+    stages: [
+      { id:'LOAD_AND_PROCESS',        label:'Ingestar reporte SIHOS',           description:'Lee el Excel exportado desde SIHOS e inserta las facturas del período en la base de datos. Registra administradoras, contratos y servicios nuevos en crudo. Filas sin número de factura o fecha válida son omitidas.' },
+      { id:'RECATEGORIZE_SERVICES',   label:'Re-categorizar servicios',          description:'Reaplica los mapeos de servicios actuales a todas las facturas del período sin volver a cargar el Excel. Útil tras corregir un mapeo en Configuración → Servicios.' },
+      { id:'LOAD_DRIVE_ZIP',          label:'Descomprimir archivos',             description:'Extrae un archivo .zip, .7z o .rar directamente en la carpeta DRIVE del período. Ideal para cargar en bloque las carpetas de facturas descargadas manualmente desde Drive.' },
+      { id:'RUN_STAGING',             label:'Mover archivos a STAGE',            description:'Mueve las carpetas hoja (sin subcarpetas) de DRIVE a STAGE. STAGE es el área de trabajo donde ocurren todas las operaciones de auditoría.' },
+      { id:'REMOVE_NON_PDF',          label:'Eliminar archivos inválidos',        description:'Elimina de cada carpeta en STAGE: (1) archivos que no son PDF, y (2) PDFs corruptos o dañados que no se pueden abrir. Deja las carpetas listas para el procesamiento.' },
+      { id:'CHECK_NESTED_FOLDERS',    label:'Detectar subcarpetas',              description:'Lista las carpetas de STAGE que contienen subcarpetas. Los archivos dentro de subcarpetas no se procesan correctamente; deben moverse al nivel raíz de la carpeta de factura.' },
+      { id:'CHECK_FOLDERS_WITH_EXTRA_TEXT', label:'Detectar carpetas con texto extra', description:'Detecta carpetas con texto adicional en el nombre más allá del número de factura (ej. "360052_SINCUFE", "360099 copia"). Solo lista; no modifica nada. Presta atención a las que dicen "ANULAR".' },
+      { id:'NORMALIZE_DIR_NAMES',     label:'Corregir nombres de carpetas',      description:'Renombra las carpetas con texto adicional eliminando el texto sobrante. Las carpetas _SINCUFE se renombran conservando ese sufijo; el CUFE se verificará en la etapa correspondiente.' },
+      { id:'NORMALIZE_FILES',         label:'Corregir nombres de archivos',      description:'Corrige nombres en dos pasos: (1) aplica sustituciones de prefijo configuradas (ej. FVE→FEV); (2) renombra archivos con nombre inválido al formato {PREFIJO}_{NIT}_{FACTURA}.pdf. Reporta los que no se pueden renombrar.' },
+      { id:'LIST_UNREADABLE_PDFS',    label:'Detectar PDFs ilegibles',           description:'Detecta PDFs de factura sin capa de texto (escaneados). Solo lista los archivos afectados; no los modifica. Úsala para decidir si eliminarlos y re-descargarlos.' },
+      { id:'DELETE_UNREADABLE_PDFS',  label:'Eliminar PDFs ilegibles',           description:'Elimina permanentemente los PDFs detectados sin capa de texto. Combínala con "Descargar PDFs desde SIHOS" para reemplazarlos con versiones digitales correctas.' },
+      { id:'VERIFY_INVOICE_CODE',     label:'Verificar número en PDF',           description:'Lee el texto de cada PDF de factura y verifica que el número de la carpeta aparezca dentro del documento. Reporta con [WARN] las facturas cuyo PDF no contiene su propio número.' },
+      { id:'CHECK_INVOICE_NUMBER_ON_FILES', label:'Verificar nombres de archivos', description:'Recorre cada carpeta de STAGE y verifica que todos los archivos contengan el número de factura de la carpeta en su nombre. Reporta los archivos desajustados.' },
+      { id:'CHECK_DIRS',              label:'Detectar carpetas faltantes',        description:'Comprueba que cada factura en estado PRESENTE tenga su carpeta en STAGE. Las que no la tienen se marcan como FALTANTE para recuperarlas desde Drive.' },
+      { id:'MARK_UNKNOWN_DIRS',       label:'Marcar carpetas desconocidas',       description:'Detecta carpetas en STAGE con formato de número de factura (PREFIX+dígitos) que no tienen registro en la base de datos del período. Las renombra con el prefijo "(DESCONOCIDO)" para identificación visual. La operación es segura de re-ejecutar; las carpetas ya marcadas se omiten.' },
+      { id:'CHECK_REQUIRED_DOCS',     label:'Verificar documentos requeridos',   description:'Para cada factura PRESENTE, verifica que su carpeta contenga todos los documentos exigidos según el tipo de servicio. Registra un hallazgo por cada documento faltante y cambia el estado de la factura a PENDIENTE.' },
+      { id:'REVISAR_SOBRANTES',       label:'Revisar archivos sobrantes',         description:'Detecta archivos cuyo nombre no coincide con ningún prefijo requerido. Sugiere renombrarlos al tipo de documento faltante y permite confirmar o corregir cada sugerencia antes de aplicar el cambio en disco.' },
+      { id:'VERIFY_CUFE',             label:'Verificar CUFE',                     description:'Valida que cada PDF de factura contenga un código CUFE válido. Las carpetas sin CUFE se renombran añadiendo el sufijo _SINCUFE para identificación visual.' },
+      { id:'ORGANIZE',                label:'Organizar en AUDIT',                 description:'Mueve de STAGE a AUDIT las carpetas de facturas PRESENTE sin hallazgos pendientes, organizándolas en subcarpetas por administradora y contrato. Actualiza su estado a AUDITADA en la base de datos.' },
+      { id:'COMPRESS_AUDIT',          label:'Comprimir documentos',               description:'Comprime con Ghostscript (calidad ebook, 150 dpi) todos los PDFs en AUDIT. Reduce el tamaño de archivo sin pérdida visual significativa. Reporta ahorro total en MB. Los archivos que no puedan comprimirse se registran como advertencia y se omiten.' },
+      { id:'EXPORTAR_AUDITADOS',      label:'Exportar documentos auditados',      description:'Empaqueta toda la carpeta AUDIT en un archivo ZIP descargable. El ZIP queda guardado en la carpeta de exportaciones del período y puede descargarse desde el botón que aparece al finalizar la etapa.' },
+      { id:'DOWNLOAD_INVOICES_FROM_SIHOS', label:'Descargar facturas desde SIHOS', description:'Requiere sesión en SIHOS. Descarga el PDF de factura de cada factura PENDIENTE con hallazgo sin resolver del tipo de documento seleccionado. Solo descarga la factura en sí; no otros documentos del expediente.' },
+      { id:'DOWNLOAD_MEDICATION_SHEETS',   label:'Descargar hojas de medicamentos', description:'Requiere sesión en SIHOS. Descarga las hojas de medicamentos de facturas PENDIENTE con hallazgo sin resolver del tipo seleccionado y número de admisión registrado.' },
+      { id:'DOWNLOAD_DRIVE',          label:'Descargar carpetas (Drive)',          description:'Busca en Google Drive las carpetas de facturas marcadas como FALTANTE y las descarga a STAGE. Su estado se actualiza automáticamente a PRESENTE.' },
+      { id:'DOWNLOAD_MISSING_DOCS',   label:'Descargar documentos faltantes',     description:'Para cada hallazgo pendiente, busca en Google Drive el archivo esperado ({prefijo}_{NIT}_{factura}.pdf) y lo descarga a la carpeta correspondiente en STAGE.' },
+    ],
+
+    get completedCount() {
+      return this.selectedStages.filter(id => ['done','warn','error'].includes(this.stageStatuses[id])).length;
+    },
+    get progressPct() {
+      if (!this.selectedStages.length) return 0;
+      return Math.round(this.completedCount / this.selectedStages.length * 100);
+    },
+
+    stageById(id) { return this.stages.find(s => s.id === id) || null; },
+
+    selectAll(checked) {
+      const ids = this.stageFlow.filter(i => i.type === 'stage').map(i => i.id);
+      this.selectedStages = checked ? ids : [];
+    },
+
+    setFile(ev) { this.excelFile = ev.target.files[0] || null; },
+    handleDrop(ev) {
+      this.dragOver = false;
+      const f = ev.dataTransfer.files[0];
+      if (f && /\.(xlsx|xls)$/i.test(f.name)) this.excelFile = f;
+    },
+    setZipFile(ev) { this.zipFile = ev.target.files[0] || null; },
+    handleZipDrop(ev) {
+      this.zipDragOver = false;
+      const f = ev.dataTransfer.files[0];
+      if (f && /\.(zip|7z|rar)$/i.test(f.name)) this.zipFile = f;
+    },
+
+    lineClass(line) {
+      if (line.startsWith('───'))    return '';
+      if (line.startsWith('[ERROR]')) return 'text-red-400';
+      if (line.startsWith('[WARN]'))  return 'text-amber-300';
+      if (line.startsWith('[OK]'))    return 'text-emerald-400';
+      if (line.startsWith('[INFO]'))  return 'text-slate-400';
+      return 'text-slate-500';
+    },
+    linePrefix(line) {
+      if (line.startsWith('[ERROR]')) return '<span style="color:#ef4444;font-weight:700;user-select:none;font-size:9.5px">ERR</span>';
+      if (line.startsWith('[WARN]'))  return '<span style="color:#f59e0b;font-weight:700;user-select:none;font-size:9.5px">WRN</span>';
+      if (line.startsWith('[OK]'))    return '<span style="color:#22c55e;font-weight:700;user-select:none;font-size:9.5px"> OK</span>';
+      if (line.startsWith('[INFO]'))  return '<span style="color:#3b82f6;font-weight:700;user-select:none;font-size:9.5px">INF</span>';
+      return '<span style="user-select:none;font-size:9.5px">   </span>';
+    },
+    lineBody(line) {
+      const pfx = ['[ERROR]','[WARN]','[OK]','[INFO]'].find(p => line.startsWith(p));
+      return pfx ? line.slice(pfx.length).trimStart() : line;
+    },
+
+    _markLine(stageId, line) {
+      if (line.startsWith('[ERROR]')) this.stageStatuses[stageId] = 'error';
+      else if (line.startsWith('[WARN]') && this.stageStatuses[stageId] !== 'error') this.stageStatuses[stageId] = 'warn';
+    },
+
+    _updateStageResult(stageId, line) {
+      if (!line.startsWith('[INFO]') && !line.startsWith('[OK]')) return;
+      const text = line.replace(/^\[(INFO|OK)\]\s*/, '').trim();
+      if (/:\s*\d+/.test(text) || /\d+\/\d+/.test(text)) {
+        this.stageResults[stageId] = text.length > 52 ? text.slice(0,49)+'…' : text;
+      }
+    },
+
+    clearLog() {
+      this.logLines = [];
+      this.currentStageLabel = '';
+      this.stageStatuses = {};
+      this.stageResults = {};
+      this.exportReady = false;
+      ['pipeline_logLines','pipeline_currentStageLabel','pipeline_stageStatuses','pipeline_stageResults'].forEach(k => sessionStorage.removeItem(k));
+    },
+
+    // Stages that must run synchronously (require user interaction or file upload)
+    _isSyncStage(stageId) {
+      return stageId === 'LOAD_AND_PROCESS'
+          || stageId === 'LOAD_DRIVE_ZIP'
+          || stageId === 'REVISAR_SOBRANTES'
+          || stageId === 'REMOVE_NON_PDF'
+          || stageId === 'CHECK_FOLDERS_WITH_EXTRA_TEXT';
+    },
+
+    async _runBackgroundStage(stageId, institutionId, periodId) {
+      const params = new URLSearchParams({ institution_id: institutionId, period_id: periodId });
+      if (stageId === 'DOWNLOAD_INVOICES_FROM_SIHOS' && this.invoiceDocTypeId)
+        params.set('doc_type_id', this.invoiceDocTypeId);
+      if (stageId === 'DOWNLOAD_MEDICATION_SHEETS' && this.medSheetDocTypeId)
+        params.set('doc_type_id', this.medSheetDocTypeId);
+      if (stageId === 'DOWNLOAD_DRIVE' && this.downloadDriveFolders.trim()) {
+        const nums = this.downloadDriveFolders.split('\n').map(l => l.trim()).filter(Boolean).join(',');
+        if (nums) params.set('invoice_numbers', nums);
+      }
+
+      const res = await fetch(`/api/pipeline/run/${stageId}?${params}`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Error al iniciar ${stageId}`);
+      }
+      const { task_id } = await res.json();
+      this.taskId = task_id;
+      this.$store.pipeline.setTask(task_id, stageId);
+
+      await new Promise((resolve) => {
+        this._subscribeToTask(task_id, stageId, 0, resolve);
+      });
+    },
+
+    _subscribeToTask(taskId, stageId, fromCursor, onDone) {
+      if (this._evtSource) { this._evtSource.close(); this._evtSource = null; }
+      const evtSource = new EventSource(`/api/pipeline/stream/${taskId}?from=${fromCursor}`);
+      this._evtSource = evtSource;
+      let cursor = fromCursor;
+
+      evtSource.onmessage = (event) => {
+        let parsed;
+        try { parsed = JSON.parse(event.data); } catch { return; }
+        const line = parsed.msg;
+        cursor = (parsed.idx != null ? parsed.idx : cursor - 1) + 1;
+
+        if (line === '[DONE]') {
+          evtSource.close(); this._evtSource = null;
+          const finalStatus = parsed.status || 'done';
+          if (this.stageStatuses[stageId] === 'running')
+            this.stageStatuses[stageId] = finalStatus === 'cancelled' ? 'error' : 'done';
+          this.$store.pipeline.update(finalStatus, cursor);
+          if (finalStatus === 'done' || finalStatus === 'cancelled') this.$store.pipeline.clear();
+          // In reconnect mode (no onDone), we own the running state
+          if (!onDone) { this.running = false; this.currentStageLabel = ''; }
+          if (onDone) onDone();
+          return;
+        }
+
+        this.$store.pipeline.update('running', cursor);
+
+        // Handle [DATA] signals — do not push to log
+        if (line.startsWith('[DATA] export_ready:')) {
+          this.exportReady = true;
+          return;
+        }
+
+        this._markLine(stageId, line);
+        this._updateStageResult(stageId, line);
+        this.logLines.push(line);
+        this.$nextTick(() => this.scrollLog());
+      };
+
+      evtSource.onerror = () => {
+        evtSource.close(); this._evtSource = null;
+        this.logLines.push('[WARN] Conexión interrumpida. Verificando estado de la tarea…');
+        this.$nextTick(() => this.scrollLog());
+        setTimeout(async () => {
+          if (!this.$store.pipeline.isRunning || this.$store.pipeline.taskId !== taskId) {
+            if (onDone) onDone();
+            return;
+          }
+          // Verify the task still exists on the server before reconnecting
+          try {
+            const res = await fetch(`/api/pipeline/stream/${taskId}?from=0`, { method: 'HEAD' });
+            if (res.status === 404) {
+              this.logLines.push('[WARN] La tarea ya no existe en el servidor (reinicio detectado). Estado limpiado.');
+              this.$nextTick(() => this.scrollLog());
+              this.$store.pipeline.clear();
+              this.running = false;
+              this.currentStageLabel = '';
+              if (onDone) onDone();
+              return;
+            }
+          } catch { /* network error — try to reconnect anyway */ }
+          this._subscribeToTask(taskId, stageId, this.$store.pipeline.cursor, onDone);
+        }, 2000);
+      };
+    },
+
+    async cancelPipeline() {
+      const taskId = this.taskId || this.$store.pipeline.taskId;
+      if (this._evtSource) { this._evtSource.close(); this._evtSource = null; }
+      if (taskId) {
+        try { await fetch(`/api/pipeline/${taskId}`, { method: 'DELETE' }); } catch {}
+      }
+      this.running = false;
+      this.currentStageLabel = '';
+      this.$store.pipeline.clear();
+      this.logLines.push('[WARN] Pipeline detenido por el usuario.');
+      this.$nextTick(() => this.scrollLog());
+    },
+
+    init() {
+      try {
+        const sl  = sessionStorage.getItem('pipeline_logLines');
+        const sl2 = sessionStorage.getItem('pipeline_currentStageLabel');
+        const ss  = sessionStorage.getItem('pipeline_selectedStages');
+        const st  = sessionStorage.getItem('pipeline_stageStatuses');
+        const sr  = sessionStorage.getItem('pipeline_stageResults');
+        if (sl)  this.logLines          = JSON.parse(sl);
+        if (sl2) this.currentStageLabel = sl2;
+        if (ss)  this.selectedStages    = JSON.parse(ss);
+        if (st)  this.stageStatuses     = JSON.parse(st);
+        if (sr)  this.stageResults      = JSON.parse(sr);
+      } catch {}
+      this.$watch('logLines',          v => sessionStorage.setItem('pipeline_logLines',          JSON.stringify(v)));
+      this.$watch('currentStageLabel', v => sessionStorage.setItem('pipeline_currentStageLabel', v));
+      this.$watch('selectedStages',    v => sessionStorage.setItem('pipeline_selectedStages',    JSON.stringify(v)));
+      this.$watch('stageStatuses',     v => sessionStorage.setItem('pipeline_stageStatuses',     JSON.stringify(v)));
+      this.$watch('stageResults',      v => sessionStorage.setItem('pipeline_stageResults',      JSON.stringify(v)));
+      fetch('/api/settings/doc-types').then(r => r.json()).then(d => { this.docTypes = d; });
+
+      // Reconectar si hay una tarea activa al volver a la página
+      if (this.$store.pipeline.isRunning && this.$store.pipeline.taskId) {
+        const { taskId, stage, cursor } = this.$store.pipeline;
+        this.running = true;
+        this.taskId = taskId;
+        const stageInfo = this.stageById(stage);
+        this.currentStageLabel = stageInfo?.label || stage || '';
+        this.stageStatuses[stage] = 'running';
+        this.logLines.push('─── Reconectando al pipeline en curso... ───');
+        this._subscribeToTask(taskId, stage, cursor, null);
+      }
+    },
+
+    async runPipeline() {
+      if (this.running) return;
+      const institutionId = this.$store.ctx.institutionId;
+      const periodId      = this.$store.ctx.periodId;
+
+      this.running = true;
+      this.logLines = [];
+      this.stageStatuses = {};
+      this.stageResults = {};
+      this.selectedStages.forEach(id => { this.stageStatuses[id] = 'idle'; });
+
+      for (const stageId of this.selectedStages) {
+        const stageInfo = this.stageById(stageId);
+        this.currentStageLabel = stageInfo?.label || stageId;
+        this.stageStatuses[stageId] = 'running';
+        this.logLines.push(`─── ${(stageInfo?.label || stageId).toUpperCase()} ───`);
+        this.$nextTick(() => this.scrollLog());
+
+        try {
+          if (stageId === 'LOAD_DRIVE_ZIP' && this.zipFile) {
+            this.logLines.push(`[INFO] Descomprimiendo ${this.zipFile.name}...`);
+            const fd = new FormData();
+            fd.append('institution_id', institutionId);
+            fd.append('period_id', periodId);
+            fd.append('file', this.zipFile);
+            let res;
+            try {
+              res = await fetch('/api/pipeline/load-drive-zip', { method:'POST', body:fd });
+            } catch (netErr) {
+              const msg = `[ERROR] No se pudo subir el archivo. Verifica la conexión o que el servidor esté disponible.`;
+              this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
+            }
+            if (!res.ok) {
+              const errMsg = res.status === 413
+                ? 'El archivo excede el límite de tamaño permitido por el servidor'
+                : (await res.json().catch(() => ({ detail: 'Error desconocido' }))).detail || 'Error desconocido';
+              const msg = `[ERROR] ${errMsg}`;
+              this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
+            }
+            const data = await res.json();
+            const okMsg = `[OK] Archivos extraídos en DRIVE: ${data.extracted}`;
+            this.logLines.push(okMsg);
+            this._updateStageResult(stageId, okMsg);
+            this.scrollLog();
+
+          } else if (stageId === 'LOAD_AND_PROCESS' && this.excelFile) {
+            const buildForm = (scanOnly) => {
+              const fd = new FormData();
+              fd.append('institution_id', institutionId);
+              fd.append('period_id', periodId);
+              fd.append('file', this.excelFile);
+              if (scanOnly) fd.append('scan_only', 'true');
+              return fd;
+            };
+
+            this.logLines.push('[INFO] Verificando mapeos del Excel...');
+            const scanRes = await fetch('/api/invoices/ingest', { method:'POST', body:buildForm(true) });
+            if (!scanRes.ok) {
+              const err = await scanRes.json();
+              const msg = `[ERROR] ${err.detail || 'Error desconocido'}`;
+              this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
+            }
+            const scan = await scanRes.json();
+
+            const hasUnmapped = scan.unknown_admins?.length || scan.unknown_contracts?.length || scan.unknown_services?.length;
+            if (hasUnmapped) {
+              const action = await new Promise(resolve => {
+                this.unmappedConfirm = {
+                  admins: scan.unknown_admins || [],
+                  contracts: scan.unknown_contracts || [],
+                  services: scan.unknown_services || [],
+                  resolve: (v) => { this.unmappedConfirm = null; resolve(v); },
+                };
+              });
+
+              if (action === 'cancel') {
+                const msg = '[WARN] Ingestión cancelada — corrige los mapeos y vuelve a ejecutar.';
+                this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
+              }
+
+              if (action === 'save') {
+                const fd = new FormData();
+                fd.append('institution_id', institutionId);
+                fd.append('period_id', periodId);
+                fd.append('file', this.excelFile);
+                fd.append('save_mappings_only', 'true');
+                const saveRes = await fetch('/api/invoices/ingest', { method: 'POST', body: fd });
+                if (saveRes.ok) {
+                  const m = '[OK] Registros sin mapear guardados. Ve a Configuración → Mapeos para asignarlos, luego vuelve a cargar el Excel.';
+                  this.logLines.push(m); this._markLine(stageId, m);
+                } else {
+                  const err = await saveRes.json().catch(() => ({}));
+                  const m = `[ERROR] ${err.detail || 'Error al guardar registros'}`;
+                  this.logLines.push(m); this._markLine(stageId, m);
+                }
+                this.scrollLog(); continue;
+              }
+
+              // action === 'continue'
+              this.logLines.push('[INFO] Continuando con la carga de facturas...');
+            } else {
+              this.logLines.push('[INFO] Todos los mapeos completos, cargando...');
+            }
+
+            const res = await fetch('/api/invoices/ingest', { method:'POST', body:buildForm(false) });
+            if (!res.ok) {
+              const err = await res.json();
+              const msg = `[ERROR] ${err.detail || 'Error desconocido'}`;
+              this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
+            }
+            const data = await res.json();
+            const okMsg = `[OK] Facturas insertadas: ${data.inserted}`;
+            this.logLines.push(okMsg);
+            this._updateStageResult(stageId, okMsg);
+            if (data.skipped) this.logLines.push(`[INFO] Filas omitidas: ${data.skipped}`);
+            if (data.unknown_admins?.length)    { const m=`[WARN] Admins sin mapear: ${data.unknown_admins.join(', ')}`; this.logLines.push(m); this._markLine(stageId,m); }
+            if (data.unknown_contracts?.length) { const m=`[WARN] Contratos sin mapear: ${data.unknown_contracts.join(', ')}`; this.logLines.push(m); this._markLine(stageId,m); }
+            if (data.unknown_services?.length)  { const m=`[WARN] Servicios sin mapear: ${data.unknown_services.join(', ')}`; this.logLines.push(m); this._markLine(stageId,m); }
+            this.scrollLog();
+
+          } else if (stageId === 'CHECK_FOLDERS_WITH_EXTRA_TEXT') {
+            // Sync SSE — sends folder list, auditor decides per-folder action
+            let url = `/api/pipeline/run/${stageId}?institution_id=${encodeURIComponent(institutionId)}&period_id=${encodeURIComponent(periodId)}`;
+            const evtSource = new EventSource(url);
+
+            await new Promise((resolve) => {
+              evtSource.onmessage = (event) => {
+                let line = event.data;
+                try { const p = JSON.parse(event.data); line = p.msg || event.data; } catch {}
+                if (line === '[DONE]') { evtSource.close(); resolve(); return; }
+                if (line.startsWith('[DATA] ')) {
+                  try {
+                    this.annulData = JSON.parse(line.slice(7)).map(folder => ({
+                      ...folder,
+                      action: folder.action || 'skip',
+                    }));
+                  } catch(e) {}
+                  return;
+                }
+                this._markLine(stageId, line);
+                this._updateStageResult(stageId, line);
+                this.logLines.push(line);
+                this.$nextTick(() => this.scrollLog());
+              };
+              evtSource.onerror = () => {
+                evtSource.close();
+                const msg = `[ERROR] Conexión interrumpida en etapa ${stageId}`;
+                this.logLines.push(msg); this._markLine(stageId, msg); resolve();
+              };
+            });
+
+          } else if (stageId === 'REVISAR_SOBRANTES') {
+            // Sync SSE — blocks waiting for user interaction via [DATA] events
+            let url = `/api/pipeline/run/${stageId}?institution_id=${encodeURIComponent(institutionId)}&period_id=${encodeURIComponent(periodId)}`;
+            const evtSource = new EventSource(url);
+
+            await new Promise((resolve) => {
+              evtSource.onmessage = (event) => {
+                let line = event.data;
+                try { const p = JSON.parse(event.data); line = p.msg || event.data; } catch {}
+                if (line === '[DONE]') { evtSource.close(); resolve(); return; }
+                if (line.startsWith('[DATA] ')) {
+                  try {
+                    this.surplusData = JSON.parse(line.slice(7)).map(inv => ({
+                      ...inv,
+                      sobrantes: inv.sobrantes.map(s => ({
+                        ...s,
+                        selected_doc_type_id: s.suggested_doc_type_id || '',
+                        _done: false,
+                        _new_filename: null,
+                        _deleted: false,
+                      }))
+                    }));
+                  } catch(e) {}
+                  return;
+                }
+                this._markLine(stageId, line);
+                this._updateStageResult(stageId, line);
+                this.logLines.push(line);
+                this.$nextTick(() => this.scrollLog());
+              };
+              evtSource.onerror = () => {
+                evtSource.close();
+                const msg = `[ERROR] Conexión interrumpida en etapa ${stageInfo?.label || stageId}`;
+                this.logLines.push(msg); this._markLine(stageId, msg); resolve();
+              };
+            });
+          } else if (stageId === 'REMOVE_NON_PDF') {
+            const url = `/api/pipeline/run/${stageId}?institution_id=${encodeURIComponent(institutionId)}&period_id=${encodeURIComponent(periodId)}`;
+            const evtSource = new EventSource(url);
+
+            await new Promise((resolve) => {
+              evtSource.onmessage = (event) => {
+                let line = event.data;
+                try { const p = JSON.parse(event.data); line = p.msg || event.data; } catch {}
+                if (line === '[DONE]') { evtSource.close(); resolve(); return; }
+                if (line.startsWith('[DATA] ')) {
+                  try {
+                    const payload = JSON.parse(line.slice(7));
+                    this.nonPdfData = {
+                      ...payload,
+                      non_pdf: payload.non_pdf.map(f => ({
+                        ...f,
+                        action: f.is_image ? 'convert' : 'delete',
+                        _done: false,
+                      })),
+                      corrupt_pdfs: payload.corrupt_pdfs.map(f => ({
+                        ...f,
+                        action: 'delete',
+                        _done: false,
+                      })),
+                    };
+                  } catch(e) {}
+                  return;
+                }
+                this._markLine(stageId, line);
+                this._updateStageResult(stageId, line);
+                this.logLines.push(line);
+                this.$nextTick(() => this.scrollLog());
+              };
+              evtSource.onerror = () => {
+                evtSource.close();
+                const msg = `[ERROR] Conexión interrumpida en etapa ${stageId}`;
+                this.logLines.push(msg); this._markLine(stageId, msg); resolve();
+              };
+            });
+
+          } else {
+            // Background stage — runs independently of the HTTP connection
+            await this._runBackgroundStage(stageId, institutionId, periodId);
+          }
+        } catch (e) {
+          const msg = `[ERROR] ${e.message}`;
+          this.logLines.push(msg); this._markLine(stageId, msg);
+        }
+
+        if (this.stageStatuses[stageId] === 'running') this.stageStatuses[stageId] = 'done';
+        this.scrollLog();
+      }
+
+      this.running = false;
+      this.currentStageLabel = '';
+      this.logLines.push('─── PIPELINE FINALIZADO ───');
+      this.scrollLog();
+    },
+
+    async applyAnnulDecisions() {
+      if (!this.annulData || this.annulData.length === 0) return;
+      const toAnnul = this.annulData.filter(f => f.action === 'annul');
+      if (toAnnul.length === 0) {
+        this.annulData = null;
+        return;
+      }
+      const institutionId = this.$store.ctx.institutionId;
+      const periodId = this.$store.ctx.periodId;
+      const res = await fetch('/api/invoices/annul-folders', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          institution_id: parseInt(institutionId),
+          period_id: parseInt(periodId),
+          decisions: this.annulData.map(f => ({
+            folder_path: f.folder_path,
+            invoice_id: f.invoice_id,
+            action: f.action,
+          })),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const msg = `[INFO] Anuladas: ${data.annulled} carpeta(s), omitidas: ${data.skipped}`;
+        this.logLines.push(msg);
+        if (data.errors?.length) {
+          data.errors.forEach(e => this.logLines.push(`[WARN] ${e}`));
+        }
+        this.scrollLog();
+        this.annulData = null;
+      } else {
+        const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
+        this.showToast(false, 'Error al aplicar decisiones: ' + (err.detail || JSON.stringify(err)));
+      }
+    },
+
+    async applyDelete(inv, sob) {
+      this.confirmDeleteSurplus(inv, sob);
+    },
+
+    async applyRename(inv, sob) {
+      const docTypeId = parseInt(sob.selected_doc_type_id);
+      if (!docTypeId) return;
+      const res = await fetch(`/api/invoices/${inv.invoice_id}/rename-surplus`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          folder_path: inv.folder_path,
+          old_filename: sob.filename,
+          doc_type_id: docTypeId,
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        sob._new_filename = data.new_filename;
+        sob._done = true;
+      } else {
+        const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
+        this.showToast(false, err.detail || JSON.stringify(err));
+      }
+    },
+
+    async confirmNonPdf() {
+      const institutionId = this.$store.ctx.institutionId;
+      const periodId      = this.$store.ctx.periodId;
+
+      const decisions = [
+        ...(this.nonPdfData?.non_pdf || []),
+        ...(this.nonPdfData?.corrupt_pdfs || []),
+      ].filter(f => !f._done).map(f => ({ rel_path: f.rel_path, action: f.action }));
+
+      if (!decisions.length) { this.nonPdfData = null; return; }
+
+      const res = await fetch('/api/pipeline/process-non-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institution_id: institutionId, period_id: periodId, decisions }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        [...(this.nonPdfData.non_pdf), ...(this.nonPdfData.corrupt_pdfs)]
+          .forEach(f => { if (!f._done) f._done = true; });
+        const summary = `[OK] No-PDF: ${result.deleted} eliminados, ${result.converted} convertidos a PDF` +
+                        (result.errors.length ? ` — ${result.errors.length} error(es)` : '');
+        this.logLines.push(summary);
+        this._markLine('REMOVE_NON_PDF', summary);
+        this.$nextTick(() => this.scrollLog());
+        if (!result.errors.length) this.nonPdfData = null;
+      } else {
+        const err = await res.json().catch(() => ({ detail: 'Error desconocido' }));
+        this.logLines.push(`[ERROR] ${err.detail || 'Error al procesar archivos'}`);
+        this.$nextTick(() => this.scrollLog());
+      }
+    },
+
+    scrollLog() {
+      const el = this.$refs.logContainer;
+      if (el) el.scrollTop = el.scrollHeight;
+    },
+
+    showToast(ok, message) {
+      const type = ok === 'warn' ? 'warn' : ok ? 'ok' : 'err';
+      const id = ++this._toastId;
+      this.toasts.push({ id, type, message });
+      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 4500);
+    },
+
+    confirmDeleteSurplus(inv, sob) {
+      this.deleteConfirmPending = { inv, sob };
+    },
+
+    async executeDeleteSurplus() {
+      const { inv, sob } = this.deleteConfirmPending;
+      this.deleteConfirmPending = null;
+      const res = await fetch(`/api/invoices/${inv.invoice_id}/delete-surplus`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ folder_path: inv.folder_path, filename: sob.filename })
+      });
+      if (res.ok) {
+        sob._deleted = true;
+        sob._done = true;
+      } else {
+        const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
+        this.showToast(false, err.detail || JSON.stringify(err));
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

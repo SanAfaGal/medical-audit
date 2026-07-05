@@ -1,0 +1,11 @@
+# Sobreescrituras para desarrollo local.
+# Docker Compose lo aplica automáticamente encima de docker-compose.yml
+services:
+  adminer:
+    container_name: medical-audit-dev-adminer
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db

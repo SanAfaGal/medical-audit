@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Auditoría Médica{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+
+  <!-- Fonts (local) -->
+  <link rel="stylesheet" href="/static/vendor/fonts/plus-jakarta-sans/plus-jakarta-sans.css">
+
+  <!-- Tailwind CSS (local) -->
+  <script src="/static/vendor/tailwind.min.js"></script>
+  <!-- Font Awesome 6 Free (local) -->
+  <link rel="stylesheet" href="/static/vendor/fa6/css/all.min.css" />
+  <!-- HTMX (local) -->
+  <script src="/static/vendor/htmx.min.js" defer></script>
+  <!-- HTMX SSE extension (local) -->
+  <script src="/static/vendor/htmx-sse.js" defer></script>
+  <!-- Alpine.js (local) -->
+  <script src="/static/vendor/alpine.min.js" defer></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
+          colors: {
+            brand: { 600: '#0369a1', 700: '#0c4a6e' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* ─── Global design tokens ─────────────────────────────────────────── */
+    :root {
+      --bg-page:      #f1f5f9;   /* slate-100  — page background            */
+      --bg-surface:   #ffffff;   /* white      — card / panel surface        */
+      --bg-subtle:    #f8fafc;   /* slate-50   — hover / input background   */
+      --border:       #e2e8f0;   /* slate-200  — default border             */
+      --border-soft:  #f1f5f9;   /* slate-100  — inset / subtle border      */
+
+      --text-1:       #1e293b;   /* slate-800  — primary text               */
+      --text-2:       #475569;   /* slate-600  — secondary text             */
+      --text-3:       #94a3b8;   /* slate-400  — muted / placeholder        */
+
+      /* Accent — sky (primary action) */
+      --sky:          #0284c7;
+      --sky-soft:     #f0f9ff;
+      --sky-border:   #bae6fd;
+
+      /* Accent — emerald (success) */
+      --emerald:      #059669;
+      --emerald-soft: #ecfdf5;
+      --emerald-border:#a7f3d0;
+
+      /* Accent — amber (warning) */
+      --amber:        #b45309;
+      --amber-soft:   #fffbeb;
+      --amber-border: #fde68a;
+
+      /* Accent — red (error) */
+      --red:          #dc2626;
+      --red-soft:     #fef2f2;
+      --red-border:   #fecaca;
+
+      /* Accent — violet */
+      --violet:       #7c3aed;
+      --violet-soft:  #f5f3ff;
+      --violet-border:#ddd6fe;
+
+      /* Accent — indigo */
+      --indigo:       #4338ca;
+      --indigo-soft:  #eef2ff;
+      --indigo-border:#c7d2fe;
+    }
+  </style>
+
+  <!-- ── Store global de UI ─────────────────────────────────────────────── -->
+  <script>
+    document.addEventListener('alpine:init', () => {
+      Alpine.store('ui', {
+        consoleOpen: true,
+        flowOpen: true,
+        sidebarOpen: true,
+      });
+    });
+  </script>
+
+  <!-- ── Store global de Pipeline (tarea en background) ────────────────── -->
+  <script>
+    document.addEventListener('alpine:init', () => {
+      Alpine.store('pipeline', {
+        taskId: null,
+        stage: null,
+        status: null,   // "running" | "done" | "error" | "cancelled" | null
+        cursor: 0,      // último idx recibido (para reconexión)
+
+        init() {
+          try {
+            const s = JSON.parse(localStorage.getItem('pipeline_task') || 'null');
+            if (s) {
+              this.taskId = s.taskId;
+              this.stage  = s.stage;
+              this.status = s.status;
+              this.cursor = s.cursor || 0;
+            }
+          } catch {}
+        },
+        setTask(taskId, stage) {
+          this.taskId = taskId; this.stage = stage; this.status = 'running'; this.cursor = 0;
+          this._save();
+        },
+        update(status, cursor) {
+          this.status = status; this.cursor = cursor; this._save();
+        },
+        clear() {
+          this.taskId = null; this.stage = null; this.status = null; this.cursor = 0;
+          localStorage.removeItem('pipeline_task');
+        },
+        get isRunning() { return this.status === 'running'; },
+        _save() {
+          localStorage.setItem('pipeline_task', JSON.stringify({
+            taskId: this.taskId, stage: this.stage, status: this.status, cursor: this.cursor,
+          }));
+        },
+      });
+    });
+  </script>
+
+  <!-- ── Explorador PDF: componente Alpine ──────────────────────────────── -->
+  <script>
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('explorerApp', () => ({
+        explorerOpen: false,
+        rootFolder: 'STAGE',
+        currentPath: '',
+        entries: [],
+        selectedEntry: null,
+        previewUrl: null,
+        pdfMode: 'none',
+        renamingPath: null,
+        renameValue: '',
+        selectedPdfs: [],
+        mergeOutputName: 'resultado.pdf',
+        splitRanges: '',
+        splitGroups: [],
+        splitPreviewError: '',
+        splitPalette: [
+          'border-sky-400 bg-sky-50 text-sky-700',
+          'border-amber-400 bg-amber-50 text-amber-700',
+          'border-teal-400 bg-teal-50 text-teal-700',
+          'border-indigo-400 bg-indigo-50 text-indigo-700',
+          'border-violet-400 bg-violet-50 text-violet-700',
+        ],
+        thumbnails: [],
+        pageOrder: [],
+        reorderDragIdx: null,
+        toasts: [],
+        _toastId: 0,
+        confirmingDelete: null,
+        movingEntries: [],
+        moveBrowserPath: '',
+        moveBrowserRoot: '',
+        moveBrowserEntries: [],
+        copyingEntries: [],
+        destSearchQuery: '',
+        destSearchResults: [],
+        destSearchLoading: false,
+        searchQuery: '',
+        searchResults: [],
+        searchLoading: false,
+        panelWidth: 560,
+        listWidth: 220,
+        _resizing: false,
+        _resizeStartX: 0,
+        _resizeStartWidth: 0,
+        _listResizing: false,
+        // ── Selección en lote ──
+        selectedEntries: [],
+        batchDeleteConfirm: false,
+        // ── Upload ──
+        uploadProgress: null,   // null | {done, total, errors}
+        isDragOver: false,
+        uploadMenuOpen: false,
+        // ── Crear carpeta ──
+        creatingFolder: false,
+        newFolderName: '',
+
+        get institutionId() { return Alpine.store('ctx').institutionId; },
+        get periodId()      { return Alpine.store('ctx').periodId; },
+
+        init() {
+          // Recargar automáticamente cuando cambia hospital o período estando abierto
+          const _resetToStage = () => {
+            if (!this.explorerOpen) return;
+            this.rootFolder = 'STAGE';
+            this.currentPath = 'STAGE';
+            this.selectedEntry = null;
+            this.previewUrl = null;
+            this.selectedEntries = [];
+            this.pdfMode = 'none';
+            this.load();
+          };
+          this.$watch(() => Alpine.store('ctx').institutionId, _resetToStage);
+          this.$watch(() => Alpine.store('ctx').periodId, _resetToStage);
+        },
+
+        // Wrapper fetch que normaliza errores FastAPI {"detail":"..."} → {ok, message}
+        async _apiFetch(url, opts = {}) {
+          try {
+            const res = await fetch(url, opts);
+            const data = await res.json();
+            if (!res.ok) return { ok: false, message: data.detail || `Error ${res.status}` };
+            return data;
+          } catch (e) {
+            return { ok: false, message: `Error de red: ${e.message}` };
+          }
+        },
+
+        isSearchActive() {
+          return this.searchQuery.trim().length > 0;
+        },
+
+        clearSearch() {
+          this.searchQuery = '';
+          this.searchResults = [];
+        },
+
+        async load() {
+          if (!this.institutionId || !this.periodId) return;
+          const root = this.rootFolder;
+          const subPath = this.currentPath.split('/').slice(1).join('/');
+          const url = `/api/explorer/list?institution_id=${this.institutionId}&period_id=${this.periodId}&root=${root}&path=${encodeURIComponent(subPath)}`;
+          try {
+            const res = await fetch(url);
+            const data = await res.json();
+            this.entries = data.entries || [];
+          } catch {
+            this.entries = [];
+          }
+          // Limpiar selecciones que ya no existen en el listado actual
+          if (this.selectedEntries.length) {
+            const currentPaths = new Set(this.entries.map(e => e.path));
+            this.selectedEntries = this.selectedEntries.filter(p => currentPaths.has(p));
+          }
+        },
+
+        async selectEntry(entry) {
+          this.selectedEntry = entry;
+          if (!entry.is_dir) {
+            this.previewUrl = `/api/explorer/file?institution_id=${this.institutionId}&period_id=${this.periodId}&path=${encodeURIComponent(entry.path)}`;
+            this.pdfMode = 'none';
+          }
+        },
+
+        navigateTo(path) {
+          this.currentPath = path;
+          this.selectedEntry = null;
+          this.previewUrl = null;
+          this.pdfMode = 'none';
+          this.clearSearch();
+          this.load();
+        },
+
+        switchRoot(tab) {
+          this.rootFolder = tab;
+          this.currentPath = tab;
+          this.selectedEntry = null;
+          this.previewUrl = null;
+          this.pdfMode = 'none';
+          this.entries = [];
+          this.clearSearch();
+          this.load();
+        },
+
+        goUp() {
+          const parts = this.currentPath.split('/').filter(Boolean);
+          if (parts.length <= 1) {
+            this.currentPath = this.rootFolder;
+          } else {
+            parts.pop();
+            this.currentPath = parts.join('/');
+          }
+          this.selectedEntry = null;
+          this.previewUrl = null;
+          this.clearSearch();
+          this.load();
+        },
+
+        startRename(entry) {
+          this.renamingPath = entry.path;
+          this.renameValue = entry.name;
+          this.$nextTick(() => this.$refs.renameInput && this.$refs.renameInput.focus());
+        },
+
+        async commitRename(entry) {
+          if (!this.renameValue.trim() || this.renameValue === entry.name) {
+            this.renamingPath = null;
+            return;
+          }
+          const data = await this._apiFetch('/api/explorer/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              path: entry.path,
+              new_name: this.renameValue.trim(),
+            }),
+          });
+          this.renamingPath = null;
+          this.showToast(data.ok, data.message);
+          if (data.ok) { this.isSearchActive() ? this.runSearch() : this.load(); }
+        },
+
+        // Drag-to-move
+        onDragStart(event, entry) {
+          event.dataTransfer.setData('text/plain', entry.path);
+        },
+
+        async onDrop(event, targetFolder) {
+          // Archivos externos del SO tienen prioridad sobre drag interno
+          if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+            event.stopPropagation();
+            await this.uploadFiles(event.dataTransfer.files, [], targetFolder.path);
+            return;
+          }
+          const srcPath = event.dataTransfer.getData('text/plain');
+          if (!srcPath || srcPath === targetFolder.path) return;
+          // Prevent dropping a folder into one of its own descendants
+          if (targetFolder.path.startsWith(srcPath + '/')) return;
+          const data = await this._apiFetch('/api/explorer/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              src: srcPath,
+              dst_folder: targetFolder.path,
+            }),
+          });
+          this.showToast(data.ok, data.message);
+          if (data.ok) this.load();
+        },
+
+        toggleMergePdf(path) {
+          const idx = this.selectedPdfs.indexOf(path);
+          if (idx >= 0) this.selectedPdfs.splice(idx, 1);
+          else this.selectedPdfs.push(path);
+        },
+
+        async executeMerge() {
+          if (this.selectedPdfs.length < 2) return;
+          const data = await this._apiFetch('/api/explorer/merge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              paths: this.selectedPdfs,
+              output_name: this.mergeOutputName || 'resultado.pdf',
+            }),
+          });
+          this.showToast(data.ok, data.message);
+          if (data.ok) { this.pdfMode = 'none'; this.selectedPdfs = []; this.load(); }
+        },
+
+        async executeSplit() {
+          if (!this.selectedEntry) return;
+          const data = await this._apiFetch('/api/explorer/split', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              path: this.selectedEntry.path,
+              ranges: this.splitRanges.trim() || null,
+            }),
+          });
+          this.showToast(data.ok, data.message);
+          if (data.ok) { this.pdfMode = 'none'; this.load(); }
+        },
+
+        // Carga this.thumbnails para el PDF seleccionado. Devuelve false y resetea
+        // pdfMode si falla — usado por startReorder() y startSplit().
+        async _loadThumbnails() {
+          this.thumbnails = [];
+          const url = `/api/explorer/thumbnails?institution_id=${this.institutionId}&period_id=${this.periodId}&path=${encodeURIComponent(this.selectedEntry.path)}`;
+          const data = await this._apiFetch(url);
+          if (!data.ok && data.ok !== undefined) {
+            this.showToast(false, data.message);
+            this.pdfMode = 'none';
+            return false;
+          }
+          this.thumbnails = data.thumbnails || [];
+          if (!this.thumbnails.length) {
+            this.showToast(false, 'No se pudieron cargar las miniaturas');
+            this.pdfMode = 'none';
+            return false;
+          }
+          return true;
+        },
+
+        async startReorder() {
+          if (!this.selectedEntry) return;
+          this.pdfMode = 'reorder';
+          this.pageOrder = [];
+          if (!(await this._loadThumbnails())) return;
+          this.pageOrder = this.thumbnails.map((_, i) => i);
+        },
+
+        async startSplit() {
+          if (!this.selectedEntry) return;
+          this.pdfMode = 'split';
+          this.splitRanges = '';
+          this.splitGroups = [];
+          this.splitPreviewError = '';
+          if (!(await this._loadThumbnails())) return;
+          await this.updateSplitPreview();
+        },
+
+        async updateSplitPreview() {
+          if (!this.selectedEntry) return;
+          const ranges = this.splitRanges.trim();
+          const url = `/api/explorer/split-preview?institution_id=${this.institutionId}&period_id=${this.periodId}`
+                    + `&path=${encodeURIComponent(this.selectedEntry.path)}`
+                    + (ranges ? `&ranges=${encodeURIComponent(ranges)}` : '');
+          const data = await this._apiFetch(url);
+          if (data.groups) {
+            this.splitGroups = data.groups;
+            this.splitPreviewError = '';
+          } else {
+            this.splitPreviewError = data.message || 'Rango inválido';
+          }
+        },
+
+        // -1 si la página no pertenece a ningún grupo del preview actual
+        splitGroupOf(pageIdx) {
+          return this.splitGroups.findIndex(g => g.includes(pageIdx));
+        },
+
+        reorderDragStart(event, pos) {
+          this.reorderDragIdx = pos;
+        },
+
+        reorderDrop(event, toPos) {
+          if (this.reorderDragIdx === null || this.reorderDragIdx === toPos) return;
+          const item = this.pageOrder.splice(this.reorderDragIdx, 1)[0];
+          this.pageOrder.splice(toPos, 0, item);
+          this.reorderDragIdx = null;
+        },
+
+        reorderDeletePage(pos) {
+          if (this.pageOrder.length <= 1) {
+            this.showToast(false, 'Debe quedar al menos 1 página');
+            return;
+          }
+          this.pageOrder.splice(pos, 1);
+        },
+
+        async executeReorder() {
+          if (!this.selectedEntry || !this.pageOrder.length) return;
+          const data = await this._apiFetch('/api/explorer/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              path: this.selectedEntry.path,
+              page_order: Array.from(this.pageOrder),  // desenvuelve Proxy reactivo
+            }),
+          });
+          this.showToast(data.ok, data.message);
+          if (data.ok) this.pdfMode = 'none';
+        },
+
+        async deleteEntry(entry) {
+          const data = await this._apiFetch('/api/explorer/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              path: entry.path,
+            }),
+          });
+          this.confirmingDelete = null;
+          this.showToast(data.ok, data.message);
+          if (data.ok) {
+            if (this.selectedEntry?.path === entry.path) {
+              this.selectedEntry = null;
+              this.previewUrl = null;
+            }
+            this.load();
+          }
+        },
+
+        // ── Search ────────────────────────────────────────────────────────
+        async runSearch() {
+          const q = this.searchQuery.trim();
+          if (!q) { this.searchResults = []; return; }
+          this.searchLoading = true;
+          const subPath = this.currentPath.split('/').slice(1).join('/');
+          const url = `/api/explorer/search?institution_id=${this.institutionId}`
+                    + `&period_id=${this.periodId}&root=${this.rootFolder}`
+                    + `&path=${encodeURIComponent(subPath)}&q=${encodeURIComponent(q)}`;
+          try {
+            const data = await this._apiFetch(url);
+            this.searchResults = data.entries || [];
+          } catch { this.searchResults = []; }
+          this.searchLoading = false;
+        },
+
+        navigateToSearchResult(entry) {
+          this.clearSearch();
+          if (entry.is_dir) {
+            // Carpeta → entrar directamente
+            this.navigateTo(entry.path);
+          } else {
+            // Archivo → ir al padre y seleccionarlo para preview
+            const parts = entry.path.split('/');
+            const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : this.rootFolder;
+            this.navigateTo(parentPath);
+            this.$nextTick(() => { this.selectedEntry = entry; });
+          }
+        },
+
+        // ── Destination search (compartido entre move y copy) ────────────
+        async searchDestFolders() {
+          const q = this.destSearchQuery.trim();
+          if (!q) { this.destSearchResults = []; return; }
+          this.destSearchLoading = true;
+          const url = `/api/explorer/search?institution_id=${this.institutionId}`
+                    + `&period_id=${this.periodId}&root=${this.moveBrowserRoot || this.rootFolder}`
+                    + `&q=${encodeURIComponent(q)}`;
+          try {
+            const data = await this._apiFetch(url);
+            this.destSearchResults = (data.entries || []).filter(e => e.is_dir);
+          } catch { this.destSearchResults = []; }
+          this.destSearchLoading = false;
+        },
+
+        clearDestSearch() {
+          this.destSearchQuery = '';
+          this.destSearchResults = [];
+        },
+
+        setMoveDestination(path) {
+          this.clearDestSearch();
+          this.loadMoveBrowser(path);
+        },
+
+        // ── Merge mode ────────────────────────────────────────────────────
+        startMerge() {
+          this.selectedPdfs = [];
+          this.pdfMode = 'merge';
+        },
+
+        // ── Copy mode ─────────────────────────────────────────────────────
+        startCopy(entry) {
+          this.copyingEntries = [entry];
+          this.moveBrowserRoot = this.rootFolder;
+          this.moveBrowserPath = this.currentPath;
+          this.pdfMode = 'copy';
+          this.clearDestSearch();
+          this.loadMoveBrowser(this.moveBrowserPath);
+        },
+
+        toggleCopyEntry(entry) {
+          const idx = this.copyingEntries.findIndex(e => e.path === entry.path);
+          if (idx >= 0) this.copyingEntries.splice(idx, 1);
+          else this.copyingEntries.push(entry);
+        },
+
+        async executeCopy() {
+          if (!this.copyingEntries.length) return;
+          const dst = this.moveBrowserPath;
+          let ok = true;
+          for (const entry of this.copyingEntries) {
+            const data = await this._apiFetch('/api/explorer/copy', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                institution_id: this.institutionId,
+                period_id: this.periodId,
+                src: entry.path,
+                dst_folder: dst,
+              }),
+            });
+            if (!data.ok) { this.showToast(false, data.message); ok = false; break; }
+          }
+          if (ok) {
+            this.showToast(true, `${this.copyingEntries.length} elemento(s) copiado(s).`);
+            this.pdfMode = 'none';
+            this.copyingEntries = [];
+            this.load();
+          }
+        },
+
+        // ── Move mode ─────────────────────────────────────────────────────
+        startMove(entry) {
+          this.movingEntries = [entry];
+          this.moveBrowserRoot = this.rootFolder;
+          this.moveBrowserPath = this.currentPath;
+          this.pdfMode = 'move';
+          this.clearDestSearch();
+          this.loadMoveBrowser(this.moveBrowserPath);
+        },
+
+        startBatchMove() {
+          this.movingEntries = this.selectedEntries.map(path => {
+            const entry = this.entries.find(e => e.path === path);
+            return entry || { path, name: path.split('/').pop(), is_dir: false };
+          });
+          this.moveBrowserRoot = this.rootFolder;
+          this.moveBrowserPath = this.currentPath;
+          this.pdfMode = 'move';
+          this.selectedEntries = [];
+          this.clearDestSearch();
+          this.loadMoveBrowser(this.moveBrowserPath);
+        },
+
+        switchMoveBrowserRoot(root) {
+          this.moveBrowserRoot = root;
+          this.moveBrowserPath = root;
+          this.loadMoveBrowser(root);
+        },
+
+        toggleMoveEntry(entry) {
+          const idx = this.movingEntries.findIndex(e => e.path === entry.path);
+          if (idx >= 0) this.movingEntries.splice(idx, 1);
+          else this.movingEntries.push(entry);
+        },
+
+        async loadMoveBrowser(path) {
+          this.moveBrowserPath = path;
+          const root = this.moveBrowserRoot || this.rootFolder;
+          const subPath = path.split('/').slice(1).join('/');
+          const url = `/api/explorer/list?institution_id=${this.institutionId}&period_id=${this.periodId}&root=${root}&path=${encodeURIComponent(subPath)}`;
+          try {
+            const res = await fetch(url);
+            const data = await res.json();
+            this.moveBrowserEntries = (data.entries || []).filter(e => e.is_dir);
+          } catch { this.moveBrowserEntries = []; }
+        },
+
+        moveBrowserUp() {
+          const root = this.moveBrowserRoot || this.rootFolder;
+          const parts = this.moveBrowserPath.split('/').filter(Boolean);
+          if (parts.length <= 1) this.loadMoveBrowser(root);
+          else { parts.pop(); this.loadMoveBrowser(parts.join('/')); }
+        },
+
+        async executeMove() {
+          if (!this.movingEntries.length) return;
+          // Prevent moving into self or a child of a folder being moved
+          const dst = this.moveBrowserPath;
+          const invalid = this.movingEntries.find(e =>
+            dst === e.path || dst.startsWith(e.path + '/')
+          );
+          if (invalid) {
+            this.showToast(false, 'No puedes mover una carpeta dentro de sí misma.');
+            return;
+          }
+          let ok = true;
+          for (const entry of this.movingEntries) {
+            const data = await this._apiFetch('/api/explorer/move', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                institution_id: this.institutionId,
+                period_id: this.periodId,
+                src: entry.path,
+                dst_folder: dst,
+              }),
+            });
+            if (!data.ok) { this.showToast(false, data.message); ok = false; break; }
+          }
+          if (ok) {
+            this.showToast(true, `${this.movingEntries.length} elemento(s) movido(s).`);
+            this.pdfMode = 'none';
+            this.movingEntries = [];
+            this.load();
+          }
+        },
+
+        startListResize(event) {
+          this._listResizing = true;
+          const startX = event.clientX;
+          const startW = this.listWidth;
+          const onMove = (e) => {
+            if (!this._listResizing) return;
+            this.listWidth = Math.max(150, Math.min(480, startW + (e.clientX - startX)));
+          };
+          const onUp = () => {
+            this._listResizing = false;
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        },
+
+        startResize(event) {
+          this._resizing = true;
+          this._resizeStartX = event.clientX;
+          this._resizeStartWidth = this.panelWidth;
+          const onMove = (e) => {
+            if (!this._resizing) return;
+            const delta = this._resizeStartX - e.clientX;
+            this.panelWidth = Math.max(320, Math.min(1020, this._resizeStartWidth + delta));
+          };
+          const onUp = () => {
+            this._resizing = false;
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        },
+
+        showToast(ok, message) {
+          // Quitar cualquier toast de carga previo (se reemplaza con el resultado)
+          this.toasts = this.toasts.filter(t => t.type !== 'loading');
+
+          const type = ok === 'loading' ? 'loading'
+                     : ok === 'warn'    ? 'warn'
+                     : ok              ? 'ok'
+                     :                   'err';
+          const id = ++this._toastId;
+          this.toasts.push({ id, type, message });
+
+          if (type !== 'loading') {
+            setTimeout(() => {
+              this.toasts = this.toasts.filter(t => t.id !== id);
+            }, 4500);
+          }
+        },
+
+        // ── Selección en lote ──────────────────────────────────────────────
+
+        startSelectMode() {
+          this.pdfMode = 'select';
+          this.selectedEntries = [];
+          this.batchDeleteConfirm = false;
+        },
+
+        toggleSelectEntry(path) {
+          const idx = this.selectedEntries.indexOf(path);
+          if (idx >= 0) this.selectedEntries.splice(idx, 1);
+          else this.selectedEntries.push(path);
+        },
+
+        selectAllEntries() {
+          if (this.selectedEntries.length === this.entries.length) {
+            this.selectedEntries = [];
+          } else {
+            this.selectedEntries = this.entries.map(e => e.path);
+          }
+        },
+
+        async executeBatchDelete() {
+          if (!this.selectedEntries.length) return;
+          const data = await this._apiFetch('/api/explorer/delete-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              paths: Array.from(this.selectedEntries),
+            }),
+          });
+          this.batchDeleteConfirm = false;
+          if (data.deleted) {
+            const n = data.deleted.length;
+            const errMsg = data.errors?.length ? ` (${data.errors.length} error(es))` : '';
+            this.showToast(n > 0, `${n} elemento(s) eliminado(s)${errMsg}`);
+            this.pdfMode = 'none';
+            this.selectedEntries = [];
+            if (this.selectedEntry && data.deleted.includes(this.selectedEntry.path)) {
+              this.selectedEntry = null;
+              this.previewUrl = null;
+            }
+            this.load();
+          } else {
+            this.showToast(false, data.message || 'Error al eliminar');
+          }
+        },
+
+        // ── Upload ────────────────────────────────────────────────────────
+
+        async uploadFiles(fileList, relativePaths = [], destPath = null) {
+          const files = Array.from(fileList);
+          if (!files.length) return;
+
+          // Para upload de carpeta enviamos todos los archivos (el backend filtra no-PDFs
+          // y los cuenta en non_pdf_count). Para upload de PDFs sueltos pre-filtramos.
+          const isFolderUpload = relativePaths.length === files.length && relativePaths.some(Boolean);
+          const filesToSend = isFolderUpload
+            ? files
+            : files.filter(f => f.name.toLowerCase().endsWith('.pdf'));
+
+          if (!filesToSend.length) {
+            this.showToast(false, 'No se encontraron archivos PDF para subir');
+            return;
+          }
+
+          const targetPath = destPath ?? this.currentPath;
+          this.uploadProgress = { done: 0, total: filesToSend.length, errors: 0 };
+
+          const relPaths = isFolderUpload
+            ? filesToSend.map(f => relativePaths[files.indexOf(f)])
+            : [];
+
+          const formData = new FormData();
+          formData.append('institution_id', this.institutionId);
+          formData.append('period_id', this.periodId);
+          formData.append('path', targetPath);
+          formData.append('relative_paths_json', JSON.stringify(relPaths));
+          filesToSend.forEach(f => formData.append('files', f));
+
+          const data = await this._apiFetch('/api/explorer/upload', { method: 'POST', body: formData });
+
+          this.uploadProgress = null;
+
+          if (data.uploaded !== undefined) {
+            const n = data.uploaded.length;
+            const nonPdf = data.non_pdf_count ?? 0;
+            const errSkipped = (data.skipped?.length ?? 0) - nonPdf;
+
+            if (n > 0)         this.showToast(true,   `${n} PDF(s) subido(s) correctamente`);
+            else               this.showToast(false,  'No se subió ningún archivo');
+            if (nonPdf > 0)    this.showToast('warn', `${nonPdf} omitido(s): no son PDF`);
+            if (errSkipped > 0) this.showToast(false, `${errSkipped} error(es) al escribir`);
+
+            if (n > 0) this.load();
+          } else {
+            this.showToast(false, data.message || 'Error al subir archivos');
+          }
+        },
+
+        onExplorerDragOver(event) {
+          // Solo activar overlay si son archivos externos (no drag interno de entradas)
+          if (event.dataTransfer.types.includes('Files')) {
+            event.preventDefault();
+            this.isDragOver = true;
+          }
+        },
+
+        onExplorerDragLeave(event) {
+          // Solo desactivar si el puntero sale del contenedor completo
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            this.isDragOver = false;
+          }
+        },
+
+        async onExplorerFileDrop(event) {
+          event.preventDefault();
+          this.isDragOver = false;
+          const files = event.dataTransfer.files;
+          if (!files || !files.length) return;
+          // Obtener rutas relativas (solo disponibles para folder drop en Chrome/Edge)
+          const relativePaths = Array.from(files).map(f => f.webkitRelativePath || '');
+          await this.uploadFiles(files, relativePaths);
+        },
+
+        // ── Crear carpeta ─────────────────────────────────────────────────
+
+        async createFolder() {
+          const name = this.newFolderName.trim();
+          if (!name) return;
+          const data = await this._apiFetch('/api/explorer/mkdir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: this.institutionId,
+              period_id: this.periodId,
+              path: this.currentPath,
+              name,
+            }),
+          });
+          this.showToast(data.ok, data.message);
+          this.creatingFolder = false;
+          this.newFolderName = '';
+          if (data.ok) this.load();
+        },
+
+        // ── Descarga ZIP ──────────────────────────────────────────────────
+
+        async downloadZip(paths) {
+          const params = new URLSearchParams({
+            institution_id: this.institutionId,
+            period_id: this.periodId,
+          });
+          paths.forEach(p => params.append('rel_paths', p));
+
+          const label = paths.length === 1
+            ? paths[0].split('/').pop()
+            : `${paths.length} elementos`;
+          this.showToast('loading', `Preparando ZIP: ${label}…`);
+
+          try {
+            const response = await fetch(`/api/explorer/download-zip?${params}`);
+            if (!response.ok) {
+              const err = await response.json().catch(() => ({}));
+              this.showToast(false, err.detail || 'Error al generar el ZIP');
+              return;
+            }
+            const blob = await response.blob();
+            const filename = (response.headers.get('Content-Disposition') || '')
+              .match(/filename="([^"]+)"/)?.[1] ?? 'descarga.zip';
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+            const mb = (blob.size / (1024 * 1024)).toFixed(1);
+            this.showToast(true, `ZIP listo — ${mb} MB`);
+          } catch {
+            this.showToast(false, 'Error de red al descargar');
+          }
+        },
+
+        // Abrir explorador — siempre arranca en STAGE
+        open() {
+          this.explorerOpen = true;
+          this.rootFolder = 'STAGE';
+          this.currentPath = 'STAGE';
+          this.load();
+        },
+      }));
+    });
+  </script>
+
+  <!-- Global context store — must register before Alpine deferred init -->
+  <script>
+    document.addEventListener('alpine:init', () => {
+      Alpine.store('ctx', {
+        institutions: [],
+        institutionId: null,
+        institution:   null,
+        periods:       [],
+        periodId:      null,
+        period:        null,
+        ready:         false,
+
+        init() {
+          try {
+            const s = JSON.parse(localStorage.getItem('audit_ctx') || '{}');
+            this.institutionId = s.institutionId || null;
+            this.institution   = s.institution   || null;
+            this.periodId      = s.periodId      || null;
+            this.period        = s.period        || null;
+          } catch {}
+          this._loadInstitutions();
+        },
+
+        async _loadInstitutions() {
+          const res = await fetch('/api/institutions');
+          this.institutions = await res.json();
+          if (this.institutionId) {
+            const found = this.institutions.find(i => i.id == this.institutionId);
+            if (found) { this.institution = found; await this._loadPeriods(); }
+            else this.clear();
+          }
+          this.ready = true;
+        },
+
+        async _loadPeriods() {
+          if (!this.institutionId) { this.periods = []; return; }
+          const res = await fetch(`/api/institutions/${this.institutionId}/periods`);
+          this.periods = await res.json();
+          if (this.periodId) {
+            const found = this.periods.find(p => p.id == this.periodId);
+            if (found) this.period = found;
+            else { this.periodId = null; this.period = null; }
+          }
+          this._save();
+        },
+
+        async selectInstitution(id) {
+          this.institutionId = id ? parseInt(id) : null;
+          this.institution   = this.institutions.find(i => i.id == this.institutionId) || null;
+          this.periodId = null; this.period = null; this.periods = [];
+          this._save();
+          if (this.institutionId) await this._loadPeriods();
+        },
+
+        selectPeriod(id) {
+          this.periodId = id ? parseInt(id) : null;
+          this.period   = this.periods.find(p => p.id == this.periodId) || null;
+          this._save();
+        },
+
+        clear() {
+          this.institutionId = null; this.institution = null;
+          this.periodId      = null; this.period      = null;
+          this.periods = [];
+          this._save();
+        },
+
+        _save() {
+          localStorage.setItem('audit_ctx', JSON.stringify({
+            institutionId: this.institutionId, institution: this.institution,
+            periodId:      this.periodId,      period:      this.period,
+          }));
+        }
+      });
+    });
+  </script>
+</head>
+
+<body class="h-full flex font-sans bg-gray-50" x-data="explorerApp()">
+
+  <!-- ================================================================ -->
+  <!--  SIDEBAR                                                         -->
+  <!-- ================================================================ -->
+  <aside :class="$store.ui.sidebarOpen ? 'w-64' : 'w-[52px]'"
+         class="bg-slate-900 flex flex-col shrink-0 transition-all duration-300 overflow-hidden"
+         style="box-shadow: 4px 0 24px rgba(0,0,0,0.25)">
+
+    <!-- Brand / collapsed toggle -->
+    <div class="px-3 py-4 border-b border-white/10 flex items-center"
+         :class="$store.ui.sidebarOpen ? 'justify-between' : 'justify-center'">
+      <span x-show="$store.ui.sidebarOpen"
+            class="text-white font-bold text-sm tracking-wide flex items-center gap-2.5">
+        <span class="w-7 h-7 rounded-lg bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shrink-0">
+          <i class="fa-solid fa-stethoscope text-sky-400 text-xs"></i>
+        </span>
+        Auditoría Médica
+      </span>
+      <button @click="$store.ui.sidebarOpen = !$store.ui.sidebarOpen"
+              class="w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10 shrink-0"
+              :title="$store.ui.sidebarOpen ? 'Colapsar barra' : 'Expandir barra'">
+        <i class="fa-solid text-slate-400 text-[10px]"
+           :class="$store.ui.sidebarOpen ? 'fa-chevron-left' : 'fa-stethoscope'"></i>
+      </button>
+    </div>
+
+    <!-- ── Context card (solo visible expandido) ── -->
+    <div x-show="$store.ui.sidebarOpen"
+         class="px-4 pt-4 pb-3 border-b border-white/10 space-y-3">
+
+      <!-- Hospital logo + name row -->
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-xl bg-white flex items-center justify-center overflow-hidden shrink-0 shadow-sm"
+             style="box-shadow: 0 0 0 1px rgba(255,255,255,0.12)">
+          <template x-if="$store.ctx.institution && $store.ctx.institution.logo_url">
+            <img :src="$store.ctx.institution.logo_url"
+                 :alt="$store.ctx.institution.display_name"
+                 class="w-full h-full object-contain p-1">
+          </template>
+          <template x-if="!$store.ctx.institution || !$store.ctx.institution.logo_url">
+            <i class="fa-solid fa-hospital-user text-slate-400 text-sm"></i>
+          </template>
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-0.5">Hospital</div>
+          <div class="text-sm font-semibold text-white leading-tight truncate"
+               x-text="$store.ctx.institution ? $store.ctx.institution.display_name : '—'"></div>
+          <div x-show="$store.ctx.institution"
+               class="text-[10px] font-bold text-sky-400/70 uppercase tracking-wide truncate mt-0.5"
+               x-text="$store.ctx.institution ? $store.ctx.institution.name.replace(/_/g, ' ') : ''"></div>
+        </div>
+      </div>
+
+      <!-- Period pill -->
+      <div class="flex items-center gap-2">
+        <i class="fa-regular fa-calendar text-slate-500 text-xs w-3.5 text-center shrink-0"></i>
+        <template x-if="$store.ctx.period">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold
+                       bg-amber-400/15 text-amber-300 border border-amber-400/25">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span>
+            <span x-text="$store.ctx.period.period_label"></span>
+          </span>
+        </template>
+        <template x-if="!$store.ctx.period">
+          <span class="text-xs text-slate-600 italic">Sin período</span>
+        </template>
+      </div>
+
+      <!-- Compact selectors -->
+      <div class="space-y-1.5">
+        <div class="relative">
+          <select @change="$store.ctx.selectInstitution($event.target.value)"
+                  class="w-full bg-slate-800/80 border border-white/10 text-slate-300 text-xs
+                         rounded-lg pl-2.5 pr-7 py-1.5 appearance-none cursor-pointer
+                         focus:outline-none focus:ring-1 focus:ring-sky-500/70 focus:border-sky-500/70
+                         hover:border-white/20 transition-colors">
+            <option value="">— Seleccionar hospital —</option>
+            <template x-for="h in $store.ctx.institutions" :key="h.id">
+              <option :value="h.id" x-text="h.display_name"
+                      :selected="h.id == $store.ctx.institutionId"></option>
+            </template>
+          </select>
+          <i class="fa-solid fa-chevron-down text-slate-500 text-[9px] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+        </div>
+        <div class="relative">
+          <select @change="$store.ctx.selectPeriod($event.target.value)"
+                  :disabled="!$store.ctx.institutionId || $store.ctx.periods.length === 0"
+                  class="w-full bg-slate-800/80 border border-white/10 text-slate-300 text-xs
+                         rounded-lg pl-2.5 pr-7 py-1.5 appearance-none cursor-pointer
+                         focus:outline-none focus:ring-1 focus:ring-sky-500/70 focus:border-sky-500/70
+                         hover:border-white/20 transition-colors
+                         disabled:opacity-40 disabled:cursor-not-allowed">
+            <option value="">— Seleccionar período —</option>
+            <template x-for="p in $store.ctx.periods" :key="p.id">
+              <option :value="p.id" x-text="p.period_label"
+                      :selected="p.id == $store.ctx.periodId"></option>
+            </template>
+          </select>
+          <i class="fa-solid fa-chevron-down text-slate-500 text-[9px] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+        </div>
+      </div>
+    </div>
+    <!-- ── /Context card ── -->
+
+    <!-- Nav -->
+    <nav class="flex-1 px-2 py-4 space-y-0.5">
+      <!-- Pipeline -->
+      <a href="/"
+         :title="$store.ui.sidebarOpen ? '' : 'Pipeline'"
+         class="flex items-center rounded-lg font-medium transition-all
+                {% if request.url.path == '/' %}bg-sky-500/15 text-sky-300 border border-sky-500/20{% else %}text-slate-400 hover:bg-white/5 hover:text-white border border-transparent{% endif %}"
+         :class="$store.ui.sidebarOpen ? 'gap-3 px-3 py-2.5 text-sm' : 'justify-center p-2.5'">
+        <div class="relative shrink-0">
+          <i class="fa-solid fa-gears w-4 text-center opacity-80"></i>
+          <template x-if="$store.pipeline.isRunning">
+            <span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+          </template>
+        </div>
+        <span x-show="$store.ui.sidebarOpen">Pipeline</span>
+        <template x-if="$store.pipeline.isRunning && $store.ui.sidebarOpen">
+          <span class="ml-auto text-[9px] font-semibold px-1.5 py-0.5 rounded-full
+                       bg-sky-500/15 text-sky-400 border border-sky-500/25">
+            ejecutando
+          </span>
+        </template>
+      </a>
+      <!-- Auditoría -->
+      <a href="/audit"
+         :title="$store.ui.sidebarOpen ? '' : 'Auditoría'"
+         class="flex items-center rounded-lg font-medium transition-all
+                {% if request.url.path == '/audit' %}bg-sky-500/15 text-sky-300 border border-sky-500/20{% else %}text-slate-400 hover:bg-white/5 hover:text-white border border-transparent{% endif %}"
+         :class="$store.ui.sidebarOpen ? 'gap-3 px-3 py-2.5 text-sm' : 'justify-center p-2.5'">
+        <i class="fa-solid fa-magnifying-glass-chart w-4 text-center opacity-80 shrink-0"></i>
+        <span x-show="$store.ui.sidebarOpen">Auditoría</span>
+      </a>
+      <!-- Configuración -->
+      <a href="/settings"
+         :title="$store.ui.sidebarOpen ? '' : 'Configuración'"
+         class="flex items-center rounded-lg font-medium transition-all
+                {% if request.url.path == '/settings' %}bg-sky-500/15 text-sky-300 border border-sky-500/20{% else %}text-slate-400 hover:bg-white/5 hover:text-white border border-transparent{% endif %}"
+         :class="$store.ui.sidebarOpen ? 'gap-3 px-3 py-2.5 text-sm' : 'justify-center p-2.5'">
+        <i class="fa-solid fa-sliders w-4 text-center opacity-80 shrink-0"></i>
+        <span x-show="$store.ui.sidebarOpen">Configuración</span>
+      </a>
+
+      <div class="my-2 border-t border-white/5"></div>
+
+      <!-- Ayuda -->
+      <a href="/help"
+         :title="$store.ui.sidebarOpen ? '' : 'Ayuda'"
+         class="flex items-center rounded-lg font-medium transition-all
+                {% if request.url.path.startswith('/help') %}bg-violet-500/15 text-violet-300 border border-violet-500/20{% else %}text-slate-400 hover:bg-white/5 hover:text-white border border-transparent{% endif %}"
+         :class="$store.ui.sidebarOpen ? 'gap-3 px-3 py-2.5 text-sm' : 'justify-center p-2.5'">
+        <i class="fa-solid fa-circle-question w-4 text-center opacity-80 shrink-0"></i>
+        <span x-show="$store.ui.sidebarOpen">Ayuda</span>
+      </a>
+    </nav>
+
+    <!-- Footer -->
+    <div x-show="$store.ui.sidebarOpen"
+         class="px-4 py-3 border-t border-white/10 text-[11px] text-slate-600">
+      Auditoría Médica v2
+    </div>
+  </aside>
+
+  <!-- ================================================================ -->
+  <!--  MAIN CONTENT                                                    -->
+  <!-- ================================================================ -->
+  <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shrink-0">
+      <h1 class="text-base font-semibold text-gray-800">{% block page_title %}{% endblock %}</h1>
+      <div class="flex items-center gap-2">
+        <div class="text-sm text-gray-500">{% block header_extra %}{% endblock %}</div>
+        <!-- Toggle consola pipeline -->
+        <button @click="$store.ui.consoleOpen = !$store.ui.consoleOpen"
+                :title="$store.ui.consoleOpen ? 'Ocultar consola' : 'Mostrar consola'"
+                :class="$store.ui.consoleOpen
+                  ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                  : 'bg-slate-100 text-slate-600'"
+                class="p-1.5 rounded-lg transition-colors">
+          <i class="fa-solid fa-terminal text-sm"></i>
+        </button>
+        <!-- Toggle explorador PDF -->
+        <button @click="explorerOpen ? (explorerOpen = false) : open()"
+                title="Explorador PDF"
+                :class="explorerOpen
+                  ? 'bg-sky-100 text-sky-600 border border-sky-200'
+                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600 border border-transparent'"
+                class="p-1.5 rounded-lg transition-colors">
+          <i class="fa-solid fa-folder-open text-sm"></i>
+        </button>
+      </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto p-6">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {# ── Explorador de archivos PDF (panel lateral derecho) ── #}
+  {% include "explorer/panel.html" %}
+
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

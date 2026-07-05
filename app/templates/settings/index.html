@@ -1,0 +1,2195 @@
+{% extends "base.html" %}
+
+{% block title %}Configuración — Auditoría Médica{% endblock %}
+{% block page_title %}Configuración{% endblock %}
+
+{% block content %}
+<style>
+  .cfg-input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    background: var(--bg-subtle);
+    color: var(--text-1);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .cfg-input:focus {
+    outline: none;
+    border-color: var(--sky);
+    box-shadow: 0 0 0 3px var(--sky-soft);
+    background: var(--bg-surface);
+  }
+  .cfg-input::placeholder { color: var(--text-3); }
+  .cfg-input-sm {
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    background: var(--bg-subtle);
+    color: var(--text-1);
+  }
+  .cfg-input-sm:focus {
+    outline: none;
+    border-color: var(--sky);
+    box-shadow: 0 0 0 2px var(--sky-soft);
+    background: var(--bg-surface);
+  }
+  .cfg-input-sm.editing {
+    border-color: var(--sky);
+    background: var(--bg-surface);
+  }
+  .cfg-btn-primary {
+    display: inline-flex; align-items: center; gap: 0.375rem;
+    padding: 0.375rem 1rem;
+    background: var(--sky); color: #fff;
+    border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600;
+    border: none; cursor: pointer; transition: opacity .15s;
+  }
+  .cfg-btn-primary:hover { opacity: .88; }
+  .cfg-btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+  .cfg-btn-sm {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.25rem 0.5rem; font-size: 0.75rem;
+    border-radius: 0.375rem; cursor: pointer; border: 1px solid var(--border);
+    background: var(--bg-surface); color: var(--text-2);
+    transition: background .12s, color .12s;
+  }
+  .cfg-btn-sm:hover { background: var(--bg-subtle); }
+  .cfg-btn-sky { border-color: var(--sky-border); color: var(--sky); }
+  .cfg-btn-sky:hover { background: var(--sky-soft); }
+  .cfg-btn-red { border-color: var(--red-border); color: var(--red); }
+  .cfg-btn-red:hover { background: var(--red-soft); }
+  .cfg-btn-confirm { background: var(--red); color: #fff; border-color: var(--red); font-weight: 600; }
+  .cfg-btn-confirm:hover { opacity: .88; }
+  .cfg-btn-violet { border-color: var(--violet-border); color: var(--violet); }
+  .cfg-btn-violet:hover { background: var(--violet-soft); }
+  .cfg-card {
+    border-radius: 0.75rem; overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+  }
+  .cfg-card-header {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-subtle);
+    font-size: 0.8125rem; font-weight: 600;
+    color: var(--text-1);
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .cfg-table th {
+    padding: 0.5rem 1rem;
+    font-size: 0.6875rem; font-weight: 600; text-align: left;
+    color: var(--text-3); text-transform: uppercase; letter-spacing: .04em;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-subtle);
+  }
+  .cfg-table td {
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 0.8125rem; color: var(--text-1);
+  }
+  .cfg-table tr:last-child td { border-bottom: none; }
+  .cfg-table tr:hover td { background: var(--bg-subtle); }
+  .no-inst-banner {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 1rem 1.25rem; border-radius: 0.75rem;
+    border: 1px solid var(--amber-border);
+    background: var(--amber-soft);
+    color: var(--amber); font-size: 0.8125rem;
+  }
+</style>
+
+<div x-data="settingsApp()" class="flex gap-5 items-start">
+
+  <!-- ─── Toast ────────────────────────────────────────────── -->
+  <div x-show="$store.toast.msg" x-transition.opacity
+       class="fixed top-4 right-4 z-50 px-5 py-3 rounded-xl text-white text-sm font-semibold shadow-xl flex items-center gap-2"
+       :style="$store.toast.type === 'error' ? 'background:var(--red)' : 'background:var(--emerald)'"
+       @click="$store.toast.msg = ''" style="display:none">
+    <i :class="$store.toast.type === 'error' ? 'fa-solid fa-circle-xmark' : 'fa-solid fa-circle-check'"></i>
+    <span x-text="$store.toast.msg"></span>
+  </div>
+
+  <!-- ─── Sidebar nav ──────────────────────────────────────── -->
+  <nav class="w-52 shrink-0 rounded-xl sticky top-6 overflow-hidden"
+       style="border:1px solid var(--border);background:var(--bg-surface)">
+
+    <!-- Global section -->
+    <div class="px-3 pt-3 pb-1">
+      <p class="px-2 text-[10px] font-bold uppercase tracking-widest mb-1" style="color:var(--text-3)">Global</p>
+      <div class="space-y-0.5">
+        <template x-for="t in navTabs.filter(t => t.scope === 'global')" :key="t.id">
+          <button @click="switchTab(t.id)"
+                  class="w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-all"
+                  :style="tab === t.id
+                    ? 'background:var(--sky-soft);color:var(--sky);font-weight:600;'
+                    : 'color:var(--text-2);'">
+            <i :class="'fa-solid ' + t.icon + ' w-4 text-center shrink-0'"
+               style="font-size:0.75rem"
+               :style="tab === t.id ? 'color:var(--sky)' : 'color:var(--text-3)'"></i>
+            <span x-text="t.label" class="truncate"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="mx-3 my-2" style="height:1px;background:var(--border)"></div>
+
+    <!-- Institution section -->
+    <div class="px-3 pb-3">
+      <!-- Institution label -->
+      <div class="px-2 mb-1 flex items-center gap-1.5">
+        <p class="text-[10px] font-bold uppercase tracking-widest" style="color:var(--text-3)">Hospital</p>
+      </div>
+      <template x-if="$store.ctx.institution">
+        <div class="px-2 py-1.5 mb-1.5 rounded-lg flex items-center gap-2"
+             style="background:var(--bg-subtle);border:1px solid var(--border)">
+          <i class="fa-solid fa-hospital shrink-0" style="font-size:0.65rem;color:var(--sky)"></i>
+          <span class="text-[11px] font-semibold truncate" style="color:var(--text-1)"
+                x-text="$store.ctx.institution.display_name"></span>
+        </div>
+      </template>
+      <template x-if="!$store.ctx.institution">
+        <div class="px-2 py-1.5 mb-1.5 rounded-lg flex items-center gap-2"
+             style="background:var(--amber-soft);border:1px solid var(--amber-border)">
+          <i class="fa-solid fa-triangle-exclamation shrink-0" style="font-size:0.65rem;color:var(--amber)"></i>
+          <span class="text-[11px]" style="color:var(--amber)">Sin selección</span>
+        </div>
+      </template>
+      <div class="space-y-0.5">
+        <template x-for="t in navTabs.filter(t => t.scope === 'institution')" :key="t.id">
+          <button @click="switchTab(t.id)"
+                  class="w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-all"
+                  :style="tab === t.id
+                    ? 'background:var(--sky-soft);color:var(--sky);font-weight:600;'
+                    : 'color:var(--text-2);'">
+            <i :class="'fa-solid ' + t.icon + ' w-4 text-center shrink-0'"
+               style="font-size:0.75rem"
+               :style="tab === t.id ? 'color:var(--sky)' : 'color:var(--text-3)'"></i>
+            <span x-text="t.label" class="truncate"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+
+  </nav>
+
+  <!-- ─── Content area ─────────────────────────────────────── -->
+  <div class="flex-1 min-w-0 space-y-4" style="min-height:calc(100vh - 10rem)">
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: INSTITUCIONES
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'instituciones'" class="space-y-4">
+
+      <!-- Form card -->
+      <div class="cfg-card">
+
+        <!-- Header: modo edición vs. creación -->
+        <div class="cfg-card-header">
+          <template x-if="editingId">
+            <span class="flex items-center gap-2 min-w-0">
+              <span class="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+                    style="background:var(--sky-soft);border:1px solid var(--sky-border)">
+                <i class="fa-solid fa-pen text-[10px]" style="color:var(--sky)"></i>
+              </span>
+              <span style="color:var(--text-2)">Editando</span>
+              <span class="font-bold truncate" style="color:var(--text-1)" x-text="editingName"></span>
+            </span>
+          </template>
+          <template x-if="!editingId">
+            <span class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+                    style="background:var(--emerald-soft);border:1px solid var(--emerald-border)">
+                <i class="fa-solid fa-plus text-[10px]" style="color:var(--emerald)"></i>
+              </span>
+              <span style="color:var(--text-1)">Nueva institución</span>
+            </span>
+          </template>
+        </div>
+
+        <form @submit.prevent="saveInstitution()" class="p-5 space-y-5">
+
+          <!-- Logo identity row (solo en modo edición) -->
+          <template x-if="editingId">
+            <div class="flex items-center gap-4 pb-4" style="border-bottom:1px solid var(--border-soft)">
+              <button type="button" @click="$refs.logoFileInput.click()" title="Cambiar logo"
+                      class="w-14 h-14 rounded-xl flex items-center justify-center shrink-0 overflow-hidden transition-opacity hover:opacity-75"
+                      style="border:1px solid var(--border);background:var(--bg-subtle)">
+                <template x-if="editingInstitution && editingInstitution.logo_url">
+                  <img :src="editingInstitution.logo_url" class="w-full h-full object-contain p-1">
+                </template>
+                <template x-if="!(editingInstitution && editingInstitution.logo_url)">
+                  <i class="fa-solid fa-hospital text-xl" style="color:var(--text-3)"></i>
+                </template>
+              </button>
+              <input type="file" accept="image/*" x-ref="logoFileInput" class="hidden"
+                     @change="uploadLogo(editingId, $event.target.files[0]); $event.target.value=''">
+              <div>
+                <div class="text-base font-bold leading-tight" style="color:var(--text-1)" x-text="editingName"></div>
+                <div class="text-xs font-mono mt-0.5" style="color:var(--text-3)" x-text="form.name"></div>
+                <button type="button" @click="$refs.logoFileInput.click()"
+                        class="cfg-btn-sm mt-2" style="font-size:0.7rem">
+                  <i class="fa-solid fa-image text-[10px]"></i>Cambiar logo
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <!-- Fila 1: datos básicos -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre interno *</label>
+              <input type="text" x-model="form.name" required placeholder="SANTA_LUCIA"
+                     :readonly="!!editingId" class="cfg-input"
+                     :style="editingId ? 'opacity:.6;cursor:default' : ''" />
+              <p class="text-[11px] mt-1" style="color:var(--text-3)">Identificador único. No se puede cambiar después.</p>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre para mostrar *</label>
+              <input type="text" x-model="form.display_name" required placeholder="Hospital Santa Lucía" class="cfg-input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">NIT *</label>
+              <input type="text" x-model="form.nit" required placeholder="900123456-1" class="cfg-input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Prefijo de factura</label>
+              <input type="text" x-model="form.invoice_id_prefix" placeholder="FE (opcional)" class="cfg-input" />
+            </div>
+          </div>
+
+          <!-- Sección SIHOS -->
+          <div class="rounded-lg overflow-hidden" style="border:1px solid var(--border)">
+            <!-- Sub-header SIHOS -->
+            <div class="flex items-center justify-between px-4 py-2.5"
+                 style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-hospital text-[11px]" style="color:var(--sky)"></i>
+                <span class="text-xs font-semibold" style="color:var(--text-1)">Credenciales SIHOS</span>
+              </div>
+              <!-- Badge estado SIHOS -->
+              <template x-if="editingId && currentInstHasSihosPassword">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                  <i class="fa-solid fa-circle-check text-[10px]"></i> Configuradas
+                </span>
+              </template>
+              <template x-if="!(editingId && currentInstHasSihosPassword)">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                  <i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Sin configurar
+                </span>
+              </template>
+            </div>
+            <div class="p-4 grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">URL portal SIHOS</label>
+                <input type="text" x-model="form.sihos_base_url" class="cfg-input" placeholder="https://..." />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Código SIHOS</label>
+                <input type="text" x-model="form.sihos_doc_code" class="cfg-input" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Usuario SIHOS</label>
+                <input type="text" x-model="form.sihos_user" autocomplete="username" class="cfg-input" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Contraseña SIHOS</label>
+                <input type="password" x-model="form.sihos_password" autocomplete="new-password"
+                       :placeholder="editingId && currentInstHasSihosPassword ? 'Vacío = conservar actual' : 'Contraseña'"
+                       class="cfg-input" />
+                <div class="flex items-center gap-2 mt-1">
+                  <template x-if="editingId && currentInstHasSihosPassword && form.sihos_password">
+                    <span class="flex items-center gap-1 text-[11px] font-medium" style="color:var(--amber)">
+                      <i class="fa-solid fa-pen"></i> Se reemplazará al guardar
+                    </span>
+                  </template>
+                  <template x-if="!(editingId && currentInstHasSihosPassword && form.sihos_password)">
+                    <p class="text-[11px]" style="color:var(--text-3)">Cifrada con AES-256 antes de guardarse.</p>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sección Drive -->
+          <div class="rounded-lg overflow-hidden" style="border:1px solid var(--border)">
+            <div class="flex items-center justify-between px-4 py-2.5"
+                 style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+              <div class="flex items-center gap-2">
+                <i class="fa-brands fa-google-drive text-[11px]" style="color:var(--sky)"></i>
+                <span class="text-xs font-semibold" style="color:var(--text-1)">Credenciales Google Drive</span>
+              </div>
+              <template x-if="editingId && currentInstHasDriveCreds">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                  <i class="fa-solid fa-circle-check text-[10px]"></i> Configuradas
+                </span>
+              </template>
+              <template x-if="!(editingId && currentInstHasDriveCreds)">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                  <i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Sin configurar
+                </span>
+              </template>
+            </div>
+            <div class="p-4">
+              <div class="flex items-center gap-3">
+                <button type="button" @click="$refs.driveJsonInput.click()"
+                        :disabled="!editingId"
+                        class="cfg-btn-sm cfg-btn-sky"
+                        :title="editingId ? 'Subir service_account.json' : 'Guarda la institución primero'">
+                  <i class="fa-solid fa-file-arrow-up"></i>Subir .json
+                </button>
+                <input type="file" accept=".json,application/json" x-ref="driveJsonInput" class="hidden"
+                       @change="uploadDriveCredentials(editingId, $event.target.files[0]); $event.target.value=''">
+                <span x-show="driveCredsStatus === 'ok'" class="flex items-center gap-1 text-xs font-medium" style="color:var(--emerald)">
+                  <i class="fa-solid fa-circle-check"></i> Guardadas correctamente
+                </span>
+                <span x-show="driveCredsStatus === 'error'" class="text-xs font-medium" style="color:var(--red)" x-text="driveCredsError"></span>
+              </div>
+              <p class="text-[11px] mt-2" style="color:var(--text-3)">
+                <template x-if="editingId && currentInstHasDriveCreds">
+                  <span style="color:var(--emerald)"><i class="fa-solid fa-lock mr-0.5"></i>Almacenadas y cifradas. Sube nuevo archivo para reemplazar.</span>
+                </template>
+                <template x-if="!(editingId && currentInstHasDriveCreds)">
+                  <span>Sube el archivo <code style="background:var(--bg-subtle);padding:0 3px;border-radius:3px">service_account.json</code> de Google Cloud. Requiere guardar primero.</span>
+                </template>
+              </p>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-2 pt-1" style="border-top:1px solid var(--border-soft)">
+            <button type="submit" class="cfg-btn-primary">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span x-text="editingId ? 'Guardar cambios' : 'Crear institución'"></span>
+            </button>
+            <button type="button" @click="resetInstForm()" class="cfg-btn-sm"
+                    x-show="editingId">
+              Cancelar edición
+            </button>
+          </div>
+
+          <!-- Zona de riesgo (solo en modo edición) -->
+          <template x-if="editingId">
+            <div class="pt-3" style="border-top:1px solid var(--red-border)">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold flex items-center gap-1.5" style="color:var(--text-3)">
+                  <i class="fa-solid fa-triangle-exclamation text-[10px]" style="color:var(--red)"></i>
+                  Zona de riesgo
+                </span>
+                <template x-if="confirmDeleteInstId !== editingId">
+                  <button type="button" @click="confirmDeleteInstId = editingId"
+                          class="cfg-btn-sm cfg-btn-red">
+                    <i class="fa-solid fa-trash text-xs"></i>Eliminar institución
+                  </button>
+                </template>
+                <template x-if="confirmDeleteInstId === editingId">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs" style="color:var(--text-2)">¿Confirmar eliminación?</span>
+                    <button type="button" @click="deleteInstitution(editingId)"
+                            class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    <button type="button" @click="confirmDeleteInstId = null"
+                            class="cfg-btn-sm">Cancelar</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+        </form>
+      </div>
+
+      <!-- Picker card -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-hospital" style="color:var(--text-3)"></i>
+          Todas las instituciones
+          <span class="ml-1 text-xs font-normal" style="color:var(--text-3)"
+                x-text="'(' + institutions.length + ')'"></span>
+        </div>
+        <div class="p-3">
+          <div class="flex gap-2 overflow-x-auto pb-1" style="scrollbar-width:thin">
+
+            <!-- Tarjeta por institución -->
+            <template x-for="h in institutions" :key="h.id">
+              <button type="button"
+                      @click="$store.ctx.selectInstitution(h.id)"
+                      class="shrink-0 flex flex-col gap-2 p-3 rounded-xl text-left transition-all relative"
+                      style="width:172px;border:1px solid var(--border);background:var(--bg-subtle)"
+                      :style="h.id === $store.ctx.institutionId
+                        ? 'border-color:var(--sky);background:var(--sky-soft);'
+                        : 'hover:border-color:var(--sky)'">
+
+                <!-- Badge activo -->
+                <template x-if="h.id === $store.ctx.institutionId">
+                  <span class="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center"
+                        style="background:var(--sky);color:#fff">
+                    <i class="fa-solid fa-check" style="font-size:7px"></i>
+                  </span>
+                </template>
+
+                <!-- Logo + nombre -->
+                <div class="flex items-center gap-2">
+                  <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+                       style="border:1px solid var(--border);background:var(--bg-surface)">
+                    <template x-if="h.logo_url">
+                      <img :src="h.logo_url" class="w-full h-full object-contain p-0.5" :alt="h.display_name">
+                    </template>
+                    <template x-if="!h.logo_url">
+                      <i class="fa-solid fa-hospital text-xs" style="color:var(--text-3)"></i>
+                    </template>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-xs font-semibold leading-tight truncate" style="color:var(--text-1)"
+                         x-text="h.display_name"></div>
+                    <div class="text-[10px] font-mono truncate mt-0.5" style="color:var(--text-3)"
+                         x-text="h.name.replace(/_/g, ' ')"></div>
+                  </div>
+                </div>
+
+                <!-- Badges credenciales -->
+                <div class="flex gap-1 flex-wrap">
+                  <template x-if="h.has_sihos_password">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          style="background:var(--sky-soft);color:var(--sky);border:1px solid var(--sky-border)">
+                      <i class="fa-solid fa-key" style="font-size:8px"></i>SIHOS
+                    </span>
+                  </template>
+                  <template x-if="h.has_drive_credentials">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                      <i class="fa-brands fa-google-drive" style="font-size:8px"></i>Drive
+                    </span>
+                  </template>
+                  <template x-if="!h.has_sihos_password && !h.has_drive_credentials">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                      <i class="fa-solid fa-triangle-exclamation" style="font-size:8px"></i>Sin config.
+                    </span>
+                  </template>
+                </div>
+              </button>
+            </template>
+
+            <!-- Tarjeta "Nueva institución" -->
+            <button type="button"
+                    @click="resetInstForm(); $el.closest('.space-y-4').scrollIntoView({behavior:'smooth'})"
+                    class="shrink-0 flex flex-col items-center justify-center gap-2 p-3 rounded-xl transition-all"
+                    style="width:172px;border:1.5px dashed var(--border);color:var(--text-3)"
+                    :style="!editingId
+                      ? 'border-color:var(--emerald-border);color:var(--emerald);background:var(--emerald-soft)'
+                      : 'background:transparent'">
+              <div class="w-9 h-9 rounded-lg flex items-center justify-center"
+                   style="background:var(--emerald-soft);border:1px solid var(--emerald-border)">
+                <i class="fa-solid fa-plus" style="color:var(--emerald);font-size:0.875rem"></i>
+              </div>
+              <span class="text-xs font-semibold">Nueva institución</span>
+            </button>
+
+            <!-- Empty state (sin instituciones) -->
+            <template x-if="institutions.length === 0">
+              <div class="flex flex-col items-center justify-center gap-2 py-6 px-4 w-full"
+                   style="color:var(--text-3)">
+                <i class="fa-solid fa-hospital text-2xl"></i>
+                <span class="text-sm">No hay instituciones registradas</span>
+              </div>
+            </template>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: NORMALIZACIÓN
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'normalizacion'" class="space-y-4">
+
+      <!-- ── Flujo informativo ─────────────────────────────── -->
+      <div class="rounded-xl p-4" style="border:1px solid var(--sky-border);background:var(--sky-soft)">
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mt-0.5" style="background:var(--sky);color:#fff">
+            <i class="fa-solid fa-circle-info text-xs"></i>
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold mb-1" style="color:var(--sky)">¿Qué es la normalización?</p>
+            <p class="text-xs leading-relaxed mb-3" style="color:var(--text-2)">
+              Las facturas importadas desde SIHOS traen los nombres de administradoras y contratos tal como están en el sistema fuente —con abreviaciones, tildes o variaciones inconsistentes.
+              La normalización mapea esos <strong>valores raw</strong> a <strong>nombres canónicos</strong> estandarizados que se usan en todos los reportes.
+            </p>
+            <!-- Flow diagram -->
+            <div class="flex items-center gap-1 flex-wrap">
+              <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                   style="background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)">
+                <i class="fa-solid fa-database text-[10px]" style="color:var(--text-3)"></i>
+                SIHOS raw
+              </div>
+              <i class="fa-solid fa-arrow-right text-[10px]" style="color:var(--text-3)"></i>
+              <button @click="normSubTab = 'admins'"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      :style="normSubTab === 'admins'
+                        ? 'background:var(--sky);color:#fff;border:1px solid var(--sky)'
+                        : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)'">
+                <i class="fa-solid fa-user-shield text-[10px]"></i>
+                Administradoras
+              </button>
+              <i class="fa-solid fa-plus text-[10px]" style="color:var(--text-3)"></i>
+              <button @click="normSubTab = 'contracts'"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      :style="normSubTab === 'contracts'
+                        ? 'background:var(--sky);color:#fff;border:1px solid var(--sky)'
+                        : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)'">
+                <i class="fa-solid fa-file-contract text-[10px]"></i>
+                Contratos
+              </button>
+              <i class="fa-solid fa-arrow-right text-[10px]" style="color:var(--text-3)"></i>
+              <button @click="normSubTab = 'agreements'"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      :style="normSubTab === 'agreements'
+                        ? 'background:var(--sky);color:#fff;border:1px solid var(--sky)'
+                        : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)'">
+                <i class="fa-solid fa-handshake text-[10px]"></i>
+                Convenios (Admin + Contrato)
+              </button>
+              <i class="fa-solid fa-arrow-right text-[10px]" style="color:var(--text-3)"></i>
+              <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                   style="background:var(--emerald-soft);border:1px solid var(--emerald-border);color:var(--emerald)">
+                <i class="fa-solid fa-circle-check text-[10px]"></i>
+                Facturas normalizadas
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cfg-card">
+        <!-- Sub-tabs -->
+        <div class="flex" style="border-bottom:1px solid var(--border);background:var(--bg-subtle)">
+          <template x-for="st in [
+            {id:'admins',    icon:'fa-user-shield',   label:'Administradoras'},
+            {id:'contracts', icon:'fa-file-contract', label:'Contratos'},
+            {id:'agreements',icon:'fa-handshake',     label:'Convenios'}
+          ]" :key="st.id">
+            <button @click="normSubTab = st.id"
+                    class="px-4 py-2.5 text-xs font-medium transition-colors"
+                    :style="normSubTab === st.id
+                      ? 'border-bottom:2px solid var(--sky);color:var(--sky);margin-bottom:-1px;background:var(--bg-surface)'
+                      : 'color:var(--text-2);border-bottom:2px solid transparent'">
+              <i :class="'fa-solid ' + st.icon + ' mr-1.5'"></i>
+              <span x-text="st.label"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- Admins — crudPanel -->
+        <div x-show="normSubTab === 'admins'"
+             x-data="crudPanel({apiBase:'/api/institutions/administrators', label:'Administradora', icon:'fa-user-shield'})">
+          <!-- Context banner -->
+          <div class="px-4 py-3 flex items-start gap-2.5" style="background:var(--bg-subtle);border-bottom:1px solid var(--border-soft)">
+            <i class="fa-solid fa-lightbulb text-[11px] mt-0.5 shrink-0" style="color:var(--amber)"></i>
+            <p class="text-[11px] leading-relaxed" style="color:var(--text-2)">
+              Cada administradora aparece aquí con el <strong style="color:var(--text-1)">nombre raw</strong> tal como lo envía SIHOS.
+              Asigna un <strong style="color:var(--text-1)">nombre canónico</strong> para estandarizarlo en reportes y filtros.
+              Las entradas sin mapear (<span style="color:var(--amber)">sin mapear</span>) se usarán tal cual hasta que definas su canónico.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 px-4 py-2.5 flex-wrap" style="border-bottom:1px solid var(--border)">
+            <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)" x-text="totalCount + ' total'"></span>
+            <span x-show="pendingCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)" x-text="pendingCount + ' sin mapear'"></span>
+            <span x-show="pendingCount === 0 && totalCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)"><i class="fa-solid fa-circle-check mr-1"></i>Todo mapeado</span>
+            <input type="text" x-model="search" placeholder="Buscar..." class="cfg-input-sm ml-auto" style="width:11rem" />
+            <button @click="openCreate()" class="cfg-btn-sm cfg-btn-sky">
+              <i class="fa-solid fa-plus text-xs"></i>Nueva
+            </button>
+          </div>
+          <div x-show="loading" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-spinner fa-spin text-xl mb-2 block"></i>Cargando…
+          </div>
+          <div x-show="!loading && items.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-inbox text-xl mb-2 block"></i>No hay administradoras registradas
+          </div>
+          <div x-show="!loading && items.length > 0 && filtered.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-magnifying-glass text-xl mb-2 block"></i>Sin resultados para "<span x-text="search"></span>"
+          </div>
+          <table class="cfg-table w-full" x-show="!loading && filtered.length > 0">
+            <thead><tr><th>Raw</th><th>Nombre Canónico</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="item in filtered" :key="item.id">
+                <tr>
+                  <td class="font-mono text-xs max-w-[200px] truncate" style="color:var(--text-2)" x-text="item.raw_name"></td>
+                  <td x-text="item.canonical_name || '—'"></td>
+                  <td>
+                    <span x-show="item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">Mapeado</span>
+                    <span x-show="!item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">Sin mapear</span>
+                  </td>
+                  <td>
+                    <div class="flex items-center justify-end gap-1">
+                      <button @click="openEdit(item)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                      <button @click="confirmDelete(item)" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="closeModal()">
+            <div class="cfg-card w-full max-w-md mx-4" @keydown.escape.window="closeModal()" @keydown.enter.window="saveModal()">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-user-shield" style="color:var(--sky)"></i>
+                <span x-text="modalMode === 'create' ? 'Nueva administradora' : 'Editar administradora'"></span>
+              </div>
+              <div class="p-5 space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Valor raw *</label>
+                  <input type="text" x-model="modalForm.raw_name" :readonly="modalMode === 'edit'"
+                         :style="modalMode === 'edit' ? 'opacity:.6;cursor:default' : ''"
+                         class="cfg-input" placeholder="Nombre tal como aparece en datos" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre canónico</label>
+                  <input type="text" x-model="modalForm.canonical_name" class="cfg-input" placeholder="Nombre estandarizado (opcional)" />
+                </div>
+                <div class="flex gap-2 pt-2" style="border-top:1px solid var(--border-soft)">
+                  <button @click="saveModal()" :disabled="saving || (modalMode==='create' && !modalForm.raw_name.trim())" class="cfg-btn-primary">
+                    <i x-show="!saving" class="fa-solid fa-floppy-disk"></i>
+                    <i x-show="saving" class="fa-solid fa-spinner fa-spin"></i>
+                    <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+                  </button>
+                  <button @click="closeModal()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div x-show="deleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="cancelDelete()">
+            <div class="cfg-card w-full max-w-sm mx-4">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-triangle-exclamation" style="color:var(--red)"></i>
+                Confirmar eliminación
+              </div>
+              <div class="p-5 space-y-3">
+                <p class="text-sm" style="color:var(--text-1)">¿Eliminar <code class="px-1.5 py-0.5 rounded text-xs font-mono" style="background:var(--bg-subtle);border:1px solid var(--border)" x-text="deleteTargetName"></code>?</p>
+                <div class="flex gap-2">
+                  <button @click="executeDelete()" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                  <button @click="cancelDelete()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contratos — crudPanel -->
+        <div x-show="normSubTab === 'contracts'"
+             x-data="crudPanel({apiBase:'/api/institutions/contracts', label:'Contrato', icon:'fa-file-contract'})">
+          <!-- Context banner -->
+          <div class="px-4 py-3 flex items-start gap-2.5" style="background:var(--bg-subtle);border-bottom:1px solid var(--border-soft)">
+            <i class="fa-solid fa-lightbulb text-[11px] mt-0.5 shrink-0" style="color:var(--amber)"></i>
+            <p class="text-[11px] leading-relaxed" style="color:var(--text-2)">
+              Los contratos son los nombres de modalidad de contratación que envía SIHOS (p.ej. <code style="background:var(--bg-surface);padding:0 3px;border-radius:3px;border:1px solid var(--border)">CAPITA PLENA</code>).
+              Define un <strong style="color:var(--text-1)">nombre canónico</strong> para agruparlos correctamente en los convenios y reportes.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 px-4 py-2.5 flex-wrap" style="border-bottom:1px solid var(--border)">
+            <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)" x-text="totalCount + ' total'"></span>
+            <span x-show="pendingCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)" x-text="pendingCount + ' sin mapear'"></span>
+            <span x-show="pendingCount === 0 && totalCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)"><i class="fa-solid fa-circle-check mr-1"></i>Todo mapeado</span>
+            <input type="text" x-model="search" placeholder="Buscar..." class="cfg-input-sm ml-auto" style="width:11rem" />
+            <button @click="openCreate()" class="cfg-btn-sm cfg-btn-sky">
+              <i class="fa-solid fa-plus text-xs"></i>Nuevo
+            </button>
+          </div>
+          <div x-show="loading" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-spinner fa-spin text-xl mb-2 block"></i>Cargando…
+          </div>
+          <div x-show="!loading && items.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-inbox text-xl mb-2 block"></i>No hay contratos registrados
+          </div>
+          <div x-show="!loading && items.length > 0 && filtered.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-magnifying-glass text-xl mb-2 block"></i>Sin resultados para "<span x-text="search"></span>"
+          </div>
+          <table class="cfg-table w-full" x-show="!loading && filtered.length > 0">
+            <thead><tr><th>Raw</th><th>Nombre Canónico</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="item in filtered" :key="item.id">
+                <tr>
+                  <td class="font-mono text-xs max-w-[220px] truncate" style="color:var(--text-2)" x-text="item.raw_name"></td>
+                  <td x-text="item.canonical_name || '—'"></td>
+                  <td>
+                    <span x-show="item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">Mapeado</span>
+                    <span x-show="!item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">Sin mapear</span>
+                  </td>
+                  <td>
+                    <div class="flex items-center justify-end gap-1">
+                      <button @click="openEdit(item)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                      <button @click="confirmDelete(item)" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="closeModal()">
+            <div class="cfg-card w-full max-w-md mx-4" @keydown.escape.window="closeModal()" @keydown.enter.window="saveModal()">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-file-contract" style="color:var(--sky)"></i>
+                <span x-text="modalMode === 'create' ? 'Nuevo contrato' : 'Editar contrato'"></span>
+              </div>
+              <div class="p-5 space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Valor raw *</label>
+                  <input type="text" x-model="modalForm.raw_name" :readonly="modalMode === 'edit'"
+                         :style="modalMode === 'edit' ? 'opacity:.6;cursor:default' : ''"
+                         class="cfg-input" placeholder="Nombre tal como aparece en datos" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre canónico</label>
+                  <input type="text" x-model="modalForm.canonical_name" class="cfg-input" placeholder="Nombre estandarizado (opcional)" />
+                </div>
+                <div class="flex gap-2 pt-2" style="border-top:1px solid var(--border-soft)">
+                  <button @click="saveModal()" :disabled="saving || (modalMode==='create' && !modalForm.raw_name.trim())" class="cfg-btn-primary">
+                    <i x-show="!saving" class="fa-solid fa-floppy-disk"></i>
+                    <i x-show="saving" class="fa-solid fa-spinner fa-spin"></i>
+                    <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+                  </button>
+                  <button @click="closeModal()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div x-show="deleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="cancelDelete()">
+            <div class="cfg-card w-full max-w-sm mx-4">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-triangle-exclamation" style="color:var(--red)"></i>
+                Confirmar eliminación
+              </div>
+              <div class="p-5 space-y-3">
+                <p class="text-sm" style="color:var(--text-1)">¿Eliminar <code class="px-1.5 py-0.5 rounded text-xs font-mono" style="background:var(--bg-subtle);border:1px solid var(--border)" x-text="deleteTargetName"></code>?</p>
+                <div class="flex gap-2">
+                  <button @click="executeDelete()" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                  <button @click="cancelDelete()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Convenios -->
+        <div x-show="normSubTab === 'agreements'" class="p-0">
+          <!-- Context banner -->
+          <div class="px-4 py-3 flex items-start gap-2.5" style="background:var(--bg-subtle);border-bottom:1px solid var(--border-soft)">
+            <i class="fa-solid fa-lightbulb text-[11px] mt-0.5 shrink-0" style="color:var(--amber)"></i>
+            <p class="text-[11px] leading-relaxed" style="color:var(--text-2)">
+              Cada convenio es una combinación única de <strong style="color:var(--text-1)">Administradora + Contrato</strong> encontrada en las facturas importadas.
+              Se crean automáticamente — aquí solo asignas el <strong style="color:var(--text-1)">tipo de convenio</strong> (ej. Capitación, Evento) para que el pipeline sepa qué documentos exigir.
+            </p>
+          </div>
+          <!-- Header bar -->
+          <div class="flex items-center gap-2 px-4 py-2.5 flex-wrap" style="border-bottom:1px solid var(--border)">
+            <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)"
+                  x-text="agreements.length + ' total'"></span>
+            <template x-if="agreements.filter(a => !a.contract_type_id).length > 0">
+              <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                    style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)"
+                    x-text="agreements.filter(a => !a.contract_type_id).length + ' sin tipo'"></span>
+            </template>
+            <template x-if="agreements.length > 0 && agreements.filter(a => !a.contract_type_id).length === 0">
+              <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                    style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                <i class="fa-solid fa-circle-check mr-1"></i>Todo asignado
+              </span>
+            </template>
+            <input type="text" x-model="agreementsSearch" placeholder="Buscar convenio..." class="cfg-input-sm ml-auto" style="width:13rem" />
+            <label class="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" x-model="normPendingOnly" class="w-3.5 h-3.5 rounded cursor-pointer" style="accent-color:var(--amber)" />
+              <span class="text-xs" style="color:var(--text-2)">Solo pendientes</span>
+            </label>
+            <button @click="consolidateAgreements()"
+                    class="cfg-btn-sm flex items-center gap-1"
+                    title="Fusiona convenios con el mismo nombre canónico">
+              <i class="fa-solid fa-compress-arrows-alt text-xs"></i>
+              Consolidar duplicados
+            </button>
+          </div>
+          <!-- Empty state -->
+          <div x-show="agreements.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-handshake text-xl mb-2 block"></i>No hay convenios registrados aún.<br>
+            <span class="text-xs mt-1 block">Se crean automáticamente al ingestar facturas del SIHOS.</span>
+          </div>
+          <div x-show="agreements.length > 0 && filteredAgreements.length === 0" class="py-10 text-center" style="color:var(--text-3)">
+            <div class="inline-flex flex-col items-center gap-2">
+              <template x-if="agreementsSearch.trim()">
+                <div class="inline-flex flex-col items-center gap-2">
+                  <i class="fa-solid fa-magnifying-glass text-xl mb-1"></i>
+                  <p class="text-sm">Sin resultados para "<span x-text="agreementsSearch"></span>"</p>
+                </div>
+              </template>
+              <template x-if="!agreementsSearch.trim()">
+                <div class="inline-flex flex-col items-center gap-2">
+                  <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background:var(--emerald-soft)">
+                    <i class="fa-solid fa-circle-check text-lg" style="color:var(--emerald)"></i>
+                  </div>
+                  <p class="text-sm font-medium" style="color:var(--emerald)">Todos los convenios tienen tipo asignado</p>
+                  <p class="text-xs" style="color:var(--text-3)">Desactiva el filtro para verlos todos</p>
+                </div>
+              </template>
+            </div>
+          </div>
+          <!-- Grouped list -->
+          <div x-show="filteredAgreements.length > 0">
+            <template x-for="group in groupedAgreements" :key="group.label">
+              <div>
+                <!-- Group header with progress -->
+                <div class="px-4 py-2.5 sticky top-0 z-10"
+                     style="background:var(--bg-subtle);border-bottom:1px solid var(--border);border-top:1px solid var(--border)">
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <i class="fa-solid fa-user-shield text-[10px]" style="color:var(--sky)"></i>
+                    <span class="text-xs font-bold" style="color:var(--text-1)" x-text="group.label"></span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-full ml-auto font-semibold"
+                          :style="group.items.filter(i => i.primaryAg.contract_type_id).length === group.items.length
+                            ? 'background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)'
+                            : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-3)'"
+                          x-text="group.items.filter(i => i.primaryAg.contract_type_id).length + '/' + group.items.length + ' asignados'"></span>
+                  </div>
+                  <!-- Progress bar -->
+                  <div class="h-1 rounded-full overflow-hidden" style="background:var(--border)">
+                    <div class="h-full rounded-full transition-all duration-300"
+                         :style="'width:' + (group.items.filter(i => i.primaryAg.contract_type_id).length / group.items.length * 100) + '%;background:' + (group.items.filter(i => i.primaryAg.contract_type_id).length === group.items.length ? 'var(--emerald)' : 'var(--sky)')"></div>
+                  </div>
+                </div>
+                <!-- Agreement rows -->
+                <div>
+                  <template x-for="item in group.items" :key="item.label">
+                    <div class="flex items-center gap-3 px-4 py-2.5"
+                         style="border-bottom:1px solid var(--border-soft)">
+                      <!-- Status dot -->
+                      <div class="w-1.5 h-1.5 rounded-full shrink-0 mt-0.5"
+                           :style="item.primaryAg.contract_type_id ? 'background:var(--emerald)' : 'background:var(--amber)'"></div>
+                      <!-- Contract name -->
+                      <div class="flex-1 min-w-0">
+                        <div class="text-xs font-medium truncate" style="color:var(--text-1)"
+                             x-text="item.label"></div>
+                        <div x-show="item.primaryAg.contract?.canonical_name && item.primaryAg.contract?.raw_name !== item.primaryAg.contract?.canonical_name"
+                             class="font-mono text-[10px] mt-0.5 truncate"
+                             style="color:var(--text-3)" x-text="item.primaryAg.contract?.raw_name"></div>
+                      </div>
+                      <!-- Type selector -->
+                      <div class="flex items-center gap-1.5 shrink-0">
+                        <select
+                          @change="setAgreementType(item.allIds, $event.target.value || null)"
+                          :disabled="savingAgreementId === item.allIds[0]"
+                          class="cfg-input-sm"
+                          style="min-width:140px"
+                          :class="savingAgreementId === item.allIds[0] ? 'opacity-50' : ''"
+                          :style="!item.primaryAg.contract_type_id ? 'border-color:var(--amber-border)' : 'border-color:var(--emerald-border)'">
+                          <option value="" :selected="!item.primaryAg.contract_type_id" style="color:var(--text-3)">— Sin tipo —</option>
+                          <template x-for="ct in contractTypes" :key="ct.id">
+                            <option :value="ct.id" :selected="ct.id === item.primaryAg.contract_type_id" x-text="ct.name"></option>
+                          </template>
+                        </select>
+                        <i x-show="savingAgreementId === item.allIds[0]" class="fa-solid fa-spinner fa-spin text-[10px]" style="color:var(--text-3);width:12px"></i>
+                        <i x-show="item.primaryAg.contract_type_id && savingAgreementId !== item.allIds[0]" class="fa-solid fa-circle-check text-[10px]" style="color:var(--emerald);width:12px"></i>
+                        <span x-show="!item.primaryAg.contract_type_id && savingAgreementId !== item.allIds[0]" style="width:12px"></span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: MAPEOS
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'mapeos'" class="space-y-4">
+
+      <!-- No institution selected -->
+      <template x-if="!$store.ctx.institutionId">
+        <div class="no-inst-banner">
+          <i class="fa-solid fa-triangle-exclamation shrink-0"></i>
+          <span>Selecciona una institución en el menú lateral para ver Servicios y Docs × Servicio.</span>
+        </div>
+      </template>
+
+      <div class="cfg-card">
+        <!-- Sub-tabs -->
+        <div class="flex" style="border-bottom:1px solid var(--border);background:var(--bg-subtle)">
+          <template x-for="st in [{id:'services',icon:'fa-briefcase-medical',label:'Servicios'},{id:'stdocs',icon:'fa-file-circle-check',label:'Docs × Servicio'}]" :key="st.id">
+            <button @click="mapSubTab = st.id"
+                    class="px-4 py-2.5 text-xs font-medium transition-colors"
+                    :style="mapSubTab === st.id
+                      ? 'border-bottom:2px solid var(--sky);color:var(--sky);margin-bottom:-1px;background:var(--bg-surface)'
+                      : 'color:var(--text-2);border-bottom:2px solid transparent'">
+              <i :class="'fa-solid ' + st.icon + ' mr-1.5'"></i>
+              <span x-text="st.label"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- Services -->
+        <div x-show="mapSubTab === 'services'" class="p-4 space-y-3">
+          <table class="cfg-table w-full">
+            <thead><tr><th>Servicio raw</th><th>Tipo de servicio</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="s in allServices" :key="s.id">
+                <tr>
+                  <td class="font-mono text-xs max-w-[220px] truncate" style="color:var(--text-2)" x-text="s.raw_service"></td>
+                  <td>
+                    <template x-if="editingServiceId !== s.id">
+                      <span class="text-xs" :style="s.service_type_id ? '' : 'color:var(--amber);font-style:italic'"
+                            x-text="stName(s.service_type_id)"></span>
+                    </template>
+                    <template x-if="editingServiceId === s.id">
+                      <select x-model="editingServiceTypeId" class="cfg-input-sm editing">
+                        <template x-for="st in serviceTypes" :key="st.id">
+                          <option :value="st.id" x-text="st.display_name"></option>
+                        </template>
+                      </select>
+                    </template>
+                  </td>
+                  <td>
+                    <div class="flex items-center justify-end gap-1">
+                      <template x-if="editingServiceId !== s.id">
+                        <button @click="startEditService(s)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                      </template>
+                      <template x-if="editingServiceId === s.id">
+                        <button @click="saveServiceEdit(s.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                      </template>
+                      <template x-if="editingServiceId === s.id">
+                        <button @click="editingServiceId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                      </template>
+                      <template x-if="confirmDeleteServiceId !== s.id && editingServiceId !== s.id">
+                        <button @click="confirmDeleteServiceId = s.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                      </template>
+                      <template x-if="confirmDeleteServiceId === s.id">
+                        <button @click="deleteService(s.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                      </template>
+                      <template x-if="confirmDeleteServiceId === s.id">
+                        <button @click="confirmDeleteServiceId = null" class="cfg-btn-sm">Cancelar</button>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="flex gap-2 pt-2" style="border-top:1px solid var(--border-soft)">
+            <input type="text" x-model="newService.raw_service" placeholder="Servicio raw" class="cfg-input flex-1" />
+            <select x-model="newService.service_type_id" class="cfg-input" style="flex:0 0 12rem;width:12rem">
+              <option value="">Tipo de servicio</option>
+              <template x-for="st in serviceTypes" :key="st.id">
+                <option :value="st.id" x-text="st.display_name"></option>
+              </template>
+            </select>
+            <button @click="addService()" :disabled="!newService.raw_service.trim() || !newService.service_type_id" class="cfg-btn-primary">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Docs por Servicio -->
+        <div x-show="mapSubTab === 'stdocs'" class="p-4">
+          <p class="text-xs mb-3" style="color:var(--text-3)">Marque los documentos requeridos por tipo de servicio. Los cambios se aplican de inmediato.</p>
+          <div class="overflow-x-auto">
+            <table class="text-xs border-collapse">
+              <thead>
+                <tr>
+                  <th class="sticky left-0 z-10 min-w-[160px] pr-3 pb-2 text-left font-semibold"
+                      style="color:var(--text-3);border-bottom:1px solid var(--border);background:var(--bg-surface)"></th>
+                  <template x-for="dt in docTypes" :key="dt.id">
+                    <th class="pb-2 px-2 font-mono font-semibold whitespace-nowrap"
+                        style="border-bottom:1px solid var(--border);color:var(--text-2)" x-text="dt.code"></th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="st in serviceTypes" :key="st.id">
+                  <tr>
+                    <td class="sticky left-0 pr-4 py-2 font-medium whitespace-nowrap"
+                        style="border-bottom:1px solid var(--border-soft);background:var(--bg-surface);color:var(--text-1)"
+                        x-text="st.display_name"></td>
+                    <template x-for="dt in docTypes" :key="dt.id">
+                      <td class="px-2 py-2 text-center" style="border-bottom:1px solid var(--border-soft)">
+                        <input type="checkbox"
+                               :checked="stdHas(st.id, dt.id)"
+                               @change="toggleSTD(st.id, dt.id, $event.target.checked)"
+                               :disabled="stdPending[st.id + '-' + dt.id] === true"
+                               class="w-4 h-4 rounded cursor-pointer disabled:opacity-40 disabled:cursor-wait"
+                               style="accent-color:var(--sky)" />
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <!-- Summary -->
+          <div class="mt-5 space-y-2" style="border-top:1px solid var(--border-soft);padding-top:1rem">
+            <p class="text-[11px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-3)">Resumen</p>
+            <template x-for="st in serviceTypes" :key="st.id">
+              <div x-data="{ get docs() { return serviceTypeDocs.filter(d => d.service_type_id === st.id); } }"
+                   class="flex items-start gap-3 py-2 px-3 rounded-lg"
+                   :style="docs.length > 0 ? 'background:var(--sky-soft);border:1px solid var(--sky-border)' : 'background:var(--bg-subtle);border:1px solid var(--border)'">
+                <div class="flex items-center gap-2 min-w-[160px]">
+                  <span class="text-sm font-medium" style="color:var(--text-1)" x-text="st.display_name"></span>
+                  <span class="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
+                        :style="docs.length > 0 ? 'background:var(--sky-border);color:var(--sky)' : 'background:var(--border);color:var(--text-3)'"
+                        x-text="docs.length"></span>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-if="docs.length === 0">
+                    <span class="text-xs italic" style="color:var(--text-3)">Sin documentos requeridos</span>
+                  </template>
+                  <template x-for="d in docs" :key="d.id">
+                    <span class="text-[11px] font-mono px-2 py-0.5 rounded-full"
+                          style="background:var(--bg-surface);border:1px solid var(--sky-border);color:var(--sky)"
+                          x-text="dtCode(d.doc_type_id)"></span>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: PERÍODOS
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'periodos'" class="space-y-4">
+
+      <template x-if="!$store.ctx.institutionId">
+        <div class="no-inst-banner">
+          <i class="fa-solid fa-triangle-exclamation shrink-0"></i>
+          <span>Selecciona una institución en el menú lateral para gestionar períodos.</span>
+        </div>
+      </template>
+
+      <div x-show="$store.ctx.institutionId" class="cfg-card overflow-hidden">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-calendar-days" style="color:var(--sky)"></i>
+          Períodos de auditoría
+        </div>
+
+        <div>
+          <template x-for="p in periods" :key="p.id">
+            <div style="border-bottom:1px solid var(--border-soft)">
+
+              <!-- Fila principal -->
+              <div class="flex items-center justify-between px-5 py-3">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-semibold" style="color:var(--text-1)" x-text="p.period_label"></div>
+                  <div class="text-xs mt-0.5" style="color:var(--text-3)">
+                    <span x-text="p.date_from"></span> → <span x-text="p.date_to"></span>
+                  </div>
+                </div>
+
+                <!-- Tamaño en disco -->
+                <div class="flex items-center gap-2 mx-4">
+                  <template x-if="!diskUsage[p.id]">
+                    <button @click="loadDiskUsage(p.id)"
+                            class="text-[10px] px-2 py-0.5 rounded transition-colors"
+                            style="color:var(--text-3);border:1px solid var(--border);background:var(--bg-subtle)"
+                            title="Ver uso de disco">
+                      <i class="fa-solid fa-hard-drive mr-1 text-[9px]"></i>Ver disco
+                    </button>
+                  </template>
+                  <template x-if="diskUsage[p.id]?.loading">
+                    <span class="text-[10px]" style="color:var(--text-3)">
+                      <i class="fa-solid fa-spinner fa-spin text-[9px] mr-1"></i>Calculando…
+                    </span>
+                  </template>
+                  <template x-if="diskUsage[p.id] && !diskUsage[p.id].loading && !diskUsage[p.id].error">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-[11px] font-semibold tabular-nums" style="color:var(--text-2)"
+                            x-text="formatBytes(diskUsage[p.id].total_bytes)"></span>
+                      <button @click="purgeDisk(p.id)"
+                              :disabled="purgingPeriodId === p.id || !diskUsage[p.id]?.exists"
+                              class="text-[10px] px-2 py-0.5 rounded transition-colors disabled:opacity-40"
+                              style="color:var(--amber);border:1px solid var(--amber-border);background:var(--amber-soft)"
+                              title="Eliminar archivos del disco (mantiene registros en BD)">
+                        <i class="fa-solid fa-broom text-[9px] mr-1"
+                           :class="purgingPeriodId === p.id ? 'fa-spinner fa-spin' : ''"></i>Limpiar
+                      </button>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Eliminar período completo -->
+                <template x-if="confirmDeletePeriodId !== p.id">
+                  <button @click="confirmDeletePeriod(p.id)" class="cfg-btn-sm cfg-btn-red" title="Eliminar período">
+                    <i class="fa-solid fa-trash text-xs"></i>
+                  </button>
+                </template>
+                <template x-if="confirmDeletePeriodId === p.id">
+                  <button @click="confirmDeletePeriodId = null" class="cfg-btn-sm" title="Cancelar">
+                    <i class="fa-solid fa-xmark text-xs"></i>
+                  </button>
+                </template>
+              </div>
+
+              <!-- Panel de confirmación de eliminación -->
+              <template x-if="confirmDeletePeriodId === p.id">
+                <div class="px-5 pb-4">
+                  <div class="rounded-lg px-4 py-3" style="background:var(--red-soft);border:1px solid var(--red-border)">
+                    <div class="flex items-start gap-2 mb-2.5">
+                      <i class="fa-solid fa-triangle-exclamation mt-0.5 shrink-0" style="color:var(--red)"></i>
+                      <div>
+                        <div class="text-[12px] font-semibold mb-0.5" style="color:var(--red)">
+                          ¿Eliminar período "<span x-text="p.period_label"></span>"?
+                        </div>
+                        <div class="text-[11px] leading-relaxed" style="color:var(--red)">
+                          Se borrarán permanentemente todos los registros de BD (facturas, hallazgos) y las carpetas en disco. <strong>No se puede deshacer.</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Desglose de disco -->
+                    <template x-if="diskUsage[p.id] && !diskUsage[p.id].loading && !diskUsage[p.id].error">
+                      <div class="flex items-center gap-3 mb-3 text-[10px] tabular-nums"
+                           style="color:var(--red);opacity:0.85">
+                        <i class="fa-solid fa-hard-drive text-[9px]"></i>
+                        <span>DRIVE <strong x-text="formatBytes(diskUsage[p.id].drive_bytes)"></strong></span>
+                        <span>·</span>
+                        <span>STAGE <strong x-text="formatBytes(diskUsage[p.id].stage_bytes)"></strong></span>
+                        <span>·</span>
+                        <span>AUDIT <strong x-text="formatBytes(diskUsage[p.id].audit_bytes)"></strong></span>
+                        <span>·</span>
+                        <span class="font-bold">Total <span x-text="formatBytes(diskUsage[p.id].total_bytes)"></span></span>
+                      </div>
+                    </template>
+                    <template x-if="diskUsage[p.id]?.loading">
+                      <div class="mb-3 text-[10px]" style="color:var(--red);opacity:0.7">
+                        <i class="fa-solid fa-spinner fa-spin mr-1"></i>Calculando uso de disco…
+                      </div>
+                    </template>
+
+                    <div class="flex gap-2">
+                      <button @click="deletePeriod(p.id)" class="cfg-btn-sm cfg-btn-confirm">
+                        <i class="fa-solid fa-trash text-[10px] mr-1"></i>Sí, eliminar todo
+                      </button>
+                      <button @click="confirmDeletePeriodId = null" class="cfg-btn-sm">Cancelar</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+            </div>
+          </template>
+          <template x-if="periods.length === 0">
+            <div class="text-sm text-center py-8" style="color:var(--text-3)">
+              <i class="fa-solid fa-calendar text-xl mb-2 block"></i>
+              No hay períodos registrados
+            </div>
+          </template>
+        </div>
+
+        <!-- Add form -->
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <div class="text-xs font-semibold mb-3" style="color:var(--text-2)">Agregar período</div>
+          <div class="flex gap-3 flex-wrap items-end">
+            <div>
+              <label class="block text-xs mb-1" style="color:var(--text-3)">Etiqueta *</label>
+              <input type="text" x-model="newPeriod.period_label" placeholder="2024-01"
+                     class="cfg-input" style="width:8rem" />
+            </div>
+            <div>
+              <label class="block text-xs mb-1" style="color:var(--text-3)">Fecha inicio *</label>
+              <input type="date" x-model="newPeriod.date_from" class="cfg-input" />
+            </div>
+            <div>
+              <label class="block text-xs mb-1" style="color:var(--text-3)">Fecha fin *</label>
+              <input type="date" x-model="newPeriod.date_to" class="cfg-input" />
+            </div>
+            <button @click="addPeriod()"
+                    :disabled="!newPeriod.period_label.trim() || !newPeriod.date_from || !newPeriod.date_to"
+                    class="cfg-btn-primary">
+              <i class="fa-solid fa-plus"></i>Agregar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         TAB: REGLAS (tipos de servicio + tipos de doc + estados + prefijos)
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'reglas'" class="space-y-4">
+
+      <!-- Service Types -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-tags" style="color:var(--sky)"></i>
+          Tipos de servicio
+        </div>
+        <table class="cfg-table w-full">
+          <thead><tr><th>Código</th><th>Nombre</th><th>Prioridad</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="st in serviceTypes" :key="st.id">
+              <tr>
+                <td class="font-mono text-xs">
+                  <template x-if="editingSTId !== st.id">
+                    <span style="color:var(--text-2)" x-text="st.code"></span>
+                  </template>
+                  <template x-if="editingSTId === st.id">
+                    <input type="text" x-model="editingST.code" class="cfg-input-sm editing w-24 font-mono uppercase"
+                           @input="editingST.code = editingST.code.toUpperCase()" />
+                  </template>
+                </td>
+                <td>
+                  <template x-if="editingSTId !== st.id">
+                    <span x-text="st.display_name"></span>
+                  </template>
+                  <template x-if="editingSTId === st.id">
+                    <input type="text" x-model="editingST.display_name" class="cfg-input-sm editing w-full" />
+                  </template>
+                </td>
+                <td style="width:6rem">
+                  <template x-if="editingSTId !== st.id">
+                    <span style="color:var(--text-3)" x-text="st.priority"></span>
+                  </template>
+                  <template x-if="editingSTId === st.id">
+                    <input type="number" x-model="editingST.priority" class="cfg-input-sm editing w-16" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingSTId !== st.id">
+                      <button @click="startEditST(st)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingSTId === st.id">
+                      <button @click="saveSTEdit(st.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingSTId === st.id">
+                      <button @click="editingSTId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteSTId !== st.id && editingSTId !== st.id">
+                      <button @click="confirmDeleteSTId = st.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteSTId === st.id">
+                      <button @click="deleteServiceType(st.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeleteSTId === st.id">
+                      <button @click="confirmDeleteSTId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex gap-2 px-4 py-3" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <input type="text" x-model="newST.code" placeholder="Código" class="cfg-input font-mono uppercase"
+                 style="flex:0 0 7rem;width:7rem"
+                 @input="newST.code = newST.code.toUpperCase()" />
+          <input type="text" x-model="newST.display_name" placeholder="Nombre" class="cfg-input flex-1" />
+          <input type="number" x-model="newST.priority" placeholder="Prioridad" class="cfg-input"
+                 style="flex:0 0 6rem;width:6rem" />
+          <button @click="addServiceType()" :disabled="!newST.code.trim() || !newST.display_name.trim()" class="cfg-btn-primary">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Doc Types -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-file-lines" style="color:var(--sky)"></i>
+          Tipos de documento
+        </div>
+        <table class="cfg-table w-full">
+          <thead><tr><th>Código</th><th>Descripción</th><th>Prefijo</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="dt in docTypes" :key="dt.id">
+              <tr>
+                <td class="font-mono text-xs">
+                  <template x-if="editingDTId !== dt.id">
+                    <span style="color:var(--text-2)" x-text="dt.code"></span>
+                  </template>
+                  <template x-if="editingDTId === dt.id">
+                    <input type="text" x-model="editingDT.code" class="cfg-input-sm editing w-24 font-mono uppercase"
+                           @input="editingDT.code = editingDT.code.toUpperCase()" />
+                  </template>
+                </td>
+                <td>
+                  <template x-if="editingDTId !== dt.id">
+                    <span x-text="dt.description"></span>
+                  </template>
+                  <template x-if="editingDTId === dt.id">
+                    <input type="text" x-model="editingDT.description" class="cfg-input-sm editing w-full" />
+                  </template>
+                </td>
+                <td class="font-mono text-xs" style="width:6rem">
+                  <template x-if="editingDTId !== dt.id">
+                    <span style="color:var(--text-3)" x-text="dt.prefix || '—'"></span>
+                  </template>
+                  <template x-if="editingDTId === dt.id">
+                    <input type="text" x-model="editingDT.prefix" class="cfg-input-sm editing w-20 font-mono" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingDTId !== dt.id">
+                      <button @click="startEditDT(dt)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingDTId === dt.id">
+                      <button @click="saveDTEdit(dt.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingDTId === dt.id">
+                      <button @click="editingDTId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteDTId !== dt.id && editingDTId !== dt.id">
+                      <button @click="confirmDeleteDTId = dt.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteDTId === dt.id">
+                      <button @click="deleteDocType(dt.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeleteDTId === dt.id">
+                      <button @click="confirmDeleteDTId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex gap-2 px-4 py-3" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <input type="text" x-model="newDT.code" placeholder="Código" class="cfg-input font-mono uppercase"
+                 style="flex:0 0 7rem;width:7rem"
+                 @input="newDT.code = newDT.code.toUpperCase()" />
+          <input type="text" x-model="newDT.description" placeholder="Descripción" class="cfg-input flex-1" />
+          <input type="text" x-model="newDT.prefix" placeholder="Prefijo" class="cfg-input font-mono"
+                 style="flex:0 0 6rem;width:6rem" />
+          <button @click="addDocType()" :disabled="!newDT.code.trim() || !newDT.description.trim()" class="cfg-btn-primary">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Folder Statuses -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-folder" style="color:var(--sky)"></i>
+          Estados de carpeta
+        </div>
+        <table class="cfg-table w-full">
+          <thead><tr><th style="width:3rem">ID</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="fs in folderStatuses" :key="fs.id">
+              <tr>
+                <td class="text-xs" style="color:var(--text-3)" x-text="fs.id"></td>
+                <td>
+                  <template x-if="editingFSId !== fs.id">
+                    <span class="font-mono text-xs" x-text="fs.status"></span>
+                  </template>
+                  <template x-if="editingFSId === fs.id">
+                    <input type="text" x-model="editingFSVal" class="cfg-input-sm editing w-36 font-mono" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingFSId !== fs.id">
+                      <button @click="startEditFS(fs)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingFSId === fs.id">
+                      <button @click="saveFSEdit(fs.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingFSId === fs.id">
+                      <button @click="editingFSId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteFSId !== fs.id && editingFSId !== fs.id">
+                      <button @click="confirmDeleteFSId = fs.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteFSId === fs.id">
+                      <button @click="deleteFolderStatus(fs.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeleteFSId === fs.id">
+                      <button @click="confirmDeleteFSId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex gap-2 px-4 py-3" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <input type="text" x-model="newFS.status" placeholder="Código del estado (ej. AUDITADA)"
+                 class="cfg-input flex-1 font-mono uppercase"
+                 @input="newFS.status = newFS.status.toUpperCase()" />
+          <button @click="addFolderStatus()" :disabled="!newFS.status.trim()" class="cfg-btn-primary">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Prefix Corrections (formerly "Prefijos" tab) -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-tag" style="color:var(--violet)"></i>
+          Correcciones de prefijos
+          <span class="ml-auto text-xs font-normal font-mono" style="color:var(--text-3)"
+                x-text="prefixCorrections.length + ' regla(s)'"></span>
+        </div>
+
+        <!-- Explanation -->
+        <div class="px-5 py-3 text-xs" style="border-bottom:1px solid var(--border);background:var(--bg-subtle);color:var(--text-2)">
+          Define prefijos incorrectos y su forma correcta. La etapa
+          <code style="background:var(--bg-surface);border:1px solid var(--border);padding:1px 4px;border-radius:4px;font-size:11px">NORMALIZE_FILES</code>
+          aplicará estos renombrados automáticamente.
+        </div>
+
+        <!-- Add form -->
+        <div class="px-5 py-4" style="border-bottom:1px solid var(--border)">
+          <div class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2">
+              <input type="text" x-model="newPC.wrong_prefix"
+                     @input="newPC.wrong_prefix = newPC.wrong_prefix.toUpperCase()"
+                     placeholder="INCORRECTO" maxlength="20"
+                     class="cfg-input w-32 font-mono uppercase text-center"
+                     style="border-color:var(--red-border);background:var(--red-soft);color:var(--red)" />
+              <div class="flex items-center gap-1" style="color:var(--text-3)">
+                <div style="width:1.5rem;height:1px;background:var(--border)"></div>
+                <i class="fa-solid fa-arrow-right text-xs"></i>
+                <div style="width:1.5rem;height:1px;background:var(--border)"></div>
+              </div>
+              <input type="text" x-model="newPC.correct_prefix"
+                     @input="newPC.correct_prefix = newPC.correct_prefix.toUpperCase()"
+                     placeholder="CORRECTO" maxlength="20"
+                     class="cfg-input w-32 font-mono uppercase text-center"
+                     style="border-color:var(--emerald-border);background:var(--emerald-soft);color:var(--emerald)" />
+            </div>
+            <input type="text" x-model="newPC.notes" placeholder="Nota (opcional)"
+                   class="cfg-input flex-1 min-w-[10rem]" />
+            <button @click="addPrefixCorrection()"
+                    :disabled="!newPC.wrong_prefix.trim() || !newPC.correct_prefix.trim()"
+                    class="cfg-btn-primary shrink-0"
+                    style="background:var(--violet)">
+              <i class="fa-solid fa-plus"></i>Agregar
+            </button>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <template x-if="prefixCorrections.length === 0">
+          <div class="px-5 py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-tags text-2xl mb-3 block"></i>
+            No hay correcciones configuradas aún.
+          </div>
+        </template>
+
+        <table class="cfg-table w-full" x-show="prefixCorrections.length > 0">
+          <thead><tr>
+            <th>Incorrecto</th>
+            <th style="width:2rem"></th>
+            <th>Correcto</th>
+            <th>Nota</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            <template x-for="pc in prefixCorrections" :key="pc.id">
+              <tr>
+                <td>
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-semibold"
+                        style="background:var(--red-soft);color:var(--red);border:1px solid var(--red-border)"
+                        x-text="pc.wrong_prefix"></span>
+                </td>
+                <td class="text-center" style="color:var(--text-3)">
+                  <i class="fa-solid fa-arrow-right text-xs"></i>
+                </td>
+                <td>
+                  <template x-if="editingPCId !== pc.id">
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-semibold"
+                          style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)"
+                          x-text="pc.correct_prefix"></span>
+                  </template>
+                  <template x-if="editingPCId === pc.id">
+                    <input type="text" x-model="editingPC.correct_prefix"
+                           @input="editingPC.correct_prefix = editingPC.correct_prefix.toUpperCase()"
+                           maxlength="20" class="cfg-input-sm editing w-28 font-mono uppercase"
+                           style="border-color:var(--emerald-border);color:var(--emerald)" />
+                  </template>
+                </td>
+                <td class="text-xs max-w-[200px] truncate" style="color:var(--text-3)">
+                  <template x-if="editingPCId !== pc.id">
+                    <span x-text="pc.notes || '—'"></span>
+                  </template>
+                  <template x-if="editingPCId === pc.id">
+                    <input type="text" x-model="editingPC.notes" class="cfg-input-sm editing w-full" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingPCId !== pc.id">
+                      <button @click="startEditPC(pc)" class="cfg-btn-sm cfg-btn-violet"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingPCId === pc.id">
+                      <button @click="savePCEdit(pc.id)" class="cfg-btn-sm" style="background:var(--violet);color:#fff;border-color:var(--violet)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingPCId === pc.id">
+                      <button @click="editingPCId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeletePCId !== pc.id && editingPCId !== pc.id">
+                      <button @click="confirmDeletePCId = pc.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeletePCId === pc.id">
+                      <button @click="deletePrefixCorrection(pc.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeletePCId === pc.id">
+                      <button @click="confirmDeletePCId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+
+  </div><!-- /content -->
+</div><!-- /wrapper -->
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// ── Global toast store ─────────────────────────────────────────────────────
+document.addEventListener('alpine:init', () => {
+  Alpine.store('toast', {
+    msg: '', type: 'success', _t: null,
+    show(msg, type = 'success') {
+      clearTimeout(this._t);
+      this.msg = msg; this.type = type;
+      this._t = setTimeout(() => { this.msg = ''; }, 3500);
+    },
+  });
+});
+
+// ── Reusable CRUD panel factory ────────────────────────────────────────────
+function crudPanel({ apiBase, label, icon }) {
+  return {
+    items: [], loading: false, saving: false, search: '',
+    modalOpen: false, modalMode: 'create',
+    modalForm: { raw_name: '', canonical_name: '' }, modalEditId: null,
+    deleteModalOpen: false, deleteTargetId: null, deleteTargetName: '',
+
+    get filtered() {
+      const q = this.search.toLowerCase();
+      if (!q) return this.items;
+      return this.items.filter(i =>
+        (i.raw_name || '').toLowerCase().includes(q) ||
+        (i.canonical_name || '').toLowerCase().includes(q)
+      );
+    },
+    get pendingCount() { return this.items.filter(i => !i.canonical_name).length; },
+    get totalCount()   { return this.items.length; },
+
+    async init() { await this.load(); },
+    async load() {
+      this.loading = true;
+      try { const r = await fetch(apiBase); this.items = await r.json(); }
+      finally { this.loading = false; }
+    },
+
+    openCreate() {
+      this.modalForm = { raw_name: '', canonical_name: '' };
+      this.modalMode = 'create'; this.modalEditId = null; this.modalOpen = true;
+    },
+    openEdit(item) {
+      this.modalForm = { raw_name: item.raw_name, canonical_name: item.canonical_name || '' };
+      this.modalMode = 'edit'; this.modalEditId = item.id; this.modalOpen = true;
+    },
+    closeModal() { this.modalOpen = false; },
+
+    async saveModal() {
+      if (this.saving) return;
+      this.saving = true;
+      try {
+        let res;
+        if (this.modalMode === 'create') {
+          const body = { raw_name: this.modalForm.raw_name };
+          if (this.modalForm.canonical_name) body.canonical_name = this.modalForm.canonical_name;
+          res = await fetch(apiBase, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        } else {
+          res = await fetch(`${apiBase}/${this.modalEditId}`, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ canonical_name: this.modalForm.canonical_name || null }) });
+        }
+        if (res.ok) {
+          await this.load(); this.closeModal();
+          this.$store.toast.show(this.modalMode === 'create' ? `${label} agregado/a.` : 'Actualizado.');
+        } else {
+          const err = await res.json().catch(() => ({}));
+          this.$store.toast.show(err.detail || 'Error al guardar.', 'error');
+        }
+      } finally { this.saving = false; }
+    },
+
+    confirmDelete(item) {
+      this.deleteTargetId = item.id; this.deleteTargetName = item.raw_name; this.deleteModalOpen = true;
+    },
+    cancelDelete() { this.deleteModalOpen = false; this.deleteTargetId = null; this.deleteTargetName = ''; },
+    async executeDelete() {
+      const res = await fetch(`${apiBase}/${this.deleteTargetId}`, { method: 'DELETE' });
+      if (res.ok || res.status === 204) {
+        await this.load(); this.cancelDelete(); this.$store.toast.show('Eliminado.');
+      } else {
+        this.cancelDelete(); this.$store.toast.show('No se pudo eliminar.', 'error');
+      }
+    },
+  };
+}
+
+function settingsApp() {
+  return {
+    tab: 'instituciones',
+
+    navTabs: [
+      { id: 'instituciones', icon: 'fa-hospital',          label: 'Instituciones', scope: 'global'      },
+      { id: 'normalizacion', icon: 'fa-shuffle',           label: 'Normalización', scope: 'global'      },
+      { id: 'reglas',        icon: 'fa-sliders',            label: 'Reglas',        scope: 'global'      },
+
+      { id: 'mapeos',        icon: 'fa-arrows-left-right',  label: 'Mapeos',        scope: 'institution' },
+      { id: 'periodos',      icon: 'fa-calendar-days',      label: 'Períodos',      scope: 'institution' },
+    ],
+
+    // Instituciones
+    institutions: [],
+    editingId: null,
+    editingName: '',
+    confirmDeleteInstId: null,
+    currentInstHasDriveCreds: false,
+    currentInstHasSihosPassword: false,
+    driveCredsStatus: '',
+    driveCredsError: '',
+    form: { name:'', display_name:'', nit:'', invoice_id_prefix:'', sihos_base_url:'', sihos_doc_code:'', sihos_user:'', sihos_password:'' },
+
+    // Normalización (global)
+    normSubTab: 'admins',
+    agreements: [],
+    contractTypes: [],
+    normPendingOnly: false,
+    agreementsSearch: '',
+    savingAgreementId: null,
+
+    // Mapeos
+    mapSubTab: 'services',
+    allServices: [], serviceTypeDocs: [],
+    editingServiceId: null, editingServiceTypeId: '',
+    confirmDeleteServiceId: null,
+    newService: { raw_service:'', service_type_id:'' },
+    stdPending: {},
+
+    // Períodos
+    periods: [],
+    confirmDeletePeriodId: null,
+    diskUsage: {},          // { [period_id]: { total_bytes, drive_bytes, stage_bytes, audit_bytes, exists, loading } }
+    purgingPeriodId: null,
+    newPeriod: { period_label:'', date_from:'', date_to:'' },
+
+    // Reglas
+    serviceTypes: [], docTypes: [], folderStatuses: [],
+    confirmDeleteSTId: null, confirmDeleteDTId: null, confirmDeleteFSId: null,
+    editingSTId: null, editingST: { code:'', display_name:'', priority:10 },
+    editingDTId: null, editingDT: { code:'', description:'', prefix:'' },
+    editingFSId: null, editingFSVal: '',
+    newST: { code:'', display_name:'', priority:10 },
+    newDT: { code:'', description:'', prefix:'' },
+    newFS: { status:'' },
+
+    // Prefijos (now part of Reglas tab)
+    prefixCorrections: [],
+    confirmDeletePCId: null,
+    editingPCId: null, editingPC: { correct_prefix:'', notes:'' },
+    newPC: { wrong_prefix:'', correct_prefix:'', notes:'' },
+
+    async init() {
+      const [instRes, stRes, dtRes, fsRes, pcRes] = await Promise.all([
+        fetch('/api/institutions'),
+        fetch('/api/settings/service-types'),
+        fetch('/api/settings/doc-types'),
+        fetch('/api/settings/folder-statuses'),
+        fetch('/api/settings/prefix-corrections'),
+      ]);
+      this.institutions       = await instRes.json();
+      this.serviceTypes       = await stRes.json();
+      this.docTypes           = await dtRes.json();
+      this.folderStatuses     = await fsRes.json();
+      this.prefixCorrections  = await pcRes.json();
+
+      // Auto-load sidebar institution when entering this page
+      if (this.tab === 'instituciones') this._autoLoadCtxInstitution();
+      if (this.tab === 'normalizacion') this.loadNormalization();
+      if (this.tab === 'mapeos') this.loadMappings();
+
+      // Reload tab data when the sidebar institution changes
+      this.$watch(() => this.$store.ctx.institutionId, (newId) => {
+        if (this.tab === 'instituciones') this._autoLoadCtxInstitution();
+        if (this.tab === 'mapeos') this.loadMappings();
+        if (!newId) return;
+        if (this.tab === 'periodos') this.loadPeriods();
+      });
+    },
+
+    // Computed: institución actualmente en edición (para logo y otros datos vivos)
+    get editingInstitution() {
+      return this.institutions.find(i => i.id === this.editingId) || null;
+    },
+
+    // Carga automáticamente la institución del sidebar para editar
+    _autoLoadCtxInstitution() {
+      const ctxId = this.$store.ctx.institutionId;
+      if (!ctxId) return;
+      const found = this.institutions.find(i => i.id === ctxId);
+      if (found && this.editingId !== found.id) this.editInstitution(found);
+    },
+
+    showToast(msg, type = 'success') {
+      this.$store.toast.show(msg, type);
+    },
+
+    switchTab(t) {
+      this.tab = t;
+      const instId = this.$store.ctx.institutionId;
+      if (t === 'instituciones') this._autoLoadCtxInstitution();
+      if (t === 'normalizacion') this.loadNormalization();
+      if (t === 'mapeos') this.loadMappings();
+      if (t === 'periodos' && instId) this.loadPeriods();
+    },
+
+    // ---- HELPERS ----
+    stName(id) {
+      if (id === null || id === undefined || id === '') return 'Sin mapear';
+      const st = this.serviceTypes.find(s => s.id === id || s.id === parseInt(id));
+      return st ? st.display_name : `#${id}`;
+    },
+    dtName(id) {
+      const dt = this.docTypes.find(d => d.id === id || d.id === parseInt(id));
+      return dt ? `${dt.code} — ${dt.description}` : `#${id}`;
+    },
+    dtCode(id) {
+      const dt = this.docTypes.find(d => d.id === id || d.id === parseInt(id));
+      return dt ? dt.code : `#${id}`;
+    },
+
+    // ---- INSTITUCIONES ----
+    resetInstForm() {
+      this.editingId = null; this.editingName = '';
+      this.currentInstHasDriveCreds = false;
+      this.currentInstHasSihosPassword = false;
+      this.driveCredsStatus = ''; this.driveCredsError = '';
+      this.form = { name:'', display_name:'', nit:'', invoice_id_prefix:'', sihos_base_url:'', sihos_doc_code:'', sihos_user:'', sihos_password:'' };
+    },
+
+    editInstitution(h) {
+      this.editingId = h.id;
+      this.editingName = h.display_name;
+      this.currentInstHasDriveCreds = h.has_drive_credentials || false;
+      this.currentInstHasSihosPassword = h.has_sihos_password || false;
+      this.driveCredsStatus = ''; this.driveCredsError = '';
+      this.form = { name:h.name, display_name:h.display_name, nit:h.nit, invoice_id_prefix:h.invoice_id_prefix, sihos_base_url:h.sihos_base_url||'', sihos_doc_code:h.sihos_doc_code||'', sihos_user:h.sihos_user||'', sihos_password:'' };
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+
+    async saveInstitution() {
+      const wasEditing = this.editingId;
+      const method = wasEditing ? 'PUT' : 'POST';
+      const url = wasEditing ? `/api/institutions/${wasEditing}` : '/api/institutions';
+      const body = Object.fromEntries(Object.entries(this.form).filter(([, v]) => v !== ''));
+      const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (res.ok) {
+        this.institutions = await fetch('/api/institutions').then(r => r.json());
+        if (wasEditing) {
+          // Mantener formulario abierto con datos frescos del servidor
+          const updated = this.institutions.find(i => i.id === wasEditing);
+          if (updated) {
+            this.editInstitution(updated);
+            // Sincronizar sidebar si es la institución activa
+            if (Alpine.store('ctx').institutionId === updated.id) {
+              Alpine.store('ctx').institution = updated;
+              Alpine.store('ctx')._save();
+            }
+          }
+          this.showToast('Institución actualizada.');
+        } else {
+          this.showToast('Institución creada.');
+          this.resetInstForm();
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        this.showToast(err.detail || 'Error al guardar.', 'error');
+      }
+    },
+
+    async deleteInstitution(id) {
+      const res = await fetch(`/api/institutions/${id}`, { method: 'DELETE' });
+      if (res.ok || res.status === 204) {
+        this.institutions = this.institutions.filter(h => h.id !== id);
+        this.confirmDeleteInstId = null;
+        this.showToast('Institución eliminada.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        this.confirmDeleteInstId = null;
+        this.showToast(err.detail || 'No se pudo eliminar.', 'error');
+      }
+    },
+
+    async uploadLogo(id, file) {
+      if (!file) return;
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/institutions/${id}/logo`, { method: 'POST', body: fd });
+      if (res.ok) {
+        const { logo_url } = await res.json();
+        const inst = this.institutions.find(i => i.id === id);
+        if (inst) inst.logo_url = logo_url + '?t=' + Date.now();
+        this.showToast('Logo actualizado', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        this.showToast(err.detail || 'Error subiendo logo', 'error');
+      }
+    },
+
+    async uploadDriveCredentials(id, file) {
+      if (!file || !id) {
+        this.driveCredsStatus = 'error';
+        this.driveCredsError = id ? 'Sin archivo seleccionado.' : 'Guarda la institución primero.';
+        return;
+      }
+      this.driveCredsStatus = '';
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/institutions/${id}/drive-credentials`, { method: 'POST', body: fd });
+      if (res.ok) {
+        this.driveCredsStatus = 'ok';
+        this.currentInstHasDriveCreds = true;
+        const inst = this.institutions.find(i => i.id === id);
+        if (inst) inst.has_drive_credentials = true;
+        this.showToast('Credenciales de Drive guardadas y cifradas.', 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        this.driveCredsStatus = 'error';
+        this.driveCredsError = err.detail || 'Error al guardar credenciales.';
+        this.showToast(this.driveCredsError, 'error');
+      }
+    },
+
+    // ---- NORMALIZACIÓN ----
+    async loadNormalization() {
+      const [agRes, ctRes] = await Promise.all([
+        fetch('/api/institutions/agreements'),
+        fetch('/api/institutions/contract-types'),
+      ]);
+      this.agreements = await agRes.json();
+      this.contractTypes = await ctRes.json();
+    },
+
+    get filteredAgreements() {
+      let list = this.agreements;
+      if (this.normPendingOnly) list = list.filter(a => !a.contract_type_id);
+      if (this.agreementsSearch.trim()) {
+        const q = this.agreementsSearch.trim().toLowerCase();
+        list = list.filter(a => {
+          const admin = (a.administrator?.canonical_name || a.administrator?.raw_name || '').toLowerCase();
+          const contract = (a.contract?.canonical_name || a.contract?.raw_name || '').toLowerCase();
+          return admin.includes(q) || contract.includes(q);
+        });
+      }
+      return list;
+    },
+
+    get groupedAgreements() {
+      const list = this.filteredAgreements;
+
+      // Nivel 1: agrupar por canonical_admin normalizado
+      const adminGroups = {};
+      for (const ag of list) {
+        const rawAdmin = (ag.administrator?.canonical_name || ag.administrator?.raw_name || '—').trim();
+        const adminKey = rawAdmin.toUpperCase();
+        if (!adminGroups[adminKey]) adminGroups[adminKey] = { label: rawAdmin, agreements: [] };
+        adminGroups[adminKey].agreements.push(ag);
+      }
+
+      // Nivel 2: dentro de cada admin, deduplicar por canonical_contract
+      const result = [];
+      for (const adminGroup of Object.values(adminGroups)) {
+        const contractGroups = {};
+        for (const ag of adminGroup.agreements) {
+          const rawContract = (ag.contract?.canonical_name || ag.contract?.raw_name || '—').trim();
+          const contractKey = rawContract.toUpperCase();
+          if (!contractGroups[contractKey]) {
+            contractGroups[contractKey] = { label: rawContract, primaryAg: ag, allIds: [] };
+          }
+          contractGroups[contractKey].allIds.push(ag.id);
+          // Preferir como primario el que ya tenga contract_type asignado
+          if (ag.contract_type_id && !contractGroups[contractKey].primaryAg.contract_type_id) {
+            contractGroups[contractKey].primaryAg = ag;
+          }
+        }
+        const items = Object.values(contractGroups).sort((a, b) => a.label.localeCompare(b.label));
+        result.push({ label: adminGroup.label, items });
+      }
+      return result.sort((a, b) => a.label.localeCompare(b.label));
+    },
+
+    async setAgreementType(allIds, contractTypeId) {
+      const typeVal = contractTypeId ? parseInt(contractTypeId) : null;
+      this.savingAgreementId = allIds[0];
+      let ok = true;
+      for (const id of allIds) {
+        const res = await fetch(`/api/institutions/agreements/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contract_type_id: typeVal }),
+        });
+        if (res.ok) {
+          const idx = this.agreements.findIndex(a => a.id === id);
+          if (idx >= 0) this.agreements[idx].contract_type_id = typeVal;
+        } else { ok = false; }
+      }
+      this.savingAgreementId = null;
+      this.showToast(ok ? 'Tipo de convenio actualizado.' : 'Error al actualizar.', ok ? 'success' : 'error');
+    },
+
+    async consolidateAgreements() {
+      const res = await fetch('/api/institutions/agreements/consolidate', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const msg = data.agreements_deleted > 0
+          ? `Consolidado: ${data.agreements_deleted} convenio(s) eliminado(s), ${data.invoices_redirected} factura(s) redirigida(s).`
+          : 'Sin duplicados que consolidar.';
+        this.showToast(msg);
+        await this.loadNormalization();
+      } else {
+        this.showToast('Error al consolidar.', 'error');
+      }
+    },
+
+    ctName(id) {
+      if (!id) return null;
+      const ct = this.contractTypes.find(c => c.id === id || c.id === parseInt(id));
+      return ct ? ct.name : `#${id}`;
+    },
+
+    // ---- MAPEOS ----
+    async loadMappings() {
+      const id = this.$store.ctx.institutionId;
+      if (id) {
+        const [services, stdocs] = await Promise.all([
+          fetch(`/api/institutions/${id}/services`).then(r => r.json()),
+          fetch(`/api/institutions/${id}/service-type-documents`).then(r => r.json()),
+        ]);
+        this.allServices = services; this.serviceTypeDocs = stdocs;
+      }
+    },
+
+    // Services
+    startEditService(s) { this.editingServiceId = s.id; this.editingServiceTypeId = s.service_type_id; },
+    async saveServiceEdit(id) {
+      const res = await fetch(`/api/institutions/services/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ service_type_id: parseInt(this.editingServiceTypeId) }) });
+      if (res.ok) { this.editingServiceId = null; await this.loadMappings(); this.showToast('Actualizado.'); }
+      else this.showToast('Error al actualizar.', 'error');
+    },
+    async addService() {
+      const id = this.$store.ctx.institutionId;
+      if (!id || !this.newService.raw_service.trim() || !this.newService.service_type_id) return;
+      const res = await fetch(`/api/institutions/${id}/services`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ raw_service: this.newService.raw_service, service_type_id: parseInt(this.newService.service_type_id) }) });
+      if (res.ok) { this.newService = {raw_service:'',service_type_id:''}; await this.loadMappings(); this.showToast('Servicio agregado.'); }
+      else this.showToast('Error al agregar.', 'error');
+    },
+    async deleteService(id) {
+      const res = await fetch(`/api/institutions/services/${id}`, { method:'DELETE' });
+      if (res.ok || res.status === 204) { this.confirmDeleteServiceId = null; await this.loadMappings(); this.showToast('Eliminado.'); }
+      else this.showToast('No se pudo eliminar.', 'error');
+    },
+
+    // ServiceTypeDocs — matrix helpers
+    stdHas(stId, dtId) {
+      return this.serviceTypeDocs.some(d => d.service_type_id === stId && d.doc_type_id === dtId);
+    },
+    async toggleSTD(stId, dtId, checked) {
+      const instId = this.$store.ctx.institutionId;
+      const key = `${stId}-${dtId}`;
+      this.stdPending = { ...this.stdPending, [key]: true };
+      if (checked) {
+        const res = await fetch(`/api/institutions/${instId}/service-type-documents`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ institution_id: parseInt(instId), service_type_id: stId, doc_type_id: dtId }) });
+        if (res.ok) {
+          const obj = await res.json();
+          this.serviceTypeDocs.push(obj);
+        } else this.showToast('Error al agregar.', 'error');
+      } else {
+        const res = await fetch(`/api/institutions/${instId}/service-type-documents/${stId}/${dtId}`, { method:'DELETE' });
+        if (res.ok || res.status === 204) {
+          this.serviceTypeDocs = this.serviceTypeDocs.filter(d => !(d.service_type_id === stId && d.doc_type_id === dtId));
+        } else this.showToast('No se pudo eliminar.', 'error');
+      }
+      this.stdPending = { ...this.stdPending, [key]: false };
+    },
+
+    // ---- PERÍODOS ----
+    async loadPeriods() {
+      const id = this.$store.ctx.institutionId;
+      if (!id) return;
+      this.periods = await fetch(`/api/institutions/${id}/periods`).then(r => r.json());
+    },
+    async addPeriod() {
+      const id = this.$store.ctx.institutionId;
+      if (!id || !this.newPeriod.period_label.trim() || !this.newPeriod.date_from || !this.newPeriod.date_to) return;
+      const res = await fetch(`/api/institutions/${id}/periods`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ institution_id: parseInt(id), period_label: this.newPeriod.period_label, date_from: this.newPeriod.date_from, date_to: this.newPeriod.date_to }) });
+      if (res.ok) { this.newPeriod = {period_label:'',date_from:'',date_to:''}; await this.loadPeriods(); this.showToast('Período creado.'); }
+      else this.showToast('Error al crear período.', 'error');
+    },
+    async loadDiskUsage(periodId) {
+      if (this.diskUsage[periodId]) return;
+      this.diskUsage[periodId] = { loading: true };
+      try {
+        const data = await fetch(`/api/institutions/periods/${periodId}/disk-usage`).then(r => r.json());
+        this.diskUsage[periodId] = { ...data, loading: false };
+      } catch { this.diskUsage[periodId] = { loading: false, error: true }; }
+    },
+    formatBytes(bytes) {
+      if (!bytes) return '0 B';
+      const units = ['B','KB','MB','GB'];
+      let i = 0, v = bytes;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return `${v.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
+    },
+    async confirmDeletePeriod(id) {
+      this.confirmDeletePeriodId = id;
+      await this.loadDiskUsage(id);
+    },
+    async deletePeriod(id) {
+      const res = await fetch(`/api/institutions/periods/${id}`, { method:'DELETE' });
+      if (res.ok || res.status === 204) {
+        this.confirmDeletePeriodId = null;
+        delete this.diskUsage[id];
+        await this.loadPeriods();
+        this.showToast('Período y archivos eliminados.');
+      } else this.showToast('No se pudo eliminar.', 'error');
+    },
+    async purgeDisk(id) {
+      this.purgingPeriodId = id;
+      const res = await fetch(`/api/institutions/periods/${id}/purge-disk`, { method:'POST' });
+      this.purgingPeriodId = null;
+      if (res.ok) {
+        delete this.diskUsage[id];
+        this.showToast('Archivos del período eliminados del disco.');
+      } else this.showToast('Error al limpiar archivos.', 'error');
+    },
+
+    // ---- REGLAS ----
+    startEditST(st) { this.editingSTId = st.id; this.editingST = { code: st.code, display_name: st.display_name, priority: st.priority }; },
+    async saveSTEdit(id) {
+      const res = await fetch(`/api/settings/service-types/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code: this.editingST.code, display_name: this.editingST.display_name, priority: parseInt(this.editingST.priority) }) });
+      if (res.ok) {
+        const updated = await res.json();
+        this.serviceTypes = this.serviceTypes.map(s => s.id === id ? updated : s);
+        this.editingSTId = null;
+        this.showToast('Tipo de servicio actualizado.');
+      } else this.showToast('Error al actualizar.', 'error');
+    },
+    startEditDT(dt) { this.editingDTId = dt.id; this.editingDT = { code: dt.code, description: dt.description, prefix: dt.prefix || '' }; },
+    async saveDTEdit(id) {
+      const body = { code: this.editingDT.code, description: this.editingDT.description };
+      if (this.editingDT.prefix.trim()) body.prefix = this.editingDT.prefix.trim();
+      const res = await fetch(`/api/settings/doc-types/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (res.ok) {
+        const updated = await res.json();
+        this.docTypes = this.docTypes.map(d => d.id === id ? updated : d);
+        this.editingDTId = null;
+        this.showToast('Tipo de documento actualizado.');
+      } else this.showToast('Error al actualizar.', 'error');
+    },
+    async addServiceType() {
+      if (!this.newST.code.trim() || !this.newST.display_name.trim()) return;
+      const res = await fetch('/api/settings/service-types', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code: this.newST.code, display_name: this.newST.display_name, priority: parseInt(this.newST.priority) || 10 }) });
+      if (res.ok) { this.serviceTypes = await fetch('/api/settings/service-types').then(r => r.json()); this.newST = {code:'',display_name:'',priority:10}; this.showToast('Tipo de servicio creado.'); }
+      else this.showToast('Error al crear.', 'error');
+    },
+    async deleteServiceType(id) {
+      const res = await fetch(`/api/settings/service-types/${id}`, { method:'DELETE' });
+      if (res.ok || res.status === 204) { this.serviceTypes = this.serviceTypes.filter(s => s.id !== id); this.confirmDeleteSTId = null; this.showToast('Eliminado.'); }
+      else { const err = await res.json().catch(()=>({})); this.confirmDeleteSTId = null; this.showToast(err.detail||'No se pudo eliminar.','error'); }
+    },
+    async addDocType() {
+      if (!this.newDT.code.trim() || !this.newDT.description.trim()) return;
+      const body = { code: this.newDT.code, description: this.newDT.description };
+      if (this.newDT.prefix.trim()) body.prefix = this.newDT.prefix.trim();
+      const res = await fetch('/api/settings/doc-types', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      if (res.ok) { this.docTypes = await fetch('/api/settings/doc-types').then(r => r.json()); this.newDT = {code:'',description:'',prefix:''}; this.showToast('Tipo de documento creado.'); }
+      else this.showToast('Error al crear.', 'error');
+    },
+    async deleteDocType(id) {
+      const res = await fetch(`/api/settings/doc-types/${id}`, { method:'DELETE' });
+      if (res.ok || res.status === 204) { this.docTypes = this.docTypes.filter(d => d.id !== id); this.confirmDeleteDTId = null; this.showToast('Eliminado.'); }
+      else { const err = await res.json().catch(()=>({})); this.confirmDeleteDTId = null; this.showToast(err.detail||'No se pudo eliminar.','error'); }
+    },
+    startEditFS(fs) { this.editingFSId = fs.id; this.editingFSVal = fs.status; },
+    async saveFSEdit(id) {
+      const res = await fetch(`/api/settings/folder-statuses/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: this.editingFSVal }) });
+      if (res.ok) { this.folderStatuses = await fetch('/api/settings/folder-statuses').then(r => r.json()); this.editingFSId = null; this.showToast('Estado actualizado.'); }
+      else this.showToast('Error al actualizar.', 'error');
+    },
+    async addFolderStatus() {
+      if (!this.newFS.status.trim()) return;
+      const res = await fetch('/api/settings/folder-statuses', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status: this.newFS.status }) });
+      if (res.ok) { this.folderStatuses = await fetch('/api/settings/folder-statuses').then(r => r.json()); this.newFS = {status:''}; this.showToast('Estado creado.'); }
+      else this.showToast('Error al crear.', 'error');
+    },
+    async deleteFolderStatus(id) {
+      const res = await fetch(`/api/settings/folder-statuses/${id}`, { method:'DELETE' });
+      if (res.ok || res.status === 204) { this.folderStatuses = this.folderStatuses.filter(f => f.id !== id); this.confirmDeleteFSId = null; this.showToast('Eliminado.'); }
+      else { const err = await res.json().catch(()=>({})); this.confirmDeleteFSId = null; this.showToast(err.detail||'No se pudo eliminar.','error'); }
+    },
+
+    // ---- PREFIJOS ----
+    startEditPC(pc) {
+      this.editingPCId = pc.id;
+      this.editingPC = { correct_prefix: pc.correct_prefix, notes: pc.notes || '' };
+    },
+    async savePCEdit(id) {
+      const body = { correct_prefix: this.editingPC.correct_prefix };
+      if (this.editingPC.notes !== undefined) body.notes = this.editingPC.notes || null;
+      const res = await fetch(`/api/settings/prefix-corrections/${id}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        this.prefixCorrections = this.prefixCorrections.map(p => p.id === id ? updated : p);
+        this.editingPCId = null;
+        this.showToast('Corrección actualizada.');
+      } else this.showToast('Error al actualizar.', 'error');
+    },
+    async addPrefixCorrection() {
+      if (!this.newPC.wrong_prefix.trim() || !this.newPC.correct_prefix.trim()) return;
+      const body = { wrong_prefix: this.newPC.wrong_prefix, correct_prefix: this.newPC.correct_prefix };
+      if (this.newPC.notes.trim()) body.notes = this.newPC.notes;
+      const res = await fetch('/api/settings/prefix-corrections', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        this.prefixCorrections = await fetch('/api/settings/prefix-corrections').then(r => r.json());
+        this.newPC = { wrong_prefix:'', correct_prefix:'', notes:'' };
+        this.showToast('Corrección agregada.');
+      } else { const err = await res.json().catch(()=>({})); this.showToast(err.detail||'Error al agregar.','error'); }
+    },
+    async deletePrefixCorrection(id) {
+      const res = await fetch(`/api/settings/prefix-corrections/${id}`, { method:'DELETE' });
+      if (res.ok || res.status === 204) {
+        this.prefixCorrections = this.prefixCorrections.filter(p => p.id !== id);
+        this.confirmDeletePCId = null;
+        this.showToast('Corrección eliminada.');
+      } else { this.confirmDeletePCId = null; this.showToast('No se pudo eliminar.','error'); }
+    },
+
+  };
+}
+</script>
+{% endblock %}

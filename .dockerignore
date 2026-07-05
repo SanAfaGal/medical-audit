@@ -1,0 +1,60 @@
+# Version control
+.git/
+.gitignore
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables (injected at runtime)
+.env
+.env.local
+.env.*.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Dev tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# uv (uv.lock is required for reproducible builds — do NOT exclude it)
+.python-version
+
+# Tests (not needed in production image)
+tests/
+
+# Docker artifacts (not needed inside the image)
+Dockerfile
+docker-compose*.yml
+nginx/
+
+# Development data — can be large, never needed in the image
+backups/
+tasks/
+
+# Development scripts and docs
+dev.sh
+deploy.sh
+*.md
+CLAUDE.md
+.github/

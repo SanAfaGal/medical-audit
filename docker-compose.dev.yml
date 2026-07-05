@@ -1,0 +1,32 @@
+# Backend containerizado para desarrollo local, con hot-reload.
+# Se combina con docker-compose.yml (db) y docker-compose.override.yml (Adminer):
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.dev.yml up -d
+#
+# Alternativa a ./dev.sh serve (backend nativo). Ver ./dev.sh help → sección "Docker".
+services:
+  backend:
+    container_name: medical-audit-dev-backend
+    build:
+      context: .
+      target: full
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      APP_PASSWORD: ${APP_PASSWORD:?APP_PASSWORD must be set in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DOCS_ENABLED: ${DOCS_ENABLED:-true}
+      AUDIT_DATA_ROOT: /audit_data
+    volumes:
+      - ./app:/app/app
+      - ./core:/app/core
+      - ./alembic:/app/alembic
+      - audit_data:/audit_data
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+volumes:
+  audit_data:
