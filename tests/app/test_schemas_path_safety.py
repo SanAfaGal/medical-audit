@@ -17,6 +17,10 @@ class TestInstitutionNameValidation:
         inst = InstitutionCreate(name="SANTA_LUCIA-2", display_name="Hospital Santa Lucia", nit="900123456")
         assert inst.name == "SANTA_LUCIA-2"
 
+    def test_accepts_name_with_spaces(self):
+        inst = InstitutionCreate(name="RAMON MARIA ARANA", display_name="Hospital", nit="900123456")
+        assert inst.name == "RAMON MARIA ARANA"
+
     def test_rejects_path_traversal_name(self):
         with pytest.raises(ValidationError):
             InstitutionCreate(name="../../etc", display_name="x", nit="900123456")

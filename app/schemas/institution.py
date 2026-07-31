@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-_SAFE_NAME_PATTERN = r"^[A-Za-z0-9_\-]+$"
+_SAFE_NAME_PATTERN = r"^[A-Za-z0-9_\- ]+$"
 
 
 class InstitutionCreate(BaseModel):
