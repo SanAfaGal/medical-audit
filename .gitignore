@@ -51,3 +51,4 @@ audit_data/
 !audit_data/.gitkeep
 
 .claude/
+CLAUDE.md

@@ -1,8 +1,23 @@
+name: medical-audit-prod
+
+# Stack de producción completo: db + backend (Ghostscript + Playwright)
+# Base de producción. docker-compose.override.yml contiene las sobreescrituras de
+# desarrollo y solo se aplica con `docker compose` sin -f (dev.sh); deploy.sh usa
+# `-f docker-compose.yml` explícito, lo que desactiva el override.
+#
+# Uso (ver ./deploy.sh help para todos los comandos):
+#   ./deploy.sh up      # primer deploy: build + up + migrate + seed
+#   ./deploy.sh update  # actualizar tras git pull
+#   ./deploy.sh down    # detener
+#   ./deploy.sh logs    # ver logs
+#
+# Variables requeridas en .env:
+#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, SECRET_KEY
 services:
 
-  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
   db:
-    container_name: medical-audit-dev-db
+    container_name: medical-audit-prod-db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -11,13 +26,34 @@ services:
       POSTGRES_DB:       ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"    # Exposed to host so the native backend can connect
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER must be set in .env} -d ${POSTGRES_DB:?POSTGRES_DB must be set in .env}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ── FastAPI + Ghostscript + Playwright ──────────────────────────────────────
+  backend:
+    container_name: medical-audit-prod-backend
+    build:
+      context: .
+      target: full
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:      postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SECRET_KEY:        ${SECRET_KEY:?SECRET_KEY must be set in .env}
+      APP_PASSWORD:      ${APP_PASSWORD:?APP_PASSWORD must be set in .env}
+      LOG_LEVEL:         ${LOG_LEVEL:-INFO}
+      DOCS_ENABLED:      "false"
+      AUDIT_DATA_ROOT:   /audit_data
+    ports:
+      - "80:8000"
+    volumes:
+      - audit_data:/audit_data
+
 volumes:
   pgdata:
+  audit_data:

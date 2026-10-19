@@ -296,7 +296,7 @@ async def process_non_pdf_decisions(
     db: AsyncSession = Depends(get_db),
 ):
     """Apply delete/convert decisions for files found in the REMOVE_NON_PDF scan."""
-    from core.ops import IMAGE_EXTENSIONS, convert_image_to_pdf
+    from app.core.ops import IMAGE_EXTENSIONS, convert_image_to_pdf
 
     institution = await InstitutionRepo(db).get_by_id(data.institution_id)
     if not institution:

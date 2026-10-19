@@ -275,7 +275,7 @@ async def _recategorize_services(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("RUN_STAGING")
 async def _run_staging(ctx: dict) -> AsyncGenerator[str, None]:
     """Move leaf folders from DRIVE to STAGE."""
-    from core.organizer import FolderCopier, LeafFolderFinder
+    from app.core.organizer import FolderCopier, LeafFolderFinder
 
     executor = _get_executor()
     drive_path: Path = ctx["drive_path"]
@@ -334,8 +334,8 @@ async def _check_nested_folders(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("REMOVE_NON_PDF")
 async def _remove_non_pdf(ctx: dict) -> AsyncGenerator[str, None]:
     """Scan STAGE for non-PDF files and corrupt PDFs; emit [DATA] for user review."""
-    from core.ops import IMAGE_EXTENSIONS
-    from core.reader import DocumentReader
+    from app.core.ops import IMAGE_EXTENSIONS
+    from app.core.reader import DocumentReader
 
     executor = _get_executor()
     stage_path: Path = ctx["stage_path"]
@@ -422,7 +422,7 @@ def _apply_prefix_corrections(
     Returns ``(renamed_count, [(folder_name, old_name, new_name)], [error_messages])``.
     Per-file failures (permission, name collision) are logged and skipped instead
     of aborting the whole batch — matching the pattern already used by
-    ``core.ops.DocumentOps``.
+    ``app.core.ops.DocumentOps``.
     """
     renamed = 0
     renames: list[tuple[str, str, str]] = []
@@ -458,8 +458,8 @@ async def _normalize_files(ctx: dict) -> AsyncGenerator[str, None]:
               (e.g. OPD → OPF, FVE → FEV).
     Step 2 — run the generic FilenameStandardizer for remaining invalid names.
     """
-    from core.scanner import DocumentScanner
-    from core.standardizer import FilenameStandardizer
+    from app.core.scanner import DocumentScanner
+    from app.core.standardizer import FilenameStandardizer
 
     from app.repositories.rules_repo import RulesRepo
 
@@ -533,8 +533,8 @@ async def _normalize_files(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("LIST_UNREADABLE_PDFS")
 async def _list_unreadable_pdfs(ctx: dict) -> AsyncGenerator[str, None]:
     """List invoice PDFs without a text layer (scanned, unreadable)."""
-    from core.reader import DocumentReader
-    from core.scanner import DocumentScanner
+    from app.core.reader import DocumentReader
+    from app.core.scanner import DocumentScanner
 
     from app.repositories.rules_repo import RulesRepo
 
@@ -570,8 +570,8 @@ async def _delete_unreadable_pdfs(ctx: dict) -> AsyncGenerator[str, None]:
     first page (see core/reader.py) and can misfire on a scanned cover followed by
     real text pages, so an irreversible delete here is too risky for audit data.
     """
-    from core.reader import DocumentReader
-    from core.scanner import DocumentScanner
+    from app.core.reader import DocumentReader
+    from app.core.scanner import DocumentScanner
 
     from app.repositories.rules_repo import RulesRepo
 
@@ -618,7 +618,7 @@ async def _download_invoices_from_sihos(ctx: dict) -> AsyncGenerator[str, None]:
     """Download the factura PDF from SIHOS for PENDIENTE invoices with an unresolved finding of the chosen doc type."""
     from sqlalchemy import select
 
-    from core.downloader import SihosDownloader
+    from app.core.downloader import SihosDownloader
 
     from app.crypto import decrypt
     from app.models.finding import MissingFile
@@ -705,7 +705,7 @@ async def _download_medication_sheets(ctx: dict) -> AsyncGenerator[str, None]:
     """Download PDFs for PENDIENTE invoices with an unresolved finding of the chosen doc type."""
     from sqlalchemy import select
 
-    from core.downloader import SihosDownloader
+    from app.core.downloader import SihosDownloader
 
     from app.crypto import decrypt
     from app.models.finding import MissingFile
@@ -794,8 +794,8 @@ async def _download_medication_sheets(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("VERIFY_INVOICE_CODE")
 async def _verify_invoice_code(ctx: dict) -> AsyncGenerator[str, None]:
     """Verify that each invoice PDF contains its own invoice number in the text."""
-    from core.scanner import DocumentScanner
-    from core.validator import InvoiceValidator
+    from app.core.scanner import DocumentScanner
+    from app.core.validator import InvoiceValidator
 
     from app.repositories.rules_repo import RulesRepo
 
@@ -825,7 +825,7 @@ async def _verify_invoice_code(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("CHECK_INVOICE_NUMBER_ON_FILES")
 async def _check_invoice_number_on_files(ctx: dict) -> AsyncGenerator[str, None]:
     """Verify that files inside each invoice folder match the folder name."""
-    from core.inspector import FolderInspector
+    from app.core.inspector import FolderInspector
 
     executor = _get_executor()
     stage_path: Path = ctx["stage_path"]
@@ -850,7 +850,7 @@ async def _check_folders_with_extra_text(ctx: dict) -> AsyncGenerator[str, None]
     from sqlalchemy import select
 
     from app.models.invoice import Invoice
-    from core.inspector import FolderInspector
+    from app.core.inspector import FolderInspector
 
     executor = _get_executor()
     stage_path: Path = ctx["stage_path"]
@@ -923,8 +923,8 @@ async def _check_folders_with_extra_text(ctx: dict) -> AsyncGenerator[str, None]
 @_stage("NORMALIZE_DIR_NAMES")
 async def _normalize_dir_names(ctx: dict) -> AsyncGenerator[str, None]:
     """Rename folders with extra text to their canonical identifier."""
-    from core.inspector import FolderInspector
-    from core.ops import DocumentOps
+    from app.core.inspector import FolderInspector
+    from app.core.ops import DocumentOps
 
     executor = _get_executor()
     stage_path: Path = ctx["stage_path"]
@@ -947,7 +947,7 @@ async def _normalize_dir_names(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("CHECK_DIRS")
 async def _check_dirs(ctx: dict) -> AsyncGenerator[str, None]:
     """Compare invoice numbers in DB against folders on disk; mark missing ones FALTANTE."""
-    from core.inspector import FolderInspector
+    from app.core.inspector import FolderInspector
 
     from app.repositories.invoice_repo import InvoiceRepo
 
@@ -985,7 +985,7 @@ async def _mark_unknown_dirs(ctx: dict) -> AsyncGenerator[str, None]:
     Folders are prefixed with '(DESCONOCIDO)'.  Already-marked folders are
     skipped so the stage is safe to re-run.
     """
-    from core.inspector import FolderInspector
+    from app.core.inspector import FolderInspector
     from app.repositories.invoice_repo import InvoiceRepo
 
     executor = _get_executor()
@@ -1036,7 +1036,7 @@ async def _mark_unknown_dirs(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("CHECK_REQUIRED_DOCS")
 async def _check_required_docs(ctx: dict) -> AsyncGenerator[str, None]:
     """Verify required documents per service type; record findings for missing ones."""
-    from core.inspector import FolderInspector
+    from app.core.inspector import FolderInspector
 
     from app.repositories.finding_repo import MissingFileRepo
     from app.repositories.invoice_repo import InvoiceRepo
@@ -1310,9 +1310,9 @@ async def _revisar_sobrantes(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("VERIFY_CUFE")
 async def _verify_cufe(ctx: dict) -> AsyncGenerator[str, None]:
     """Verify CUFE presence and tag folders missing a CUFE in invoice PDFs."""
-    from core.ops import DocumentOps
-    from core.scanner import DocumentScanner
-    from core.validator import InvoiceValidator
+    from app.core.ops import DocumentOps
+    from app.core.scanner import DocumentScanner
+    from app.core.validator import InvoiceValidator
 
     from app.repositories.rules_repo import RulesRepo
 
@@ -1347,7 +1347,7 @@ async def _verify_cufe(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("ORGANIZE")
 async def _organize(ctx: dict) -> AsyncGenerator[str, None]:
     """Move eligible invoices (PRESENTE + no findings) to AUDIT/ADMIN[/CONTRACT]/FOLDER."""
-    from core.helpers import safe_move
+    from app.core.helpers import safe_move
 
     from app.repositories.invoice_repo import InvoiceRepo
 
@@ -1456,7 +1456,7 @@ async def _organize(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("DOWNLOAD_DRIVE")
 async def _download_drive(ctx: dict) -> AsyncGenerator[str, None]:
     """Download invoice folders from Google Drive."""
-    from core.drive import DriveSync
+    from app.core.drive import DriveSync
 
     from app.crypto import decrypt
     from app.repositories.invoice_repo import InvoiceRepo
@@ -1514,7 +1514,7 @@ async def _download_drive(ctx: dict) -> AsyncGenerator[str, None]:
 @_stage("DOWNLOAD_MISSING_DOCS")
 async def _download_missing_docs(ctx: dict) -> AsyncGenerator[str, None]:
     """Download specific missing document files from Google Drive."""
-    from core.drive import DriveSync
+    from app.core.drive import DriveSync
 
     from app.crypto import decrypt
     from app.repositories.finding_repo import MissingFileRepo
@@ -1580,7 +1580,7 @@ async def _compress_audit(ctx: dict) -> AsyncGenerator[str, None]:
     """Compress all PDFs in AUDIT using Ghostscript (ebook quality)."""
     import os
 
-    from core.processor import DocumentProcessor
+    from app.core.processor import DocumentProcessor
 
     loop = asyncio.get_running_loop()
     audit_path: Path = ctx["audit_path"]

@@ -8,8 +8,8 @@ from pathlib import Path
 
 _PDF_WORKERS = min(16, (os.cpu_count() or 4) * 2)
 
-from core.helpers import remove_accents  # noqa: E402
-from core.reader import DocumentReader  # noqa: E402
+from app.core.helpers import remove_accents  # noqa: E402
+from app.core.reader import DocumentReader  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

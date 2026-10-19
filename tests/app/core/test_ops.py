@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from core.ops import DocumentOps
+from app.core.ops import DocumentOps
 
 
 @pytest.fixture

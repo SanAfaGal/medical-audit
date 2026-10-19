@@ -37,7 +37,6 @@ RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
 
 # Código fuente — COPY --chown evita un RUN chown posterior en cada deploy
 COPY --chown=appuser:appuser app         ./app
-COPY --chown=appuser:appuser core        ./core
 COPY --chown=appuser:appuser alembic     ./alembic
 COPY --chown=appuser:appuser alembic.ini ./
 COPY --chown=appuser:appuser seeds       ./seeds
@@ -74,10 +73,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
 # Una sola capa para: crear usuario + instalar Chromium + fijar ownership.
-# Se invalida solo cuando cambia uv.lock (nuevas deps).
-# En deploys de código queda 100% cacheada → el mayor ahorro de tiempo.
-RUN useradd --uid 10001 --no-create-home --shell /bin/false appuser \
-    && python -m playwright install chromium --with-deps \
+# Se invalida cuando cambia pyproject.toml/uv.lock, pero la descarga de Chromium
+# (~170 MB) y los .deb de --with-deps salen de cache mounts de BuildKit: solo se
+# bajan la primera vez (o al subir la versión de Playwright). El navegador se
+# copia luego a /app/.playwright porque un cache mount no queda en la imagen.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,target=/pw-cache \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && useradd --uid 10001 --no-create-home --shell /bin/false appuser \
+    && PLAYWRIGHT_BROWSERS_PATH=/pw-cache python -m playwright install --only-shell chromium --with-deps \
+    && mkdir -p /app/.playwright \
+    && cp -a /pw-cache/. /app/.playwright/ \
     && rm -rf /app/.playwright/.links \
     && chown -R appuser:appuser /app/.venv /app/.playwright
 
@@ -89,7 +96,6 @@ RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
 # Código fuente — única capa que se invalida en cada deploy.
 # COPY --chown elimina el "RUN chown -R /app" que antes escaneaba GB de archivos.
 COPY --chown=appuser:appuser app         ./app
-COPY --chown=appuser:appuser core        ./core
 COPY --chown=appuser:appuser alembic     ./alembic
 COPY --chown=appuser:appuser alembic.ini ./
 COPY --chown=appuser:appuser seeds       ./seeds

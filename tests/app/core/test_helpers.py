@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from core.helpers import (
+from app.core.helpers import (
     flatten_prefixes,
     read_lines_from_file,
     remove_accents,

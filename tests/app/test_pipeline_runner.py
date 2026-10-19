@@ -211,7 +211,7 @@ class TestDeleteUnreadablePdfsStage:
 
         with (
             patch("app.services.pipeline_runner.audit_data_root", tmp_path),
-            patch("core.reader.DocumentReader.find_needing_ocr", return_value=[pdf_path]),
+            patch("app.core.reader.DocumentReader.find_needing_ocr", return_value=[pdf_path]),
         ):
             lines = [line async for line in execute("DELETE_UNREADABLE_PDFS", inst, period, db)]
 
@@ -265,7 +265,7 @@ class TestDownloadDriveStage:
 
         with (
             patch("app.crypto.decrypt", return_value='{"type": "service_account"}'),
-            patch("core.drive.DriveSync", return_value=fake_drive),
+            patch("app.core.drive.DriveSync", return_value=fake_drive),
             patch("app.repositories.invoice_repo.InvoiceRepo", return_value=inv_repo_instance),
             patch("app.services.pipeline_runner.audit_data_root", tmp_path),
         ):

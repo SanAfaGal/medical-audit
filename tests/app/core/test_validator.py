@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from core.validator import InvoiceValidator, _collapse_inline_whitespace
+from app.core.validator import InvoiceValidator, _collapse_inline_whitespace
 
 
 # ---------------------------------------------------------------------------

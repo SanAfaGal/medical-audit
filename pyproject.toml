@@ -45,7 +45,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*", "core*", "seeds*", "tests*"]
+include = ["app*", "seeds*", "tests*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -58,7 +58,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["core", "app"]
+source = ["app"]
 omit = ["app/models/*", "*/__pycache__/*", "seeds/*", "alembic/*"]
 
 [tool.coverage.report]
@@ -68,6 +68,40 @@ fail_under = 60
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+# app/core es lógica de dominio pura: no puede depender del resto de app/.
+# El ban aplica a todo el repo; las capas que sí pueden importarlos se excluyen abajo.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"app.routers".msg = "app/core no debe importar capas de aplicación."
+"app.services".msg = "app/core no debe importar capas de aplicación."
+"app.repositories".msg = "app/core no debe importar capas de aplicación."
+"app.models".msg = "app/core no debe importar capas de aplicación."
+"app.schemas".msg = "app/core no debe importar capas de aplicación."
+"app.database".msg = "app/core no debe importar capas de aplicación."
+"app.config".msg = "app/core no debe importar capas de aplicación."
+"app.security".msg = "app/core no debe importar capas de aplicación."
+"app.crypto".msg = "app/core no debe importar capas de aplicación."
+"app.paths".msg = "app/core no debe importar capas de aplicación."
+"app.main".msg = "app/core no debe importar capas de aplicación."
+
+[tool.ruff.lint.per-file-ignores]
+"app/routers/**" = ["TID251"]
+"app/services/**" = ["TID251"]
+"app/repositories/**" = ["TID251"]
+"app/models/**" = ["TID251"]
+"app/schemas/**" = ["TID251"]
+"app/config.py" = ["TID251"]
+"app/crypto.py" = ["TID251"]
+"app/database.py" = ["TID251"]
+"app/main.py" = ["TID251"]
+"app/paths.py" = ["TID251"]
+"app/security.py" = ["TID251"]
+"tests/**" = ["TID251"]
+"alembic/**" = ["TID251"]
+"seeds/**" = ["TID251"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -100,7 +134,7 @@ ignore_missing_imports = true
 
 [tool.vulture]
 min_confidence = 80
-paths = ["app", "core"]
+paths = ["app"]
 ignore_names = [
     "test_*",
     "setUp",

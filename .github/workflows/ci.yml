@@ -31,7 +31,7 @@ jobs:
         run: ruff format --check .
 
       - name: Mypy type check
-        run: mypy app core
+        run: mypy app
 
   test-unit:
     name: Unit Tests (no DB)
@@ -80,7 +80,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
       - run: uv pip install --system -e ".[dev]"
-      - run: vulture app core --min-confidence 80
+      - run: vulture app --min-confidence 80
 
   gitleaks:
     name: Gitleaks (git history secrets)
@@ -134,7 +134,7 @@ jobs:
         run: alembic upgrade head
 
       - name: Run DB tests with coverage
-        run: pytest -m db -ra --tb=short --cov=core --cov=app --cov-report=term-missing --cov-fail-under=60
+        run: pytest -m db -ra --tb=short --cov=app --cov-report=term-missing --cov-fail-under=60
 
   build:
     name: Docker Build

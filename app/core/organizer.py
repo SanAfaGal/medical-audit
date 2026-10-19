@@ -8,7 +8,7 @@ from typing import NamedTuple
 
 import pandas as pd
 
-from core.helpers import safe_move
+from app.core.helpers import safe_move
 
 logger = logging.getLogger(__name__)
 

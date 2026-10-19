@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from core.standardizer import FilenameStandardizer
+from app.core.standardizer import FilenameStandardizer
 
 
 @pytest.fixture

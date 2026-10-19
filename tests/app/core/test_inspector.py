@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from core.inspector import FolderInspector
+from app.core.inspector import FolderInspector
 
 
 @pytest.fixture

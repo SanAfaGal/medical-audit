@@ -28,6 +28,6 @@ repos:
       - id: vulture
         name: vulture (dead code)
         language: system
-        entry: uv run vulture app core --min-confidence 80
+        entry: uv run vulture app --min-confidence 80
         types: [python]
         pass_filenames: false

@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from core.organizer import FolderCopier, InvoiceOrganizer, LeafFolderFinder
+from app.core.organizer import FolderCopier, InvoiceOrganizer, LeafFolderFinder
 
 
 # ---------------------------------------------------------------------------

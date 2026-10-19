@@ -56,7 +56,7 @@ Todas las variables son leídas por `app/config.py` vía pydantic-settings.
 ./dev.sh test                          # Ejecutar pytest
 ./dev.sh test -k test_invoice -v       # Filtrar tests por nombre
 ./dev.sh test -m "not db and not slow" # Solo tests unitarios rápidos
-./dev.sh test --cov=core,app           # Con reporte de cobertura
+./dev.sh test --cov=app           # Con reporte de cobertura
 ./dev.sh lint                          # ruff check + format check (seguro para CI)
 ./dev.sh format                        # Auto-corregir formato con ruff
 ./dev.sh health                        # Verificar endpoint /health
@@ -87,7 +87,7 @@ uv run alembic downgrade -1     # Revertir una migración
 
 Las tablas de configuración (`institutions`, `service_types`, `doc_types`, `folder_statuses`, `prefix_corrections`, `admins`, `contracts`, `services`, `service_type_documents`) pueden llevar tiempo en reconstruirse. Los comandos `backup`/`restore` permiten hacer snapshots sin tocar datos operacionales (`audit_periods`, `invoices`, `missing_files`).
 
-Esta sección es para **desarrollo local** (`dev.sh`, contra `docker-compose.yml`). Para producción usa los mismos comandos vía `./deploy.sh backup` / `./deploy.sh restore` — ver [docs/DEPLOY.md](DEPLOY.md).
+Esta sección es para **desarrollo local** (`dev.sh`, contra `docker-compose.yml` + `docker-compose.override.yml`). Para producción usa los mismos comandos vía `./deploy.sh backup` / `./deploy.sh restore` — ver [docs/DEPLOY.md](DEPLOY.md).
 
 ```bash
 # Crear snapshot
@@ -109,7 +109,7 @@ Los archivos `backups/*.sql` están excluidos de git por defecto.
 
 ### Framework
 
-pytest + pytest-asyncio con cobertura mínima de 60% en `core/` y `app/`.
+pytest + pytest-asyncio con cobertura mínima de 60% en `app/`.
 
 ### Markers
 
@@ -123,10 +123,10 @@ pytest + pytest-asyncio con cobertura mínima de 60% en `core/` y `app/`.
 
 ```bash
 ./dev.sh test                                    # Todos los tests
-./dev.sh test tests/core/test_scanner.py         # Archivo específico
+./dev.sh test tests/app/core/test_scanner.py         # Archivo específico
 ./dev.sh test -k "test_validate"                 # Tests que coincidan con el patrón
 ./dev.sh test -m "not db and not slow"           # Solo tests unitarios rápidos
-./dev.sh test --cov=core,app --cov-report=html   # Con reporte de cobertura HTML
+./dev.sh test --cov=app --cov-report=html   # Con reporte de cobertura HTML
 
 # Type checking (sin wrapper en dev.sh)
 uv run mypy app/

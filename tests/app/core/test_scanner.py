@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from core.scanner import DocumentScanner
+from app.core.scanner import DocumentScanner
 
 
 @pytest.fixture

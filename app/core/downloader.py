@@ -10,7 +10,7 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
-from core.helpers import read_lines_from_file
+from app.core.helpers import read_lines_from_file
 
 logger = logging.getLogger(__name__)
 

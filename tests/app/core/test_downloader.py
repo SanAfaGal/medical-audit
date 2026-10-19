@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from core.downloader import SihosDownloader, SihosLoginError
+from app.core.downloader import SihosDownloader, SihosLoginError
 
 
 def _make_downloader(tmp_path) -> SihosDownloader:
@@ -41,7 +41,7 @@ class TestBrowserSessionLoginFailure:
         fake_pw_cm.__aenter__ = AsyncMock(return_value=fake_pw_ctx)
         fake_pw_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("core.downloader.async_playwright", return_value=fake_pw_cm):
+        with patch("app.core.downloader.async_playwright", return_value=fake_pw_cm):
             with pytest.raises(SihosLoginError):
                 async with downloader._browser_session():
                     pass

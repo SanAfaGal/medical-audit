@@ -1,8 +1,8 @@
 # Despliegue a producción
 
-Stack: `docker-compose.prod.yml` — tres contenedores orquestados, datos persistentes en volúmenes Docker nombrados, completamente aislado del entorno de desarrollo.
+Stack: `docker-compose.yml` — dos contenedores orquestados, datos persistentes en volúmenes Docker nombrados, completamente aislado del entorno de desarrollo.
 
-Todos los comandos de este documento tienen un wrapper en `./deploy.sh` (ver `./deploy.sh help`). Este documento usa esos wrappers como camino principal; el comando `docker compose -f docker-compose.prod.yml ...` equivalente se muestra debajo cuando aporta como referencia directa.
+Todos los comandos de este documento tienen un wrapper en `./deploy.sh` (ver `./deploy.sh help`). Este documento usa esos wrappers como camino principal; el comando `docker compose -f docker-compose.yml ...` equivalente se muestra debajo cuando aporta como referencia directa.
 
 > `./deploy.sh` es solo para producción. Para desarrollo local usa `./dev.sh` — ver [docs/DEVELOPMENT.md](DEVELOPMENT.md).
 
@@ -100,7 +100,7 @@ Progreso esperado durante el build:
  => [full 1/7] FROM python:3.11-slim
  => [full 2/7] COPY pyproject.toml uv.lock
  => [full 3/7] RUN uv sync ...
- => [full 4/7] COPY app/ core/ alembic/
+ => [full 4/7] COPY app/ alembic/
  => [full 5/7] RUN playwright install chromium
  => [full 6/7] RUN useradd appuser
  => exporting to image
@@ -110,7 +110,7 @@ Verifica que los tres contenedores están corriendo:
 
 ```bash
 ./deploy.sh ps
-# equivalente: docker compose -f docker-compose.prod.yml ps
+# equivalente: docker compose -f docker-compose.yml ps
 ```
 
 Salida esperada:
@@ -118,7 +118,6 @@ Salida esperada:
 NAME                          IMAGE                    STATUS
 medical-audit-prod-db         postgres:16-alpine       running (healthy)
 medical-audit-prod-backend    medical-audit-prod-...   running (healthy)
-medical-audit-prod-nginx      nginx:1.27-alpine        running
 ```
 
 > Si `medical-audit-prod-db` aparece como `starting` espera unos segundos — el healthcheck de PostgreSQL tarda hasta 50 segundos en pasar.
@@ -156,21 +155,14 @@ Esta ruta apunta al volumen Docker `medical-audit-prod_audit_data` donde se alma
   Dispositivos LAN
         │
         ▼ :80
-  ┌─────────────────────┐
-  │  medical-audit-prod │  Docker network: medical-audit-prod_default
-  │  ─────────────────  │
-  │  nginx :80          │──► backend :8000 ──► db :5432
-  │  (rate limit, gzip) │
-  │  (SSE timeout 4h)   │
-  └─────────────────────┘
-        │                         │                    │
-   puerto 80                 sin puerto           sin puerto
-   expuesto                  al host              al host
-   al host
+  ┌───────────────────────┐
+  │  medical-audit-prod   │  Docker network: medical-audit-prod_default
+  │  backend :8000 ──► db :5432
+  └───────────────────────┘
+   puerto 80 → backend      db sin puerto al host
 ```
 
-- **nginx** es el único punto de entrada. Gestiona rate limiting (30 req/s), gzip, y timeouts especiales para SSE del pipeline.
-- **backend** nunca es accesible directamente desde fuera del stack Docker.
+- **backend** es el único punto de entrada (host `:80` → contenedor `:8000`). Uvicorn sirve directo, sin proxy: no hay rate limiting ni TLS, así que no exponerlo fuera de la red local.
 - **db** solo es accesible desde `backend` dentro de la red Docker.
 
 ---
@@ -203,7 +195,7 @@ a Alembic que el punto de partida cambió de nombre.
 **Desplegar el código nuevo normalmente:**
 ```bash
 git pull origin main
-docker compose -f docker-compose.prod.yml up -d --build backend
+docker compose -f docker-compose.yml up -d --build backend
 ```
 
 **El paso automático de `deploy.sh update` que corre `alembic upgrade head` va a fallar** con
@@ -214,12 +206,12 @@ schema ya coincide — `--purge` es necesario porque un `stamp` normal también 
 reconocer la revisión vieja):
 
 ```bash
-docker compose -f docker-compose.prod.yml exec backend alembic stamp --purge head
+docker compose -f docker-compose.yml exec backend alembic stamp --purge head
 ```
 
 **Verificar:**
 ```bash
-docker compose -f docker-compose.prod.yml exec backend alembic current
+docker compose -f docker-compose.yml exec backend alembic current
 # Debe mostrar 05e49443f9b5 (head)
 ```
 
@@ -255,7 +247,7 @@ curl http://localhost/health/db
 
 ```bash
 git checkout <commit-anterior>
-docker compose -f docker-compose.prod.yml up -d --build backend
+docker compose -f docker-compose.yml up -d --build backend
 ```
 
 ### Con migraciones de base de datos
@@ -265,11 +257,11 @@ docker compose -f docker-compose.prod.yml up -d --build backend
 ./deploy.sh restore backups/pre-deploy_TIMESTAMP.sql
 
 # 2. Revertir la migración de Alembic (sin wrapper — comando directo)
-docker compose -f docker-compose.prod.yml exec backend alembic downgrade -1
+docker compose -f docker-compose.yml exec backend alembic downgrade -1
 
 # 3. Volver al código anterior
 git checkout <commit-anterior>
-docker compose -f docker-compose.prod.yml up -d --build backend
+docker compose -f docker-compose.yml up -d --build backend
 ```
 
 ---
@@ -380,13 +372,13 @@ Sin wrapper — comandos directos:
 
 ```bash
 # Reiniciar un servicio (sin reconstruir imagen)
-docker compose -f docker-compose.prod.yml restart backend
+docker compose -f docker-compose.yml restart backend
 
 # Abrir shell dentro del backend
-docker compose -f docker-compose.prod.yml exec backend bash
+docker compose -f docker-compose.yml exec backend bash
 
 # Detener y borrar TODOS los datos — IRREVERSIBLE
-docker compose -f docker-compose.prod.yml down -v
+docker compose -f docker-compose.yml down -v
 ```
 
 ---
@@ -423,7 +415,6 @@ sudo ufw allow 80/tcp
 |---|---|---|
 | `medical-audit-prod-db` | `postgres:16-alpine` | Base de datos PostgreSQL |
 | `medical-audit-prod-backend` | `python:3.11-slim` + app | FastAPI + Ghostscript + Playwright |
-| `medical-audit-prod-nginx` | `nginx:1.27-alpine` | Proxy inverso, rate limiting, gzip |
 
 | Volumen | Contenido | Crítico |
 |---|---|---|

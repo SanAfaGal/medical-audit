@@ -77,7 +77,7 @@ async def request_logging_middleware(request: Request, call_next):
 
 @app.get("/health", include_in_schema=False)
 async def health() -> JSONResponse:
-    """Used by Docker HEALTHCHECK and nginx upstream probes."""
+    """Used by Docker HEALTHCHECK probes."""
     return JSONResponse({"status": "ok"})
 
 

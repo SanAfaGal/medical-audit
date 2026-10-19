@@ -1,6 +1,27 @@
-# Sobreescrituras para desarrollo local.
-# Docker Compose lo aplica automáticamente encima de docker-compose.yml
+# Sobreescrituras de desarrollo local.
+# Docker Compose lo aplica automáticamente encima de docker-compose.yml (base de producción)
+# cuando se invoca sin -f. deploy.sh usa -f docker-compose.yml, así que nunca lo aplica.
+#
+# dev.sh levanta solo los servicios que necesita (db + adminer, y backend en modo Docker).
+name: medical-audit
+
 services:
+  db:
+    container_name: medical-audit-dev-db
+    ports:
+      - "5432:5432"    # Expuesto al host para el backend nativo
+
+  backend:
+    container_name: medical-audit-dev-backend
+    environment:
+      DOCS_ENABLED: ${DOCS_ENABLED:-true}
+    volumes:
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+    ports: !override
+      - "8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
   adminer:
     container_name: medical-audit-dev-adminer
     image: adminer:latest
