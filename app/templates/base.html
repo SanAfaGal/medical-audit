@@ -142,6 +142,7 @@
         pdfMode: 'none',
         renamingPath: null,
         renameValue: '',
+        renameExt: '',
         selectedPdfs: [],
         mergeOutputName: 'resultado.pdf',
         splitRanges: '',
@@ -250,6 +251,11 @@
         async selectEntry(entry) {
           this.selectedEntry = entry;
           if (!entry.is_dir) {
+            if (entry.is_pdf === false) {
+              this.previewUrl = null;  // sin preview: /file solo sirve PDFs
+              this.pdfMode = 'none';
+              return;
+            }
             this.previewUrl = `/api/explorer/file?institution_id=${this.institutionId}&period_id=${this.periodId}&path=${encodeURIComponent(entry.path)}`;
             this.pdfMode = 'none';
           }
@@ -291,12 +297,17 @@
 
         startRename(entry) {
           this.renamingPath = entry.path;
-          this.renameValue = entry.name;
+          // Archivos: se edita solo el stem; la extensión queda fija
+          const dot = entry.name.lastIndexOf('.');
+          const hasExt = !entry.is_dir && dot > 0;
+          this.renameExt = hasExt ? entry.name.slice(dot) : '';
+          this.renameValue = hasExt ? entry.name.slice(0, dot) : entry.name;
           this.$nextTick(() => this.$refs.renameInput && this.$refs.renameInput.focus());
         },
 
         async commitRename(entry) {
-          if (!this.renameValue.trim() || this.renameValue === entry.name) {
+          const newName = this.renameValue.trim() + this.renameExt;
+          if (!this.renameValue.trim() || newName === entry.name) {
             this.renamingPath = null;
             return;
           }
@@ -307,7 +318,7 @@
               institution_id: this.institutionId,
               period_id: this.periodId,
               path: entry.path,
-              new_name: this.renameValue.trim(),
+              new_name: newName,
             }),
           });
           this.renamingPath = null;

@@ -108,7 +108,7 @@ async def list_directory(
     path: str = Query(""),
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista carpetas y archivos PDF en el directorio indicado."""
+    """Lista carpetas y archivos en el directorio indicado (los no-PDF se marcan con is_pdf=False)."""
     sandbox = await _resolve_sandbox(institution_id, period_id, db)
 
     rel = f"{root}/{path}".strip("/")
@@ -131,12 +131,13 @@ async def list_directory(
                         file_count=sum(1 for f in item.rglob("*") if f.is_file()),
                     )
                 )
-            elif item.suffix.lower() == ".pdf":
+            elif item.is_file():
                 entries.append(
                     FileNode(
                         name=item.name,
                         path=str(item.relative_to(sandbox)).replace("\\", "/"),
                         is_dir=False,
+                        is_pdf=item.suffix.lower() == ".pdf",
                         size=item.stat().st_size,
                     )
                 )
@@ -229,9 +230,10 @@ async def rename_entry(body: RenameRequest, db: AsyncSession = Depends(get_db)):
     if not src.exists():
         raise HTTPException(404, "Archivo o carpeta no encontrado")
 
-    # Validar que new_name no contenga separadores de ruta
-    if "/" in body.new_name or "\\" in body.new_name:
-        raise HTTPException(400, "El nuevo nombre no puede contener separadores de ruta")
+    _validate_entry_name(body.new_name)
+
+    if src.is_file() and Path(body.new_name).suffix.lower() != src.suffix.lower():
+        raise HTTPException(400, "No se puede cambiar la extensión del archivo")
 
     dst = src.parent / body.new_name
     _safe_resolve(sandbox, str(dst.relative_to(sandbox)))  # verificar sandbox
@@ -498,13 +500,14 @@ async def search_entries(
     for item in sorted(base.rglob("*"), key=lambda x: (not x.is_dir(), x.name.lower())):
         if q_lower not in item.name.lower():
             continue
-        if not item.is_dir() and item.suffix.lower() != ".pdf":
+        if not item.is_dir() and not item.is_file():
             continue
         entries.append(
             FileNode(
                 name=item.name,
                 path=str(item.relative_to(sandbox)).replace("\\", "/"),
                 is_dir=item.is_dir(),
+                is_pdf=item.is_dir() or item.suffix.lower() == ".pdf",
                 size=item.stat().st_size if item.is_file() else None,
             )
         )

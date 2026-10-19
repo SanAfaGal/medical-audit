@@ -194,13 +194,15 @@
                 <!-- ── Modo renombrar (normal o búsqueda) ── -->
                 <template x-if="renamingPath === entry.path">
                   <div class="flex items-center gap-1 px-2 py-1.5">
-                    <i :class="entry.is_dir ? 'fa-solid fa-folder text-amber-400' : 'fa-solid fa-file-pdf text-red-400'"
+                    <i :class="entry.is_dir ? 'fa-solid fa-folder text-amber-400' : entry.is_pdf === false ? 'fa-solid fa-triangle-exclamation text-amber-500' : 'fa-solid fa-file-pdf text-red-400'"
+                       :title="entry.is_pdf === false ? 'No es PDF (¿falta la extensión .pdf?)' : ''"
                        class="w-3.5 text-center shrink-0 text-xs"></i>
                     <input x-ref="renameInput"
                            x-model="renameValue"
                            @keydown.enter="commitRename(entry)"
                            @keydown.escape="renamingPath = null"
                            class="flex-1 text-xs border border-sky-400 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-sky-400 min-w-0">
+                    <span x-show="renameExt" x-text="renameExt" class="text-xs text-slate-400 shrink-0"></span>
                     <!-- mousedown.prevent evita que el blur cancele antes del click -->
                     <button @mousedown.prevent="commitRename(entry)"
                             class="shrink-0 p-0.5 rounded text-sky-600 hover:bg-sky-50 hover:text-sky-800"
@@ -226,7 +228,7 @@
                                    : pdfMode === 'copy'
                                      ? toggleCopyEntry(entry)
                                      : pdfMode === 'merge'
-                                       ? (!entry.is_dir && toggleMergePdf(entry.path))
+                                       ? (!entry.is_dir && entry.is_pdf !== false && toggleMergePdf(entry.path))
                                        : entry.is_dir ? navigateTo(entry.path) : (selectEntry(entry), confirmingDelete = null)"
                        @dblclick="!isSearchActive() && entry.is_dir && pdfMode === 'none' && navigateTo(entry.path)"
                        :draggable="pdfMode === 'none'"
@@ -258,7 +260,8 @@
                              class="w-3.5 h-3.5 rounded shrink-0 accent-red-500 cursor-pointer">
                     </template>
 
-                    <i :class="entry.is_dir ? 'fa-solid fa-folder text-amber-400' : 'fa-solid fa-file-pdf text-red-400'"
+                    <i :class="entry.is_dir ? 'fa-solid fa-folder text-amber-400' : entry.is_pdf === false ? 'fa-solid fa-triangle-exclamation text-amber-500' : 'fa-solid fa-file-pdf text-red-400'"
+                       :title="entry.is_pdf === false ? 'No es PDF (¿falta la extensión .pdf?)' : ''"
                        class="w-3.5 text-center shrink-0"></i>
 
                     <!-- En modo búsqueda: nombre + ruta padre -->
@@ -587,8 +590,12 @@
               </template>
               <template x-if="!previewUrl">
                 <div class="flex flex-col items-center justify-center h-full text-slate-300 gap-3">
-                  <i class="fa-solid fa-file-pdf text-5xl"></i>
-                  <span class="text-sm">Selecciona un PDF para previsualizarlo</span>
+                  <i :class="selectedEntry && selectedEntry.is_pdf === false ? 'fa-solid fa-triangle-exclamation text-amber-400' : 'fa-solid fa-file-pdf'"
+                     class="text-5xl"></i>
+                  <span class="text-sm"
+                        x-text="selectedEntry && selectedEntry.is_pdf === false
+                          ? 'Este archivo no es un PDF; no hay vista previa'
+                          : 'Selecciona un PDF para previsualizarlo'"></span>
                 </div>
               </template>
             </div>
