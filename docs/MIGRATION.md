@@ -13,7 +13,8 @@ demás (código, imágenes Docker, configuración) se reconstruye desde el repo 
 ## 1. En la máquina de origen: generar los backups
 
 ```bash
-./deploy.sh backup-full
+mkdir -p backups
+docker compose -f docker-compose.yml exec -T db pg_dump -U "$POSTGRES_USER" --format=custom "$POSTGRES_DB" > backups/full_$(date +%Y%m%d_%H%M%S).dump
 # → backups/full_TIMESTAMP.dump (dump lógico de PostgreSQL, formato --custom)
 ```
 
@@ -65,7 +66,9 @@ cd medical-audit-v2
 cp .env.example .env
 # editar .env con las credenciales de producción (ver docs/DEPLOY.md paso 2)
 
-./deploy.sh up
+docker compose -f docker-compose.yml up --build -d
+docker compose -f docker-compose.yml exec -T backend uv run alembic upgrade head
+docker compose -f docker-compose.yml exec -T backend uv run python seeds/seed_data.py
 ```
 
 Esto construye las imágenes, aplica las migraciones de Alembic sobre una base vacía y corre el
@@ -75,13 +78,15 @@ que corra.
 Verificar que los tres contenedores están sanos antes de continuar:
 
 ```bash
-./deploy.sh ps
+docker compose -f docker-compose.yml ps
 ```
 
 ## 4. Restaurar la base de datos
 
 ```bash
-./deploy.sh restore-full backups/full_TIMESTAMP.dump
+docker compose -f docker-compose.yml stop backend
+docker compose -f docker-compose.yml exec -T db pg_restore -U "$POSTGRES_USER" --clean --if-exists -d "$POSTGRES_DB" < backups/full_TIMESTAMP.dump
+docker compose -f docker-compose.yml start backend
 ```
 
 Detiene el `backend` antes de restaurar (evita escrituras concurrentes) y lo reinicia al terminar.
@@ -99,7 +104,7 @@ docker run --rm \
 ## 6. Verificar
 
 ```bash
-./deploy.sh health
+curl -s http://localhost/health
 curl http://localhost/health/db
 ```
 
@@ -122,7 +127,7 @@ migración verificada en la máquina nueva por al menos unos días.
 
 | Qué se copia | Cómo se genera | Cómo se restaura |
 |---|---|---|
-| Base de datos | `./deploy.sh backup-full` | `./deploy.sh restore-full <archivo>` |
+| Base de datos | `pg_dump --format=custom` (ver [DEPLOY.md](DEPLOY.md#backups)) | `pg_restore` (ver [DEPLOY.md](DEPLOY.md#backups)) |
 | PDFs (`audit_data`) | `docker run ... tar czf ...` (ver paso 1) | `docker run ... tar xzf ...` (ver paso 5) |
 
 Detalle completo de cada comando de backup/restore individual: [docs/DEPLOY.md § Backups](DEPLOY.md#backups).

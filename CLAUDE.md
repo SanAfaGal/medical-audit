@@ -8,27 +8,27 @@ Nunca crees un commit ni hagas push a remoto a menos que el usuario lo solicite 
 ## Documentación del proyecto
 
 El README.md es solo orientación rápida (stack, arquitectura, setup). El detalle vive en:
-- `docs/DEVELOPMENT.md` — comandos `dev.sh`, migraciones, backups locales, testing, variables de entorno
-- `docs/DEPLOY.md` — runbook completo de producción (`deploy.sh`, rollback, backups, firewall)
+- `docs/DEVELOPMENT.md` — comandos de desarrollo, migraciones, backups locales, testing, variables de entorno
+- `docs/DEPLOY.md` — runbook completo de producción (comandos `docker compose -f docker-compose.yml`, rollback, backups, firewall)
 - `docs/MIGRATION.md` — migrar el stack completo (DB + volumen de PDFs) a otra máquina
 - `docs/API.md` — referencia completa de endpoints REST
 - `docs/DOMAIN.md` — modelo de dominio (entidades, estados) y las 22 etapas del pipeline
 
 ## Comandos
 
-Entorno gestionado con `uv`. Backend nativo corre en Windows; solo Postgres está en Docker por defecto (ver `./dev.sh docker-up` para correr también el backend en Docker).
+Entorno gestionado con `uv`. Backend nativo corre en Windows; solo Postgres está en Docker por defecto (ver `docs/DEVELOPMENT.md` para correr también el backend en Docker).
 
 ```bash
-./dev.sh db                              # Levantar Postgres (Docker)
-./dev.sh migrate                         # Aplicar migraciones Alembic pendientes
-./dev.sh serve                           # Uvicorn con hot-reload en 0.0.0.0:8000
-./dev.sh test                            # pytest completo
-./dev.sh test -k test_invoice -v         # Un test específico por nombre
-./dev.sh test -m "not db and not slow"   # Solo tests unitarios rápidos (sin Postgres)
-./dev.sh test tests/app/core/test_scanner.py # Un archivo específico
-./dev.sh lint                            # ruff check + format check
-./dev.sh format                          # Auto-formatear con ruff
-uv run mypy app/                         # Type checking (sin wrapper en dev.sh)
+docker compose up -d db adminer   # Levantar Postgres (Docker)
+uv run alembic upgrade head   # Aplicar migraciones Alembic pendientes
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload   # Uvicorn con hot-reload en 0.0.0.0:8000
+uv run pytest   # pytest completo
+uv run pytest -k test_invoice -v   # Un test específico por nombre
+uv run pytest -m "not db and not slow"   # Solo tests unitarios rápidos (sin Postgres)
+uv run pytest tests/app/core/test_scanner.py   # Un archivo específico
+uv run ruff check . && uv run ruff format --check .   # ruff check + format check
+uv run ruff format .   # Auto-formatear con ruff
+uv run mypy app/                         # Type checking
 ```
 
 Pytest markers (`pyproject.toml`): `db` (requiere Postgres vivo), `slow` (archivos grandes), `pdf` (requiere fixtures PDF reales). CI corre `-m db` con `--cov-fail-under=60` sobre `app/`.
@@ -47,6 +47,6 @@ Capas con dirección de dependencia estricta: `routers → services → reposito
 
 **Seguridad de rutas de archivo**: cualquier endpoint que reciba una ruta relativa del cliente (explorer, pipeline, invoices) debe validarla con `app/paths.py::safe_resolve`/`safe_join` antes de tocar el filesystem — resuelven la ruta y verifican que quede dentro del directorio base, lanzando `ValueError` si escapa (los routers la traducen a `HTTPException(400, ...)`). No reimplementar esta validación inline.
 
-**Modo dev vs producción** (dos stacks Docker independientes, pueden correr en paralelo sin conflicto — nombres de proyecto y puertos distintos): `docker-compose.yml` (base de producción: db + backend) vía `deploy.sh` con `-f` explícito; `docker-compose.override.yml` (sobreescrituras dev: puerto de db, Adminer, backend con hot-reload) se aplica automáticamente solo con `docker compose` sin `-f`, vía `dev.sh`. Nunca mezclar los scripts entre entornos.
+**Modo dev vs producción** (dos stacks Docker independientes, pueden correr en paralelo sin conflicto — nombres de proyecto y puertos distintos): `docker-compose.yml` (base de producción: db + backend) con `-f` explícito (siempre en producción); `docker-compose.override.yml` (sobreescrituras dev: puerto de db, Adminer, backend con hot-reload) se aplica automáticamente solo con `docker compose` sin `-f`. Nunca correr `docker compose` sin `-f` en producción.
 
 **Alembic**: los modelos en `app/models/__init__.py` deben importarse todos ahí para que `alembic revision --autogenerate` los detecte. Además de constraints normales, hay triggers de Postgres (creados vía `op.execute` en migraciones, no vía SQLAlchemy) que sincronizan `Invoice.folder_status_id` según los hallazgos (`missing_files`) abiertos — ver la migración `initial_schema` (la única en `alembic/versions/` — el historial se consolidó en una sola). Si vas a tocar transiciones de estado de factura, revisá esos triggers primero; un `UPDATE` en Python puede ser silenciosamente corregido por ellos (los repos que lo hacen ya loguean un warning cuando eso pasa, ver `app/repositories/invoice_repo.py`).

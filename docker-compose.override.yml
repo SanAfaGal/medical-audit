@@ -1,8 +1,8 @@
 # Sobreescrituras de desarrollo local.
 # Docker Compose lo aplica automáticamente encima de docker-compose.yml (base de producción)
-# cuando se invoca sin -f. deploy.sh usa -f docker-compose.yml, así que nunca lo aplica.
+# cuando se invoca sin -f. En producción se usa siempre -f docker-compose.yml, que no lo aplica.
 #
-# dev.sh levanta solo los servicios que necesita (db + adminer, y backend en modo Docker).
+# En desarrollo se levantan solo los servicios necesarios: `docker compose up -d db adminer` (+ backend para modo Docker).
 name: medical-audit
 
 services:

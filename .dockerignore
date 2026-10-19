@@ -52,8 +52,6 @@ backups/
 tasks/
 
 # Development scripts and docs
-dev.sh
-deploy.sh
 *.md
 CLAUDE.md
 .github/

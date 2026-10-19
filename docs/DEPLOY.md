@@ -2,34 +2,31 @@
 
 Stack: `docker-compose.yml` — dos contenedores orquestados, datos persistentes en volúmenes Docker nombrados, completamente aislado del entorno de desarrollo.
 
-Todos los comandos de este documento tienen un wrapper en `./deploy.sh` (ver `./deploy.sh help`). Este documento usa esos wrappers como camino principal; el comando `docker compose -f docker-compose.yml ...` equivalente se muestra debajo cuando aporta como referencia directa.
+Todos los comandos usan `docker compose -f docker-compose.yml ...`. El `-f` explícito es obligatorio: sin él, Compose aplica automáticamente `docker-compose.override.yml` (config de desarrollo: Postgres y Adminer expuestos, Swagger activo, otro nombre de proyecto). Para no depender de recordarlo, puedes definir `COMPOSE_FILE=docker-compose.yml` en el `.env` del servidor.
 
-> `./deploy.sh` es solo para producción. Para desarrollo local usa `./dev.sh` — ver [docs/DEVELOPMENT.md](DEVELOPMENT.md).
+> Esta guía es solo para producción. Para desarrollo local ver [docs/DEVELOPMENT.md](DEVELOPMENT.md).
 
 ---
 
 ## Referencia de comandos
 
-```bash
-./deploy.sh help                       # Listar todos los comandos
-```
+En los ejemplos, `P` es `docker compose -f docker-compose.yml`. Las variables `POSTGRES_USER` y `POSTGRES_DB` salen de `.env` (`source .env`).
 
 ```bash
-./deploy.sh up                         # Primer deploy: build + up + migrate + seed
-./deploy.sh up-clean                   # Primer deploy SIN cache
-./deploy.sh update                     # Actualizar tras git pull: build + up + migrate
-./deploy.sh down                       # Detener stack de producción
-./deploy.sh ps                         # Estado de los contenedores
-./deploy.sh logs [servicio]            # Ver logs en tiempo real
-./deploy.sh migrate                    # Aplicar migraciones Alembic
-./deploy.sh seed                       # Ejecutar seed de datos iniciales
-./deploy.sh psql                       # Conectar vía psql
-./deploy.sh health                     # Verificar /health (localhost:80)
-./deploy.sh backup [nombre]            # Snapshot de tablas de config → backups/<nombre>_TIMESTAMP.sql
-./deploy.sh backup-full                # Backup completo de la base de datos
-./deploy.sh restore <archivo.sql>      # Restaurar snapshot de configuración
-./deploy.sh restore-full <archivo>     # Restaurar backup completo (detiene el backend)
+P up --build -d                                     # Primer deploy: build + up
+P exec -T backend uv run alembic upgrade head       # Migraciones
+P exec -T backend uv run python seeds/seed_data.py  # Seed de datos iniciales
+P build --no-cache && P up -d                       # Rebuild SIN cache
+P up -d --build                                     # Actualizar tras git pull (luego migrar)
+P down                                              # Detener (conserva volúmenes)
+P ps                                                # Estado de los contenedores
+P logs -f [servicio]                                # Logs en tiempo real
+P exec db psql -U "$POSTGRES_USER" "$POSTGRES_DB"   # psql
+curl -s http://localhost/health                     # Health check
 ```
+
+Backups y restauración: ver la sección [Backups](#backups).
+
 
 ---
 
@@ -89,7 +86,9 @@ DOCS_ENABLED=false
 ### 3. Construir, iniciar, migrar y cargar datos iniciales
 
 ```bash
-./deploy.sh up
+docker compose -f docker-compose.yml up --build -d
+docker compose -f docker-compose.yml exec -T backend uv run alembic upgrade head
+docker compose -f docker-compose.yml exec -T backend uv run python seeds/seed_data.py
 ```
 
 Equivale a: `build` + `up -d` + `alembic upgrade head` + `seed_data.py`. La primera vez tarda 5-15 minutos: instala el venv de Python y descarga Playwright Chromium (~300 MB).
@@ -109,7 +108,7 @@ Progreso esperado durante el build:
 Verifica que los tres contenedores están corriendo:
 
 ```bash
-./deploy.sh ps
+docker compose -f docker-compose.yml ps
 # equivalente: docker compose -f docker-compose.yml ps
 ```
 
@@ -122,7 +121,7 @@ medical-audit-prod-backend    medical-audit-prod-...   running (healthy)
 
 > Si `medical-audit-prod-db` aparece como `starting` espera unos segundos — el healthcheck de PostgreSQL tarda hasta 50 segundos en pasar.
 
-> Si necesitas reconstruir sin caché (por ejemplo tras un build corrupto), usa `./deploy.sh up-clean`.
+> Si necesitas reconstruir sin caché (por ejemplo tras un build corrupto), usa `P build --no-cache && P up -d`.
 
 ### 4. Verificar que la aplicación responde
 
@@ -189,7 +188,8 @@ a Alembic que el punto de partida cambió de nombre.
 
 **Antes de desplegar**, backup preventivo (como siempre):
 ```bash
-./deploy.sh backup-full
+mkdir -p backups
+docker compose -f docker-compose.yml exec -T db pg_dump -U "$POSTGRES_USER" --format=custom "$POSTGRES_DB" > backups/full_$(date +%Y%m%d_%H%M%S).dump
 ```
 
 **Desplegar el código nuevo normalmente:**
@@ -198,7 +198,7 @@ git pull origin main
 docker compose -f docker-compose.yml up -d --build backend
 ```
 
-**El paso automático de `deploy.sh update` que corre `alembic upgrade head` va a fallar** con
+**El paso de migración (`alembic upgrade head`) del flujo de actualización va a fallar** con
 `Can't locate revision identified by '94c9b6697c6b'` — es esperado y no daña nada (Alembic se
 niega a actuar porque no reconoce el punto de partida, no intenta recrear tablas existentes).
 Corregirlo con un `stamp --purge` (marca la revisión actual sin ejecutar ningún DDL, porque el
@@ -215,7 +215,7 @@ docker compose -f docker-compose.yml exec backend alembic current
 # Debe mostrar 05e49443f9b5 (head)
 ```
 
-De ahí en adelante, `./deploy.sh update` vuelve a funcionar normal para futuras migraciones.
+De ahí en adelante, el flujo de actualización vuelve a funcionar normal para futuras migraciones.
 
 ---
 
@@ -225,18 +225,20 @@ De ahí en adelante, `./deploy.sh update` vuelve a funcionar normal para futuras
 # 1. Verificar CI verde en GitHub Actions
 
 # 2. Backup preventivo (obligatorio antes de cada deploy)
-./deploy.sh backup pre-deploy   # ver sección Backups
+mkdir -p backups   # ver sección Backups
+docker compose -f docker-compose.yml exec -T db pg_dump -U "$POSTGRES_USER" --data-only -t institutions -t service_types -t doc_types -t folder_statuses -t prefix_corrections -t admins -t contracts -t services -t service_type_documents "$POSTGRES_DB" > backups/pre-deploy_$(date +%Y%m%d_%H%M%S).sql
 
 # 3. Bajar los cambios
 git pull origin main
 
 # 4. Reconstruir, iniciar y migrar (solo reconstruye lo que cambió)
-./deploy.sh update
+docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml exec -T backend uv run alembic upgrade head
 
 # 5. Verificar
-./deploy.sh health
+curl -s http://localhost/health
 curl http://localhost/health/db
-./deploy.sh logs backend
+docker compose -f docker-compose.yml logs -f backend
 ```
 
 ---
@@ -254,7 +256,7 @@ docker compose -f docker-compose.yml up -d --build backend
 
 ```bash
 # 1. Restaurar backup de configuración tomado antes del deploy
-./deploy.sh restore backups/pre-deploy_TIMESTAMP.sql
+docker compose -f docker-compose.yml exec -T db psql -U "$POSTGRES_USER" "$POSTGRES_DB" < backups/pre-deploy_TIMESTAMP.sql
 
 # 2. Revertir la migración de Alembic (sin wrapper — comando directo)
 docker compose -f docker-compose.yml exec backend alembic downgrade -1
@@ -275,7 +277,8 @@ Los datos críticos están en dos lugares: la base de datos PostgreSQL y el volu
 Las tablas de configuración (instituciones, tipos de servicio, mapeos, reglas) son las más difíciles de reconstruir. Se recomienda hacer este backup antes de cada deploy y al terminar cada sesión de configuración.
 
 ```bash
-./deploy.sh backup [nombre]
+mkdir -p backups
+docker compose -f docker-compose.yml exec -T db pg_dump -U "$POSTGRES_USER" --data-only -t institutions -t service_types -t doc_types -t folder_statuses -t prefix_corrections -t admins -t contracts -t services -t service_type_documents "$POSTGRES_DB" > backups/config_$(date +%Y%m%d_%H%M%S).sql
 # → backups/<nombre>_TIMESTAMP.sql (default nombre: "config")
 ```
 
@@ -284,11 +287,12 @@ Las tablas de configuración (instituciones, tipos de servicio, mapeos, reglas) 
 Incluye todo: configuración + periodos + facturas + hallazgos.
 
 ```bash
-./deploy.sh backup-full
+mkdir -p backups
+docker compose -f docker-compose.yml exec -T db pg_dump -U "$POSTGRES_USER" --format=custom "$POSTGRES_DB" > backups/full_$(date +%Y%m%d_%H%M%S).dump
 # → backups/full_TIMESTAMP.dump
 ```
 
-> El backup completo usa `--format=custom` (binario comprimido). Para restaurarlo se usa `pg_restore`, que es lo que hace `./deploy.sh restore-full`.
+> El backup completo usa `--format=custom` (binario comprimido). Para restaurarlo se usa `pg_restore`, que es lo que hace el comando de restauración completa.
 
 ### Backup del volumen de auditoría (PDFs)
 
@@ -308,13 +312,15 @@ docker run --rm \
 ### Restaurar tablas de configuración
 
 ```bash
-./deploy.sh restore backups/config_TIMESTAMP.sql
+docker compose -f docker-compose.yml exec -T db psql -U "$POSTGRES_USER" "$POSTGRES_DB" < backups/config_TIMESTAMP.sql
 ```
 
 ### Restaurar base de datos completa
 
 ```bash
-./deploy.sh restore-full backups/full_TIMESTAMP.dump
+docker compose -f docker-compose.yml stop backend
+docker compose -f docker-compose.yml exec -T db pg_restore -U "$POSTGRES_USER" --clean --if-exists -d "$POSTGRES_DB" < backups/full_TIMESTAMP.dump
+docker compose -f docker-compose.yml start backend
 ```
 
 Detiene el `backend` antes de restaurar (evita escrituras concurrentes) y lo reinicia al terminar.
@@ -342,7 +348,7 @@ crontab -e
 
 Agregar:
 ```
-0 2 * * * cd /ruta/al/proyecto && ./deploy.sh backup-full
+0 2 * * * cd /ruta/al/proyecto && docker compose -f docker-compose.yml exec -T db pg_dump -U "$POSTGRES_USER" --format=custom "$POSTGRES_DB" > backups/full_$(date +\%Y\%m\%d_\%H\%M\%S).dump
 ```
 
 **En Windows (Task Scheduler):**
@@ -351,7 +357,8 @@ Crear `scripts/backup-daily.bat`:
 ```bat
 @echo off
 cd /d C:\ruta\al\proyecto\medical-audit-v2
-bash deploy.sh backup-full
+mkdir backups 2>nul
+"C:\Program Files\Gitinash.exe" -c "source .env; docker compose -f docker-compose.yml exec -T db pg_dump -U $POSTGRES_USER --format=custom $POSTGRES_DB > backups/full_$(date +%Y%m%d_%H%M%S).dump"
 ```
 
 Programar en **Task Scheduler → Create Basic Task → Daily → 02:00**.
@@ -361,11 +368,11 @@ Programar en **Task Scheduler → Create Basic Task → Daily → 02:00**.
 ## Gestión de contenedores
 
 ```bash
-./deploy.sh ps                 # Ver estado de todos los contenedores
-./deploy.sh logs                # Ver logs en tiempo real (todos los servicios)
-./deploy.sh logs backend        # Ver logs solo del backend
-./deploy.sh psql                 # Conectar directamente a la base de datos
-./deploy.sh down                 # Detener todos los contenedores (conserva volúmenes y datos)
+docker compose -f docker-compose.yml ps   # Ver estado de todos los contenedores
+docker compose -f docker-compose.yml logs -f   # Ver logs en tiempo real (todos los servicios)
+docker compose -f docker-compose.yml logs -f backend   # Ver logs solo del backend
+docker compose -f docker-compose.yml exec db psql -U "$POSTGRES_USER" "$POSTGRES_DB"   # Conectar directamente a la base de datos
+docker compose -f docker-compose.yml down   # Detener todos los contenedores (conserva volúmenes y datos)
 ```
 
 Sin wrapper — comandos directos:
