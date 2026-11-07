@@ -3,14 +3,17 @@
 import io
 import logging
 import re
+import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
+from app.core.helpers import EventFn
 from app.core.helpers import emit_event as _emit
 
 logger = logging.getLogger(__name__)
@@ -44,16 +47,17 @@ class DriveSync:
         credentials_dict: Service-account credentials as a parsed JSON dict.
     """
 
-    def __init__(self, credentials_dict: dict) -> None:
+    def __init__(self, credentials_dict: dict[str, Any]) -> None:
         self.creds = service_account.Credentials.from_service_account_info(credentials_dict, scopes=_DRIVE_SCOPES)
         self.service = build("drive", "v3", credentials=self.creds)
 
-    def _execute_with_retry(self, request) -> dict:
+    def _execute_with_retry(self, request: Any) -> dict[str, Any]:
         """Execute a Drive API request, retrying on transient server errors."""
         delay = _RETRY_BACKOFF_BASE
         for attempt in range(_MAX_RETRIES + 1):
             try:
-                return request.execute()  # type: ignore[no-any-return]
+                result: dict[str, Any] = request.execute()
+                return result
             except HttpError as exc:
                 if exc.status_code not in _RETRYABLE_STATUS or attempt == _MAX_RETRIES:
                     raise
@@ -88,7 +92,7 @@ class DriveSync:
         except (OSError, HttpError) as exc:
             logger.error("Failed to download file %s: %s", file_name, exc)
 
-    def _list_folder_contents(self, folder_id: str, page_token: str | None) -> dict:
+    def _list_folder_contents(self, folder_id: str, page_token: str | None) -> dict[str, Any]:
         """Fetch one page of a Drive folder's children."""
         query = f"'{folder_id}' in parents and trashed = false"
         request = self.service.files().list(
@@ -101,7 +105,9 @@ class DriveSync:
         )
         return self._execute_with_retry(request)
 
-    def _process_drive_item(self, item: dict, local_path: Path, depth: int, cancel_event=None) -> int:
+    def _process_drive_item(
+        self, item: dict[str, Any], local_path: Path, depth: int, cancel_event: threading.Event | None = None
+    ) -> int:
         """Route a single Drive item to download or recurse into a sub-folder.
 
         Returns the number of files handled (downloaded or already present).
@@ -114,7 +120,9 @@ class DriveSync:
         logger.info("Skipping Google native file: %s", item["name"])
         return 0
 
-    def _sync_folder_tree(self, folder_id: str, local_path: Path, depth: int = 0, cancel_event=None) -> int:
+    def _sync_folder_tree(
+        self, folder_id: str, local_path: Path, depth: int = 0, cancel_event: threading.Event | None = None
+    ) -> int:
         """Recursively download the contents of a Drive folder; returns the files handled.
 
         Stops early (between files) when ``cancel_event`` is set.
@@ -145,7 +153,7 @@ class DriveSync:
             logger.warning("Folder appears to be empty in Drive: %s", local_path.name)
         return handled
 
-    def _batch_search_folders(self, invoice_numbers: list[str]) -> tuple[set[str], list[dict]]:
+    def _batch_search_folders(self, invoice_numbers: list[str]) -> tuple[set[str], list[dict[str, Any]]]:
         """Search Drive for folders containing any of the given invoice numbers.
 
         Uses the invoice number (not a prefixed name) as the search term so
@@ -166,7 +174,7 @@ class DriveSync:
             and ``unique_folders`` is the de-duplicated list of folder dicts.
         """
         found_numbers: set[str] = set()
-        folders_by_id: dict[str, dict] = {}
+        folders_by_id: dict[str, dict[str, Any]] = {}
 
         for offset in range(0, len(invoice_numbers), _DRIVE_FILE_BATCH_SIZE):
             chunk = invoice_numbers[offset : offset + _DRIVE_FILE_BATCH_SIZE]
@@ -192,7 +200,11 @@ class DriveSync:
         return found_numbers, list(folders_by_id.values())
 
     def download_missing_dirs(
-        self, invoice_numbers: list[str], local_root: Path, event_fn=None, cancel_event=None
+        self,
+        invoice_numbers: list[str],
+        local_root: Path,
+        event_fn: EventFn | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[str]:
         """Search Drive for folders containing the given invoice numbers and
         download each one found.

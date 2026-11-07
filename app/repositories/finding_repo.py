@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
 import datetime
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.repositories._sql import affected_rows
 from app.models.finding import MissingFile
 from app.models.invoice import Invoice
 from app.models.rules import DocType
@@ -108,7 +110,7 @@ class MissingFileRepo:
             grouped.setdefault(invoice_number, []).append(doc_code)
         return grouped
 
-    async def get_findings_summary(self, period_id: int) -> list[dict]:
+    async def get_findings_summary(self, period_id: int) -> list[dict[str, Any]]:
         """Return unresolved finding counts per doc type for a period, sorted descending."""
         from app.models.rules import DocType
 
@@ -132,4 +134,4 @@ class MissingFileRepo:
             return 0
         result = await self.db.execute(delete(MissingFile).where(MissingFile.invoice_id.in_(invoice_ids)))
         await self.db.flush()
-        return result.rowcount  # type: ignore[attr-defined, no-any-return]
+        return affected_rows(result)

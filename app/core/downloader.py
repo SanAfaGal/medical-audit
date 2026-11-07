@@ -3,15 +3,17 @@
 import asyncio
 import logging
 import sys
+import threading
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+from playwright.async_api import Page, Route, async_playwright
 
+from app.core.helpers import EventFn, ProgressFn, read_lines_from_file
 from app.core.helpers import emit_event as _emit
-from app.core.helpers import read_lines_from_file
 from app.core.urlcheck import is_blocked_request
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,7 @@ def _first_line(exc: Exception, limit: int = 200) -> str:
     return text[:limit]
 
 
-async def _recover_page(page):
+async def _recover_page(page: Page) -> Page:
     """Return a clean page after a failed navigation.
 
     After a network error (e.g. ERR_EMPTY_RESPONSE) Chromium leaves the page on an internal
@@ -92,7 +94,13 @@ class SihosDownloader:
         self._invoice_doc_code: str = invoice_doc_code
         self._output_dir: Path = output_dir
 
-    def run_from_list(self, invoice_numbers: list[str], progress_fn=None, event_fn=None, cancel_event=None) -> None:
+    def run_from_list(
+        self,
+        invoice_numbers: list[str],
+        progress_fn: ProgressFn | None = None,
+        event_fn: EventFn | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         """Download invoices from a list of invoice numbers.
 
         Args:
@@ -114,9 +122,9 @@ class SihosDownloader:
         self,
         targets: list[tuple[str, str, str, str]],
         file_prefix: str,
-        progress_fn=None,
-        event_fn=None,
-        cancel_event=None,
+        progress_fn: ProgressFn | None = None,
+        event_fn: EventFn | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         """Download medication sheet PDFs for the given targets.
 
@@ -136,7 +144,13 @@ class SihosDownloader:
         finally:
             loop.close()
 
-    def _download_invoices(self, invoice_list: list[str], progress_fn=None, event_fn=None, cancel_event=None) -> None:
+    def _download_invoices(
+        self,
+        invoice_list: list[str],
+        progress_fn: ProgressFn | None = None,
+        event_fn: EventFn | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         """Open a browser session and download each invoice."""
         loop = asyncio.ProactorEventLoop() if sys.platform == "win32" else asyncio.new_event_loop()
         try:
@@ -145,7 +159,7 @@ class SihosDownloader:
             loop.close()
 
     @asynccontextmanager
-    async def _browser_session(self, event_fn=None):
+    async def _browser_session(self, event_fn: EventFn | None = None) -> AsyncIterator[Page]:
         """Async context manager that yields an authenticated SIHOS page.
 
         Raises:
@@ -161,7 +175,7 @@ class SihosDownloader:
 
             resolved: dict[str, bool] = {}
 
-            async def _guard(route) -> None:
+            async def _guard(route: Route) -> None:
                 # Redirects or embedded resources must not reach loopback/metadata addresses (SSRF),
                 # whether given as an IP in any notation or as a name that resolves to one.
                 if await is_blocked_request(route.request.url, resolved):
@@ -191,7 +205,11 @@ class SihosDownloader:
                 await browser.close()
 
     async def _async_download_invoices(
-        self, invoice_list: list[str], progress_fn=None, event_fn=None, cancel_event=None
+        self,
+        invoice_list: list[str],
+        progress_fn: ProgressFn | None = None,
+        event_fn: EventFn | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         """Async implementation of the browser-based invoice download."""
         total = len(invoice_list)
@@ -228,9 +246,9 @@ class SihosDownloader:
         self,
         targets: list[tuple[str, str, str, str]],
         file_prefix: str,
-        progress_fn=None,
-        event_fn=None,
-        cancel_event=None,
+        progress_fn: ProgressFn | None = None,
+        event_fn: EventFn | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         """Async implementation of medication sheet download."""
         total = len(targets)

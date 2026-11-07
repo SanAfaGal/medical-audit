@@ -7,7 +7,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Literal
 
 MAX_LOG_LINES = 5_000
 MAX_COMPLETED_RUNS = 10
@@ -39,7 +39,7 @@ class PipelineRun:
     last_activity: datetime = field(default_factory=datetime.utcnow)
     # Set on cancel so blocking worker threads (Playwright downloads) can stop between items.
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
-    _task: asyncio.Task | None = field(default=None, repr=False)
+    _task: asyncio.Task[None] | None = field(default=None, repr=False)
     _condition: asyncio.Condition = field(default_factory=asyncio.Condition, repr=False)
 
 
@@ -90,7 +90,7 @@ class PipelineTaskManager:
         run.status = status
         run.finished_at = datetime.utcnow()
 
-    async def start(self, stage: str, institution_id: int, period_id: int, extra: dict) -> PipelineRun:
+    async def start(self, stage: str, institution_id: int, period_id: int, extra: dict[str, Any]) -> PipelineRun:
         # No `await` between the check and the registration below: this makes the
         # check-then-register atomic with respect to the event loop, closing the
         # TOCTOU window that existed when this check lived in the router (with
@@ -151,7 +151,7 @@ class PipelineTaskManager:
         stage: str,
         institution_id: int,
         period_id: int,
-        extra: dict,
+        extra: dict[str, Any],
     ) -> None:
         from app.database import AsyncSessionLocal
         from app.repositories.institution_repo import InstitutionRepo

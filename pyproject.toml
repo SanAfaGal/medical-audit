@@ -103,9 +103,21 @@ extend-select = ["TID251", "B904", "B905", "BLE001", "PLW2901"]
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
-warn_unused_ignores = true
-no_implicit_reexport = false
+strict = true
+no_implicit_reexport = false  # packages re-export on purpose (app.services.pipeline, app.services.explorer)
+
+# FastAPI endpoints state their contract in response_model/status_code, and many return ORM objects that the
+# response model serializes, so a return annotation would only repeat (or contradict) it. Everything else in the
+# routers is still checked strictly.
+# google-auth ships untyped helpers (Credentials.from_service_account_info); this is the only module that calls them.
+[[tool.mypy.overrides]]
+module = ["app.core.drive"]
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["app.routers.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false  # parameters are annotated, the return type is left to response_model
 
 [[tool.mypy.overrides]]
 # Third-party libraries without stubs

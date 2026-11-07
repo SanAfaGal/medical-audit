@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -10,6 +11,10 @@ from app.repositories.finding_repo import MissingFileRepo
 from app.schemas.finding import MissingFileCreate, MissingFileOut, MissingFileResolve
 
 router = APIRouter(prefix="/missing-files", tags=["missing-files"])
+
+
+class BatchDeleteFindings(BaseModel):
+    invoice_ids: list[int] = []
 
 
 @router.get("/{invoice_id}", response_model=list[MissingFileOut])
@@ -58,9 +63,9 @@ async def delete_all_missing_files(invoice_id: int, db: AsyncSession = Depends(g
 
 
 @router.post("/batch-delete", status_code=200)
-async def batch_delete_findings(data: dict, db: AsyncSession = Depends(get_db)):
+async def batch_delete_findings(data: BatchDeleteFindings, db: AsyncSession = Depends(get_db)):
     """Delete all findings for multiple invoices at once."""
-    invoice_ids = data.get("invoice_ids", [])
+    invoice_ids = data.invoice_ids
     if not invoice_ids:
         return {"deleted": 0}
     repo = MissingFileRepo(db)

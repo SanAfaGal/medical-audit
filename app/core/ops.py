@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-_RE_NIT: re.Pattern = re.compile(r"_(\d+)_")
+_RE_NIT: re.Pattern[str] = re.compile(r"_(\d+)_")
 _FOLDER_NAME_PART_INDEX: int = 2
 
 # Supported image formats for PDF conversion

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -24,13 +25,14 @@ from app.routers.deps import PeriodScope, load_period_scope, period_scope
 from app.services import pipeline as pipeline_runner
 from app.services.archive import ArchiveError, ArchiveToolMissing, build_zip_file, extract_archive
 from app.services.stage_events import heartbeat_event, with_heartbeat
-from app.services.task_manager import HEARTBEAT_SECONDS, PipelineTaskManager, TaskAlreadyRunningError
+from app.services.task_manager import HEARTBEAT_SECONDS, PipelineRun, PipelineTaskManager, TaskAlreadyRunningError
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
 def get_task_manager(request: Request) -> PipelineTaskManager:
-    return request.app.state.task_manager  # type: ignore[no-any-return]
+    manager: PipelineTaskManager = request.app.state.task_manager
+    return manager
 
 
 @router.get("/run/{stage}")
@@ -52,13 +54,13 @@ async def run_stage(
     """
     institution, period = scope.institution, scope.period
 
-    extra: dict = {}
+    extra: dict[str, Any] = {}
     if invoice_numbers:
         extra["invoice_numbers"] = [n.strip() for n in invoice_numbers.split(",") if n.strip()]
     if doc_type_id:
         extra["doc_type_id"] = doc_type_id
 
-    async def event_gen():
+    async def event_gen() -> AsyncGenerator[str, None]:
         # Same per-(institution, period) lock as background tasks. Taken here, inside the generator,
         # so the finally below always releases it even if the client drops before the first byte.
         try:
@@ -112,7 +114,7 @@ async def start_stage_task(
     tm: PipelineTaskManager = Depends(get_task_manager),
 ):
     """Start a pipeline stage as a background task; returns task_id for streaming."""
-    extra: dict = {}
+    extra: dict[str, Any] = {}
     if invoice_numbers:
         extra["invoice_numbers"] = [n.strip() for n in invoice_numbers.split(",") if n.strip()]
     if doc_type_id:
@@ -136,7 +138,7 @@ async def stream_task_logs(
     if not run:
         raise HTTPException(404, "Tarea no encontrada")
 
-    async def event_gen():
+    async def event_gen() -> AsyncGenerator[str, None]:
         async for idx, line in tm.stream_from(task_id, from_):
             if line is None:  # quiet period: named event so the UI can show server-side liveness
                 now = datetime.utcnow()
@@ -158,7 +160,7 @@ async def stream_task_logs(
     )
 
 
-def _run_summary(r) -> dict:
+def _run_summary(r: PipelineRun) -> dict[str, Any]:
     return {
         "task_id": r.task_id,
         "stage": r.stage,

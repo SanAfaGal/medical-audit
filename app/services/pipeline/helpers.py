@@ -6,9 +6,17 @@ from pathlib import Path
 
 import asyncio
 import re
+from collections.abc import Callable
+from typing import ParamSpec, Protocol, TypeVar
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.institution import Institution
 from app.models.period import AuditPeriod
+from app.services.pipeline.context import StageContext
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 def sihos_excel_name(institution: Institution, period: AuditPeriod) -> str:
@@ -17,11 +25,17 @@ def sihos_excel_name(institution: Institution, period: AuditPeriod) -> str:
     return f"SIHOS_{name}_{period.period_label}.xlsx"
 
 
-def get_executor():
+class ThreadRunner(Protocol):
+    """``await run(fn, *args, **kwargs)``: call ``fn`` in the default thread pool and return its result."""
+
+    async def __call__(self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T: ...
+
+
+def get_executor() -> ThreadRunner:
     """Return a callable that runs a sync function in the default thread executor."""
     loop = asyncio.get_running_loop()
 
-    async def run(fn, *args, **kwargs):
+    async def run(fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
         return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
 
     return run
@@ -30,7 +44,7 @@ def get_executor():
 INVOICE_NUMBER_RE = re.compile(r"[\w.\-]{1,50}")
 
 
-def sihos_url_error(institution) -> str | None:
+def sihos_url_error(institution: Institution) -> str | None:
     """Re-validate the stored SIHOS URL (with DNS) right before the server's browser opens it."""
     from app.core.urlcheck import validate_portal_url
 
@@ -44,7 +58,7 @@ def sihos_url_error(institution) -> str | None:
     return None
 
 
-async def build_ct_map(db, period) -> dict[str, str]:
+async def build_ct_map(db: AsyncSession, period: AuditPeriod) -> dict[str, str]:
     """Return {invoice_number: contract_type_name} for the period."""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
@@ -74,7 +88,7 @@ def ct_for_folder(folder: str, ct_map: dict[str, str]) -> str | None:
     return None
 
 
-async def invoice_pdfs(ctx) -> list[Path]:
+async def invoice_pdfs(ctx: StageContext) -> list[Path]:
     """Invoice PDFs under STAGE: files starting with the FACTURA doc type prefix (the institution's one as fallback)."""
     from app.core.scanner import DocumentScanner
     from app.repositories.rules_repo import RulesRepo

@@ -25,4 +25,4 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 0  # per file uploaded through the explorer
 
 
-settings = Settings()  # type: ignore[call-arg]
+settings = Settings()  # type: ignore[call-arg]  # required fields (database_url, secret_key) come from the environment

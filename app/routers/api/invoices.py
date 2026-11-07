@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 import io
 from pathlib import Path
 
@@ -60,7 +61,7 @@ async def get_stats(period_id: int, db: AsyncSession = Depends(get_db)):
     return await repo.get_stats(period_id)
 
 
-@router.get("/findings-summary", response_model=list[dict])
+@router.get("/findings-summary", response_model=list[dict[str, Any]])
 async def get_findings_summary(period_id: int, db: AsyncSession = Depends(get_db)):
     repo = MissingFileRepo(db)
     return await repo.get_findings_summary(period_id)

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.repositories._sql import affected_rows
 from app.models.institution import (
     Administrator,
     Agreement,
@@ -43,7 +45,7 @@ class InstitutionRepo:
             return None
         return row.logo_bytes, row.logo_content_type
 
-    async def create(self, data: dict) -> Institution:
+    async def create(self, data: dict[str, Any]) -> Institution:
         institution = Institution(**data)
         self.db.add(institution)
         await self.db.flush()
@@ -64,7 +66,7 @@ class InstitutionRepo:
         }
     )
 
-    async def update(self, institution_id: int, data: dict) -> Institution | None:
+    async def update(self, institution_id: int, data: dict[str, Any]) -> Institution | None:
         institution = await self.db.get(Institution, institution_id)
         if not institution:
             return None
@@ -421,7 +423,7 @@ class InstitutionRepo:
                 result = await self.db.execute(
                     sa_update(Invoice).where(Invoice.agreement_id == dup.id).values(agreement_id=primary.id)
                 )
-                invoices_redirected += result.rowcount  # type: ignore[attr-defined]
+                invoices_redirected += affected_rows(result)
                 await self.db.delete(dup)
                 agreements_deleted += 1
 

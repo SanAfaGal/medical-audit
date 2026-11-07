@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import threading
+
 from collections.abc import AsyncGenerator
 from pathlib import Path
 import json
 
+from app.core.helpers import EventFn
 from app.services.pipeline.context import StageContext
 from app.services.pipeline.helpers import INVOICE_NUMBER_RE, get_executor, sihos_url_error
 from app.services.pipeline.logfmt import plog
@@ -233,7 +236,7 @@ async def _download_drive(ctx: StageContext) -> AsyncGenerator[str, None]:
     # progress per Drive folder through the shared event contract.
     result: dict[str, list[str]] = {}
 
-    def _sync(event_fn, cancel_event) -> None:
+    def _sync(event_fn: EventFn, cancel_event: threading.Event | None) -> None:
         result["found"] = drive.download_missing_dirs(missing, stage_path, event_fn=event_fn, cancel_event=cancel_event)
 
     async for line in run_with_events(_sync, ctx, noun="carpeta", verb="Descargando", label="Carpetas"):

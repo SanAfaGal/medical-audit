@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import functools
 from collections.abc import AsyncGenerator
 from pathlib import Path
-import asyncio
 
 from app.services.pipeline.context import StageContext
 from app.services.pipeline.helpers import build_ct_map, ct_for_folder, get_executor
@@ -172,10 +173,8 @@ async def _compress_audit(ctx: StageContext) -> AsyncGenerator[str, None]:
     yield progress_line(0, total, label="PDFs")
 
     for i, chunk in enumerate(chunks, 1):
-        _chunk = chunk
         result: dict[str, int] = await loop.run_in_executor(
-            None,
-            lambda c=_chunk: DocumentProcessor.batch_compress(c, "ebook", workers),  # type: ignore[misc]
+            None, functools.partial(DocumentProcessor.batch_compress, chunk, "ebook", workers)
         )
         for key in totals:
             totals[key] += result[key]

@@ -22,6 +22,8 @@ import json
 import threading
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Generic, Mapping, TypeVar
 
+from app.core.helpers import EventFn
+
 T = TypeVar("T")
 
 
@@ -74,7 +76,7 @@ def event_lines(
 
 
 async def run_with_events(
-    run_blocking: Callable[[Callable[[str, int, int, str, str], None], object], object],
+    run_blocking: Callable[[EventFn, threading.Event | None], object],
     ctx: Mapping[str, Any],
     *,
     noun: str = "elemento",
@@ -200,7 +202,7 @@ async def with_heartbeat(source: AsyncIterator[T], interval: float) -> AsyncGene
     period never cancels the source generator.
     """
     it = source.__aiter__()
-    pending: asyncio.Future = asyncio.ensure_future(it.__anext__())
+    pending: asyncio.Future[T] = asyncio.ensure_future(it.__anext__())
     try:
         while True:
             done, _ = await asyncio.wait({pending}, timeout=interval)

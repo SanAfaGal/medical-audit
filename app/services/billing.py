@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 import asyncio
 import io
 import logging
@@ -61,7 +62,7 @@ async def ingest(
     db: AsyncSession,
     scan_only: bool = False,
     save_mappings_only: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """
     Full ingestion pipeline for SIHOS Excel (new uppercase format).
 
@@ -85,7 +86,7 @@ async def ingest(
     skipped = int(df["FECHA"].isna().sum())
 
     # ── Phase 1: collect unique raw strings from the Excel ────────────────
-    def col(name):
+    def col(name: str) -> pd.Series:
         return df[name].str.strip().dropna() if name in df.columns else pd.Series(dtype=str)
 
     raw_admins: set[str] = set(col("ADMINISTRADORA").unique()) - {""}
@@ -219,7 +220,7 @@ async def ingest(
     service_types = await rules_repo.get_service_types()
     priority_map: dict[int, int] = {st.id: st.priority for st in service_types}
 
-    invoice_map: dict[str, dict] = {}
+    invoice_map: dict[str, dict[str, Any]] = {}
 
     for _, row in df.iterrows():
         invoice_date = row.get("FECHA")
@@ -237,7 +238,7 @@ async def ingest(
 
         if invoice_number not in invoice_map:
 
-            def _str(val, maxlen=None):
+            def _str(val: object, maxlen: int | None = None) -> str | None:
                 """Convert a pandas cell to str, returning None for NaN/empty."""
                 if val is None or (not isinstance(val, str) and pd.isna(val)):
                     return None

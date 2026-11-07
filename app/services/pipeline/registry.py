@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import functools
-from collections.abc import AsyncGenerator, Callable
-from typing import Literal
+from collections.abc import AsyncGenerator, Callable, Mapping
+from pathlib import Path
+from typing import Literal, cast
 
 from app.services.pipeline.context import StageContext
 from app.services.pipeline.logfmt import plog
@@ -33,7 +34,7 @@ def stage(
 
             @functools.wraps(fn)
             async def guarded(ctx: StageContext) -> AsyncGenerator[str, None]:
-                folder = ctx[f"{requires}_path"]  # type: ignore[literal-required]
+                folder: Path = cast("Mapping[str, Path]", ctx)[f"{requires}_path"]
                 if not folder.is_dir():
                     yield plog(missing, f"Directorio {requires.upper()} no existe: {folder}")
                     return

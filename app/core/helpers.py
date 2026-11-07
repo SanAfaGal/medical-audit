@@ -5,6 +5,7 @@ import shutil
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,15 @@ def read_lines_from_file(file_path: str | Path) -> list[str]:
 # free, which is why the contract is plain strings rather than an imported enum.
 
 
-def emit_event(event_fn, kind: str, i: int = 0, total: int = 0, item: str = "", detail: str = "") -> None:
+class EventFn(Protocol):
+    """The progress callback of blocking jobs: ``event_fn(kind, i, total, item, detail)`` (see above)."""
+
+    def __call__(self, kind: str, i: int, total: int, item: str, detail: str) -> None: ...
+
+
+def emit_event(
+    event_fn: EventFn | None, kind: str, i: int = 0, total: int = 0, item: str = "", detail: str = ""
+) -> None:
     """Call the optional event callback; a failing callback must never abort the job."""
     if event_fn is None:
         return

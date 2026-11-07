@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +24,7 @@ class RulesRepo:
         result = await self.db.execute(select(ServiceType).order_by(ServiceType.priority.desc(), ServiceType.code))
         return list(result.scalars().all())
 
-    async def upsert_service_type(self, data: dict) -> ServiceType:
+    async def upsert_service_type(self, data: dict[str, Any]) -> ServiceType:
         stmt = (
             pg_insert(ServiceType)
             .values(**data)
@@ -33,7 +34,7 @@ class RulesRepo:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def update_service_type(self, service_type_id: int, data: dict) -> ServiceType | None:
+    async def update_service_type(self, service_type_id: int, data: dict[str, Any]) -> ServiceType | None:
         obj = await self.db.get(ServiceType, service_type_id)
         if not obj:
             return None
@@ -50,7 +51,7 @@ class RulesRepo:
         result = await self.db.execute(select(DocType).order_by(DocType.code))
         return list(result.scalars().all())
 
-    async def upsert_doc_type(self, data: dict) -> DocType:
+    async def upsert_doc_type(self, data: dict[str, Any]) -> DocType:
         stmt = (
             pg_insert(DocType)
             .values(**data)
@@ -60,7 +61,7 @@ class RulesRepo:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def update_doc_type(self, doc_type_id: int, data: dict) -> DocType | None:
+    async def update_doc_type(self, doc_type_id: int, data: dict[str, Any]) -> DocType | None:
         obj = await self.db.get(DocType, doc_type_id)
         if not obj:
             return None
@@ -171,7 +172,7 @@ class RulesRepo:
         result = await self.db.execute(select(PrefixCorrection.wrong_prefix, PrefixCorrection.correct_prefix))
         return {wrong.upper(): correct.upper() for wrong, correct in result.all()}
 
-    async def create_prefix_correction(self, data: dict) -> PrefixCorrection:
+    async def create_prefix_correction(self, data: dict[str, Any]) -> PrefixCorrection:
         data = {**data, "wrong_prefix": data["wrong_prefix"].upper(), "correct_prefix": data["correct_prefix"].upper()}
         stmt = (
             pg_insert(PrefixCorrection)
@@ -182,7 +183,7 @@ class RulesRepo:
         result = await self.db.execute(stmt)
         return result.scalar_one()
 
-    async def update_prefix_correction(self, correction_id: int, data: dict) -> PrefixCorrection | None:
+    async def update_prefix_correction(self, correction_id: int, data: dict[str, Any]) -> PrefixCorrection | None:
         obj = await self.db.get(PrefixCorrection, correction_id)
         if not obj:
             return None

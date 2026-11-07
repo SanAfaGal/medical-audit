@@ -67,7 +67,7 @@ class InvoiceValidator:
         id_prefix: Invoice identifier prefix used to match invoice codes in PDFs.
     """
 
-    def __init__(self, base_dir: Path, id_prefix: str = "", *, _reader=None) -> None:
+    def __init__(self, base_dir: Path, id_prefix: str = "", *, _reader: Callable[[Path], str] | None = None) -> None:
         self.base_dir = Path(base_dir)
         self._id_prefix = id_prefix
         # Allow injecting a custom reader for testing without real PDF files.
@@ -151,10 +151,11 @@ class InvoiceValidator:
                 if result is None:
                     continue  # skipped by cancel: never cache a placeholder
                 results[index] = result
-                if keys[index] is not None:
+                key = keys[index]
+                if key is not None:
                     if len(_RESULT_CACHE) >= _RESULT_CACHE_MAX:
                         _RESULT_CACHE.clear()
-                    _RESULT_CACHE[keys[index]] = result  # type: ignore[index]
+                    _RESULT_CACHE[key] = result
 
         missing_invoice_code = [f for f, r in zip(file_paths, results, strict=True) if r and r[0]]
         missing_cufe = [f for f, r in zip(file_paths, results, strict=True) if r and r[1]]

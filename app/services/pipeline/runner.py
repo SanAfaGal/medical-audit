@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,7 @@ async def execute(
     institution: Institution,
     period: AuditPeriod,
     db: AsyncSession,
-    extra: dict | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Yield log lines as a pipeline stage executes."""
     ctx = build_context(institution, period, db, extra or {})

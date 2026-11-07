@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-_ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp", "image/avif", "image/gif"}
-_MAX_LOGO_SIZE = 5 * 1024 * 1024  # 5 MB
-
-from app import crypto  # noqa: E402
-from app.database import get_db  # noqa: E402
-from app.models.institution import Institution  # noqa: E402
-from app.repositories.institution_repo import InstitutionRepo  # noqa: E402
-from app.routers.deps import institution_or_404, load_institution  # noqa: E402
-from app.schemas.institution import (  # noqa: E402
+from app import crypto
+from app.database import get_db
+from app.models.institution import Institution
+from app.repositories.institution_repo import InstitutionRepo
+from app.routers.deps import institution_or_404, load_institution
+from app.schemas.institution import (
     AdministratorCreate,
     AdministratorOut,
     AdministratorUpdate,
@@ -36,12 +35,15 @@ from app.schemas.institution import (  # noqa: E402
     ServiceOut,
     ServiceUpdate,
 )
-from app.schemas.rules import ServiceTypeDocumentOut, ServiceTypeDocumentCreate  # noqa: E402
+from app.schemas.rules import ServiceTypeDocumentOut, ServiceTypeDocumentCreate
+
+_ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp", "image/avif", "image/gif"}
+_MAX_LOGO_SIZE = 5 * 1024 * 1024  # 5 MB
 
 router = APIRouter(prefix="/institutions", tags=["institutions"])
 
 
-def _encrypt_sensitive(data: dict) -> dict:
+def _encrypt_sensitive(data: dict[str, Any]) -> dict[str, Any]:
     """Encrypt sihos_password and drive_credentials_json in-place, return cleaned dict."""
     out = dict(data)
     if out.get("sihos_password"):

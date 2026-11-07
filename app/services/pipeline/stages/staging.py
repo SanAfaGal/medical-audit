@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from collections.abc import AsyncGenerator
 from pathlib import Path
 import json
@@ -74,9 +75,9 @@ async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
     executor = get_executor()
     stage_path: Path = ctx["stage_path"]
 
-    def _scan(s_path: Path) -> tuple[list[dict], list[Path]]:
+    def _scan(s_path: Path) -> tuple[list[dict[str, Any]], list[Path]]:
         """Single rglob pass → returns (non_pdf_metadata, pdf_candidates)."""
-        non_pdfs: list[dict] = []
+        non_pdfs: list[dict[str, Any]] = []
         pdf_candidates: list[Path] = []
         for f in s_path.rglob("*"):
             if not f.is_file():
@@ -111,7 +112,7 @@ async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
     async for line in job:
         yield line
 
-    corrupt_list: list[dict] = []
+    corrupt_list: list[dict[str, Any]] = []
     for f in job.result:
         try:
             size_kb = round(f.stat().st_size / 1024, 1)

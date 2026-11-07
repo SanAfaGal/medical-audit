@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,5 +44,5 @@ def build_context(
         "stage_path": paths.stage,
         "audit_path": paths.audit,
     }
-    ctx.update(extra)  # type: ignore[typeddict-item]  # extras are validated by the stage that reads them
+    cast("dict[str, Any]", ctx).update(extra)  # extras are validated by the stage that reads them
     return ctx

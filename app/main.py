@@ -3,17 +3,26 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import structlog
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import engine
+from app.routers.pages import router as pages_router
+from app.routers.api.institutions import router as institutions_router
+from app.routers.api.periods import router as periods_router
+from app.routers.api.invoices import router as invoices_router
+from app.routers.api.findings import router as findings_router
+from app.routers.api.pipeline import router as pipeline_router
+from app.routers.api.settings import router as settings_router
+from app.routers.api.explorer import router as explorer_router
 
 logger = structlog.get_logger()
 
@@ -35,7 +44,7 @@ async def _ensure_base_data() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.services.task_manager import PipelineTaskManager
 
     app.state.task_manager = PipelineTaskManager()
@@ -63,7 +72,7 @@ app = FastAPI(
 
 
 @app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
+async def request_logging_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """Log every request with method, path, status code and latency."""
     if any(request.url.path.startswith(p) for p in _SKIP_LOG_PATHS):
         return await call_next(request)
@@ -127,16 +136,6 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
         status_code=409,
     )
 
-
-# --- Routers (post-app para evitar imports circulares) ---
-from app.routers.pages import router as pages_router  # noqa: E402
-from app.routers.api.institutions import router as institutions_router  # noqa: E402
-from app.routers.api.periods import router as periods_router  # noqa: E402
-from app.routers.api.invoices import router as invoices_router  # noqa: E402
-from app.routers.api.findings import router as findings_router  # noqa: E402
-from app.routers.api.pipeline import router as pipeline_router  # noqa: E402
-from app.routers.api.settings import router as settings_router  # noqa: E402
-from app.routers.api.explorer import router as explorer_router  # noqa: E402
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(pages_router)
