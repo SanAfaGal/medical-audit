@@ -46,16 +46,6 @@ class InvoiceOut(BaseModel):
     updated_at: datetime.datetime
 
 
-class InvoiceFilter(BaseModel):
-    institution_id: int | None = None
-    period_id: int | None = None
-    folder_status_id: int | None = None
-    service_type_id: int | None = None
-    search: str | None = None
-    page: int = 1
-    page_size: int = 50
-
-
 class InvoiceStatusUpdate(BaseModel):
     folder_status_id: int
 

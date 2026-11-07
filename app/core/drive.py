@@ -68,19 +68,6 @@ class DriveSync:
                 delay *= 2
         raise RuntimeError("unreachable")  # pragma: no cover
 
-    def find_folders_by_name(self, folder_name: str) -> list[dict]:
-        """Search Drive for folders whose names contain the given string."""
-        query = f"name contains '{_q(folder_name)}' and mimeType = '{_DRIVE_FOLDER_MIME}' and trashed = false"
-        request = self.service.files().list(
-            q=query,
-            fields="files(id, name, parents)",
-            pageSize=_DRIVE_SEARCH_PAGE_SIZE,
-            supportsAllDrives=True,
-            includeItemsFromAllDrives=True,
-        )
-        results = self._execute_with_retry(request)
-        return results.get("files", [])  # type: ignore[no-any-return]
-
     def download_file(self, file_id: str, file_name: str, local_dir: Path) -> None:
         """Download a single file from Drive to the local filesystem."""
         local_dir.mkdir(parents=True, exist_ok=True)

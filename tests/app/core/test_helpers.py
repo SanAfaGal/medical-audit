@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 from app.core.helpers import (
-    flatten_prefixes,
     read_lines_from_file,
     remove_accents,
     safe_move,
@@ -49,27 +48,6 @@ class TestRemoveAccents:
 # ---------------------------------------------------------------------------
 # flatten_prefixes
 # ---------------------------------------------------------------------------
-
-
-class TestFlattenPrefixes:
-    def test_string_values(self):
-        result = flatten_prefixes({"A": "FEV", "B": "CRC"})
-        assert set(result) == {"FEV", "CRC"}
-
-    def test_list_values(self):
-        result = flatten_prefixes({"A": ["FEV", "CRC"]})
-        assert set(result) == {"FEV", "CRC"}
-
-    def test_mixed_values(self):
-        result = flatten_prefixes({"A": "FEV", "B": ["CRC", "EPI"]})
-        assert set(result) == {"FEV", "CRC", "EPI"}
-
-    def test_deduplication(self):
-        result = flatten_prefixes({"A": "FEV", "B": "FEV"})
-        assert result == ["FEV"]
-
-    def test_empty_dict(self):
-        assert flatten_prefixes({}) == []
 
 
 # ---------------------------------------------------------------------------

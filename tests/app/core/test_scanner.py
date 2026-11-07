@@ -32,24 +32,6 @@ class TestFindByExtension:
         assert scanner.find_by_extension("xlsx") == []
 
 
-class TestFindNonPdf:
-    def test_returns_non_pdf_files(self, tmp_stage: Path):
-        # add a non-PDF
-        (tmp_stage / "HSL123" / "notes.txt").write_text("hello")
-        scanner = DocumentScanner(tmp_stage)
-        result = scanner.find_non_pdf()
-        assert any(f.name == "notes.txt" for f in result)
-
-    def test_excludes_pdfs(self, scanner: DocumentScanner):
-        result = scanner.find_non_pdf()
-        assert all(f.suffix.lower() != ".pdf" for f in result)
-
-    def test_empty_dir_returns_empty_list(self, tmp_path: Path):
-        d = tmp_path / "empty"
-        d.mkdir()
-        assert DocumentScanner(d).find_non_pdf() == []
-
-
 class TestFindByPrefix:
     def test_single_prefix_string(self, scanner: DocumentScanner):
         result = scanner.find_by_prefix("FEV")
@@ -69,16 +51,6 @@ class TestFindByPrefix:
 
     def test_unknown_prefix_returns_empty(self, scanner: DocumentScanner):
         assert scanner.find_by_prefix("UNKNOWN") == []
-
-
-class TestFindInFolders:
-    def test_finds_files_in_named_folder(self, scanner: DocumentScanner):
-        result = scanner.find_in_folders(["HSL123"])
-        assert len(result) == 2  # FEV + CRC
-
-    def test_missing_folder_skips_gracefully(self, scanner: DocumentScanner):
-        result = scanner.find_in_folders(["NONEXISTENT"])
-        assert result == []
 
 
 class TestFindInvalidNames:

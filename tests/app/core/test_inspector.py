@@ -51,19 +51,6 @@ class TestFindMissingDirs:
         assert inspector.find_missing_dirs([]) == []
 
 
-class TestFindVoidDirs:
-    def test_no_void_dirs_in_default_tree(self, inspector: FolderInspector):
-        # Default tmp_stage has no "ANULAR" folder
-        void = inspector.find_void_dirs()
-        assert void == []
-
-    def test_detects_anular_folder(self, tmp_stage: Path, id_prefix: str):
-        (tmp_stage / "HSL999 ANULAR").mkdir()
-        inspector = FolderInspector(tmp_stage, id_prefix)
-        void = inspector.find_void_dirs()
-        assert any("ANULAR" in d.name.upper() for d in void)
-
-
 class TestFindMismatchedFiles:
     def test_matching_file_not_flagged(self, tmp_path: Path, id_prefix: str):
         folder = tmp_path / "HSL123"
@@ -118,21 +105,6 @@ class TestCheckRequiredDocs:
         inspector = FolderInspector(tmp_path, id_prefix)
         missing = inspector.check_required_docs(folder, {"FIRMA": ["CRC"]})
         assert "FIRMA" not in missing
-
-
-class TestResolveDirPaths:
-    def test_returns_existing_dirs(self, tmp_stage: Path, id_prefix: str):
-        inspector = FolderInspector(tmp_stage, id_prefix)
-        result = inspector.resolve_dir_paths(["HSL123", "HSL456"])
-        names = {d.name for d in result}
-        assert "HSL123" in names
-        assert "HSL456" in names
-
-    def test_skips_nonexistent_names(self, tmp_stage: Path, id_prefix: str):
-        inspector = FolderInspector(tmp_stage, id_prefix)
-        result = inspector.resolve_dir_paths(["HSL123", "GHOST"])
-        names = {d.name for d in result}
-        assert "GHOST" not in names
 
 
 class TestFindMismatchedFilesProgress:

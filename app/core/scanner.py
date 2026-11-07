@@ -28,36 +28,6 @@ class DocumentScanner:
         """
         return list(self.base_dir.rglob(f"*.{ext}"))
 
-    def find_in_folders(self, folder_names: list[str], ext: str = "pdf") -> list[Path]:
-        """Return files with the given extension found inside specified folders.
-
-        Args:
-            folder_names: Folder names relative to base_dir to search in.
-            ext: File extension to search for.
-
-        Returns:
-            List of matching file paths.
-        """
-        found: list[Path] = []
-        for name in folder_names:
-            folder = self.base_dir / name
-            if folder.is_dir():
-                found.extend(folder.rglob(f"*.{ext}"))
-            else:
-                logger.warning("Folder not found or is not a directory: %s", folder)
-        return found
-
-    def find_non_pdf(self, allowed_ext: str = "pdf") -> list[Path]:
-        """Return files that do not have the allowed extension.
-
-        Args:
-            allowed_ext: The only permitted extension (without dot).
-
-        Returns:
-            All non-PDF file paths found recursively.
-        """
-        return [f for f in self.base_dir.rglob("*") if f.is_file() and f.suffix.lower() != f".{allowed_ext}"]
-
     def find_by_prefix(self, prefixes: str | list[str]) -> list[Path]:
         """Return files whose names start with one or more given prefixes.
 

@@ -11,12 +11,12 @@ pytestmark = pytest.mark.db
 
 
 class TestInstitutionCRUD:
-    async def test_create_and_get_by_name_roundtrip(self, seeded: AsyncSession):
+    async def test_create_and_get_by_id_roundtrip(self, seeded: AsyncSession):
         repo = InstitutionRepo(seeded)
         created = await repo.create({"name": "ROUNDTRIP_HOSP", "display_name": "Roundtrip Hosp", "nit": "555555555"})
-        fetched = await repo.get_by_name("ROUNDTRIP_HOSP")
+        fetched = await repo.get_by_id(created.id)
         assert fetched is not None
-        assert fetched.id == created.id
+        assert fetched.name == "ROUNDTRIP_HOSP"
 
     async def test_delete_institution_returns_false_when_missing(self, seeded: AsyncSession):
         repo = InstitutionRepo(seeded)

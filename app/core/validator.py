@@ -9,7 +9,7 @@ from pathlib import Path
 
 _PDF_WORKERS = min(16, (os.cpu_count() or 4) * 2)
 
-from app.core.helpers import ProgressFn, remove_accents  # noqa: E402
+from app.core.helpers import ProgressFn  # noqa: E402
 from app.core.reader import DocumentReader  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -49,66 +49,6 @@ class InvoiceValidator:
         if match:
             return match.group(1).strip().lower()
         return None
-
-    def is_cufe_valid(self, file_path: Path) -> bool:
-        """Return True if the PDF contains a valid CUFE code of at least 64 chars."""
-        content = self._read_text(file_path)
-        cufe = self.extract_cufe_code(content)
-        return bool(cufe and len(cufe) >= _MIN_CUFE_LENGTH)
-
-    def find_missing_cufe(self, file_paths: list[Path]) -> list[Path]:
-        """Return invoice files that do not contain a valid CUFE code."""
-        return [p for p in file_paths if not self.is_cufe_valid(p)]
-
-    def find_files_with_text(
-        self,
-        files: list[Path],
-        search_text: str,
-        return_parent: bool = True,
-    ) -> list[Path]:
-        """Return paths of files (or their parents) containing the search text."""
-        results: set[Path] = set()
-        term = remove_accents(search_text).upper()
-
-        for f in files:
-            content = self._read_text(f)
-            if not content:
-                continue
-            if term in remove_accents(content).upper():
-                results.add(f.parent if return_parent else f)
-
-        return list(results)
-
-    def find_files_with_table_text(
-        self,
-        files: list[Path],
-        search_text: str,
-        return_parent: bool = True,
-    ) -> list[Path]:
-        """Like find_files_with_text but searches only table cell content."""
-        results: set[Path] = set()
-        term = remove_accents(search_text).upper()
-
-        for f in files:
-            content = DocumentReader.read_table_text(f)
-            if not content:
-                continue
-            if term in remove_accents(content).upper():
-                results.add(f.parent if return_parent else f)
-
-        return list(results)
-
-    def find_missing_invoice_code(self, files: list[Path]) -> list[Path]:
-        """Return files whose content does not contain the invoice code from their name."""
-        missing: list[Path] = []
-        for f in files:
-            match = self._re_invoice_code.search(f.stem.upper())
-            if match:
-                code = match.group(1)
-                content = self._read_text(f)
-                if content and code not in content.upper():
-                    missing.append(f)
-        return missing
 
     def validate_invoice_files(
         self,

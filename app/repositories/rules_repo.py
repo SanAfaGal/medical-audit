@@ -23,10 +23,6 @@ class RulesRepo:
         result = await self.db.execute(select(ServiceType).order_by(ServiceType.priority.desc(), ServiceType.code))
         return list(result.scalars().all())
 
-    async def get_service_type_by_code(self, code: str) -> ServiceType | None:
-        result = await self.db.execute(select(ServiceType).where(ServiceType.code == code))
-        return result.scalar_one_or_none()
-
     async def upsert_service_type(self, data: dict) -> ServiceType:
         stmt = (
             pg_insert(ServiceType)

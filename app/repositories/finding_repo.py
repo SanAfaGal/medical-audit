@@ -76,10 +76,6 @@ class MissingFileRepo:
     # Pipeline helpers
     # ------------------------------------------------------------------
 
-    async def upsert_finding(self, invoice_id: int, doc_type_id: int) -> None:
-        """Insert a missing-file record; no-op if already exists."""
-        await self.record_missing_file(invoice_id, doc_type_id, expected_path="")
-
     async def bulk_upsert_findings(self, findings: list[tuple[int, int]]) -> None:
         """Bulk insert (invoice_id, doc_type_id) pairs; no-op for already-existing records."""
         if not findings:
@@ -111,10 +107,6 @@ class MissingFileRepo:
         for invoice_number, doc_code in result.all():
             grouped.setdefault(invoice_number, []).append(doc_code)
         return grouped
-
-    async def delete_all_findings_for_invoice(self, invoice_id: int) -> None:
-        """Alias for delete_all_for_invoice."""
-        await self.delete_all_for_invoice(invoice_id)
 
     async def get_findings_summary(self, period_id: int) -> list[dict]:
         """Return unresolved finding counts per doc type for a period, sorted descending."""

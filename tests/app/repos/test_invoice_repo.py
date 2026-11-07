@@ -69,49 +69,6 @@ async def _seed_invoice(db, period_id, invoice_number, status_code="PRESENTE", s
 # ---------------------------------------------------------------------------
 
 
-class TestUpsertInvoice:
-    async def test_inserts_new_invoice(self, seeded: AsyncSession):
-        inst = await _seed_institution(seeded)
-        period = await _seed_period(seeded, inst.id)
-        repo = InvoiceRepo(seeded)
-        fs = (await seeded.execute(select(FolderStatus).where(FolderStatus.status == "PRESENTE"))).scalar_one()
-        st = (await seeded.execute(select(ServiceType).where(ServiceType.code == "GENERAL"))).scalar_one()
-
-        inv = await repo.upsert_invoice(
-            period.id,
-            "RT001",
-            {
-                "date": datetime.date(2024, 1, 1),
-                "id_type": "CC",
-                "id_number": "1",
-                "patient_name": "P",
-                "service_type_id": st.id,
-                "folder_status_id": fs.id,
-            },
-        )
-        assert inv.id is not None
-        assert inv.invoice_number == "RT001"
-
-    async def test_upsert_is_idempotent(self, seeded: AsyncSession):
-        inst = await _seed_institution(seeded)
-        period = await _seed_period(seeded, inst.id)
-        repo = InvoiceRepo(seeded)
-        fs = (await seeded.execute(select(FolderStatus).where(FolderStatus.status == "PRESENTE"))).scalar_one()
-        st = (await seeded.execute(select(ServiceType).where(ServiceType.code == "GENERAL"))).scalar_one()
-        data = {
-            "date": datetime.date(2024, 1, 1),
-            "id_type": "CC",
-            "id_number": "1",
-            "patient_name": "P",
-            "service_type_id": st.id,
-            "folder_status_id": fs.id,
-        }
-
-        inv1 = await repo.upsert_invoice(period.id, "RT002", data)
-        inv2 = await repo.upsert_invoice(period.id, "RT002", data)
-        assert inv1.id == inv2.id
-
-
 class TestGetInvoiceNumbersByStatus:
     async def test_returns_only_matching_status(self, seeded: AsyncSession):
         inst = await _seed_institution(seeded)
@@ -253,26 +210,6 @@ class TestGetOrganizableInvoices:
         repo = InvoiceRepo(seeded)
         organizable = await repo.get_organizable_invoices(period.id)
         assert not any(inv.invoice_number == "RT040" for inv in organizable)
-
-
-class TestGetServiceTypeDistribution:
-    async def test_groups_by_service_type(self, seeded: AsyncSession):
-        inst = await _seed_institution(seeded)
-        period = await _seed_period(seeded, inst.id)
-        await _seed_invoice(seeded, period.id, "RT050", st_code="GENERAL")
-        await _seed_invoice(seeded, period.id, "RT051", st_code="GENERAL")
-        await _seed_invoice(seeded, period.id, "RT052", st_code="URGENCIAS")
-
-        repo = InvoiceRepo(seeded)
-        dist = await repo.get_service_type_distribution(period.id)
-        assert dist["GENERAL"] == 2
-        assert dist["URGENCIAS"] == 1
-
-    async def test_empty_period_returns_empty_dict(self, seeded: AsyncSession):
-        inst = await _seed_institution(seeded)
-        period = await _seed_period(seeded, inst.id)
-        repo = InvoiceRepo(seeded)
-        assert await repo.get_service_type_distribution(period.id) == {}
 
 
 class TestFolderStatusIdHasNoImplicitDefault:

@@ -14,7 +14,7 @@ from app.models.finding import MissingFile
 from app.models.institution import Administrator, Agreement, Contract, ContractType
 from app.models.invoice import Invoice
 from app.models.period import AuditPeriod
-from app.models.rules import FolderStatus, ServiceType
+from app.models.rules import FolderStatus
 
 logger = logging.getLogger(__name__)
 
@@ -83,26 +83,6 @@ class InvoiceRepo:
 
     async def get_by_id(self, invoice_id: int) -> Invoice | None:
         return await self.db.get(Invoice, invoice_id)
-
-    async def upsert_invoice(self, audit_period_id: int, invoice_number: str, data: dict) -> Invoice:
-        """Insert invoice; on conflict do nothing (preserve existing missing files)."""
-        stmt = (
-            pg_insert(Invoice)
-            .values(audit_period_id=audit_period_id, invoice_number=invoice_number, **data)
-            .on_conflict_do_nothing(index_elements=["audit_period_id", "invoice_number"])
-            .returning(Invoice)
-        )
-        result = await self.db.execute(stmt)
-        row = result.scalar_one_or_none()
-        if row is None:
-            result2 = await self.db.execute(
-                select(Invoice).where(
-                    Invoice.audit_period_id == audit_period_id,
-                    Invoice.invoice_number == invoice_number,
-                )
-            )
-            row = result2.scalar_one()
-        return row
 
     async def filter_invoices(
         self,
@@ -425,17 +405,6 @@ class InvoiceRepo:
         total_findings = findings_result.scalar_one()
 
         return {"total": total, "by_status": by_status, "total_findings": total_findings}
-
-    async def get_service_type_distribution(self, period_id: int) -> dict[str, int]:
-        """Return count of invoices per service type code for a period."""
-        q = (
-            select(ServiceType.code, func.count(Invoice.id))
-            .join(ServiceType, Invoice.service_type_id == ServiceType.id)
-            .where(Invoice.audit_period_id == period_id)
-            .group_by(ServiceType.code)
-        )
-        result = await self.db.execute(q)
-        return {row[0]: row[1] for row in result.all()}
 
     async def get_all_for_export(self, period_id: int) -> list[Invoice]:
         """Return all invoices for a period with all relationships for Excel export."""

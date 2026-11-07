@@ -53,17 +53,6 @@ class FolderInspector:
             if path.is_dir() and path not in skip_set and not self._re_dir_name.match(path.name.upper())
         ]
 
-    def resolve_dir_paths(self, dir_names: list[str]) -> list[Path]:
-        """Return paths for the named directories found directly under base_dir.
-
-        Args:
-            dir_names: Directory names to locate.
-
-        Returns:
-            Paths of matching directories.
-        """
-        return [path for path in self.base_dir.iterdir() if path.is_dir() and path.name in dir_names]
-
     def find_missing_dirs(self, expected_dirs: list[str]) -> list[str]:
         """Compare expected directory IDs against the directories on disk.
 
@@ -124,14 +113,6 @@ class FolderInspector:
         """
         match = self._re_dir_pattern.search(folder_name)
         return match.group(1) if match else None
-
-    def find_void_dirs(self) -> list[Path]:
-        """Return directories whose names contain the void marker (``ANULAR``).
-
-        Returns:
-            Directories marked for cancellation.
-        """
-        return [d for d in self.base_dir.iterdir() if d.is_dir() and _VOID_MARKER in d.name.upper()]
 
     def find_mismatched_files(
         self,
@@ -196,32 +177,3 @@ class FolderInspector:
             if not any(fname.startswith(criteria) for fname in files_upper):
                 missing.append(doc_code)
         return missing
-
-    def find_dirs_missing_file(
-        self,
-        prefixes: str | list[str],
-        skip: list[Path] | None = None,
-        target_dirs: list[Path] | None = None,
-    ) -> list[Path]:
-        """Return directories that do not contain a file with the given prefix(es).
-
-        Args:
-            prefixes: Prefix or list of prefixes to search for.
-            skip: Directories to exclude from the scan.
-            target_dirs: Specific directories to check. If None, all
-                subdirectories of base_dir are scanned.
-
-        Returns:
-            Directories missing at least one file with the required prefix.
-        """
-        skip_set = set(skip) if skip else set()
-        dirs_to_scan = target_dirs if target_dirs is not None else [p for p in self.base_dir.rglob("*") if p.is_dir()]
-
-        criteria: str | tuple[str, ...]
-        criteria = tuple(p.upper() for p in prefixes) if isinstance(prefixes, list) else prefixes.upper()
-
-        return [
-            d
-            for d in dirs_to_scan
-            if d not in skip_set and not any(f.is_file() and f.name.upper().startswith(criteria) for f in d.iterdir())
-        ]

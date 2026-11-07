@@ -72,24 +72,6 @@ def read_lines_from_file(file_path: str | Path) -> list[str]:
         return []
 
 
-def flatten_prefixes(prefixes_dict: dict[str, str | list[str]]) -> list[str]:
-    """Flatten a prefix dictionary into a single deduplicated list.
-
-    Args:
-        prefixes_dict: Mapping of document type labels to prefix strings or lists.
-
-    Returns:
-        Deduplicated list of all prefix strings.
-    """
-    flat: list[str] = []
-    for value in prefixes_dict.values():
-        if isinstance(value, list):
-            flat.extend(value)
-        else:
-            flat.append(str(value))
-    return list(set(flat))
-
-
 # ---------------------------------------------------------------------------
 # Stage progress events (shared contract for long-running, blocking work)
 # ---------------------------------------------------------------------------
