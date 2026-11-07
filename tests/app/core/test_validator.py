@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 
 from app.core.validator import InvoiceValidator, _collapse_inline_whitespace
 
@@ -105,3 +106,74 @@ class TestValidateInvoiceFiles:
 
         v = InvoiceValidator(tmp_path, id_prefix, _reader=lambda _p: "")
         assert v.validate_invoice_files([f], cancel_event=cancel) == ([], [])
+
+
+class TestValidationCache:
+    """VERIFY_INVOICE_CODE and VERIFY_CUFE validate the same PDFs: the second run must not read them again."""
+
+    @pytest.fixture
+    def pdf(self, tmp_path: Path, id_prefix: str):
+        import fitz
+
+        path = tmp_path / f"FEV_900_{id_prefix}500.pdf"
+        doc = fitz.open()
+        doc.new_page().insert_text((36, 60), f"Factura {id_prefix}500\nCUFE: {_VALID_CUFE}\n", fontsize=8)
+        doc.save(str(path))
+        doc.close()
+        return path
+
+    def test_second_run_reuses_the_result_without_reading_the_file(self, pdf, tmp_path, id_prefix, monkeypatch):
+        from app.core.reader import DocumentReader
+
+        reads: list[Path] = []
+        real = DocumentReader.read_text
+        monkeypatch.setattr(DocumentReader, "read_text", staticmethod(lambda p: (reads.append(p), real(p))[1]))
+        validator = InvoiceValidator(tmp_path, id_prefix)
+
+        first = validator.validate_invoice_files([pdf])
+        second = InvoiceValidator(tmp_path, id_prefix).validate_invoice_files(
+            [pdf]
+        )  # a new instance, as each stage does
+
+        assert first == second == ([], [])
+        assert len(reads) == 1
+
+    def test_editing_the_file_invalidates_the_cached_result(self, pdf, tmp_path, id_prefix):
+        import fitz
+
+        assert InvoiceValidator(tmp_path, id_prefix).validate_invoice_files([pdf]) == ([], [])
+
+        doc = fitz.open()
+        doc.new_page().insert_text((36, 60), "ahora sin codigo ni cufe, y mas texto para cambiar el tamano", fontsize=8)
+        doc.save(str(pdf))
+        doc.close()
+
+        missing_code, missing_cufe = InvoiceValidator(tmp_path, id_prefix).validate_invoice_files([pdf])
+        assert missing_code == [pdf] and missing_cufe == [pdf]
+
+    def test_a_different_prefix_is_not_served_from_the_cache(self, pdf, tmp_path, id_prefix):
+        assert InvoiceValidator(tmp_path, id_prefix).validate_invoice_files([pdf]) == ([], [])
+        missing_code, _ = InvoiceValidator(tmp_path, "ZZZ").validate_invoice_files([pdf])
+        assert (
+            missing_code == []
+        )  # the file name has no ZZZ number, so nothing to flag - and no crash from a stale entry
+
+    def test_cancelled_results_are_never_cached(self, pdf, tmp_path, id_prefix):
+        import threading
+
+        cancel = threading.Event()
+        cancel.set()
+        assert InvoiceValidator(tmp_path, id_prefix).validate_invoice_files([pdf], cancel_event=cancel) == ([], [])
+
+        # had the placeholder been cached, this real run would wrongly report the CUFE as present
+        pdf.write_bytes(pdf.read_bytes())  # same content: key unchanged
+        assert InvoiceValidator(tmp_path, id_prefix).validate_invoice_files([pdf]) == ([], [])
+
+    def test_an_injected_reader_bypasses_the_cache(self, tmp_path, id_prefix):
+        f = tmp_path / f"FEV_900_{id_prefix}600.pdf"
+        f.write_bytes(b"")
+        with_cufe = InvoiceValidator(tmp_path, id_prefix, _reader=lambda _p: f"{id_prefix}600\nCUFE: {_VALID_CUFE}\n")
+        without = InvoiceValidator(tmp_path, id_prefix, _reader=lambda _p: f"{id_prefix}600 sin cufe")
+
+        assert with_cufe.validate_invoice_files([f]) == ([], [])
+        assert without.validate_invoice_files([f]) == ([], [f])

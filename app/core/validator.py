@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 # Module-level compiled regex constants (not id_prefix-dependent)
 # ---------------------------------------------------------------------------
 
+# Results of validate_invoice_files, so VERIFY_INVOICE_CODE and VERIFY_CUFE (which compute the same thing from the
+# same PDFs) read each file once. The key carries the file's mtime and size, so an edited file is recomputed.
+_RESULT_CACHE: dict[tuple[str, int, int, str], tuple[bool, bool]] = {}
+_RESULT_CACHE_MAX = 200_000
+
 _RE_CUFE = re.compile(r"CUFE\s*[:]*\s*(.{64,})\n", re.IGNORECASE)
 _RE_INLINE_WHITESPACE = re.compile(r"[ \t]+")
 _MIN_CUFE_LENGTH: int = 64
@@ -39,9 +44,21 @@ class InvoiceValidator:
     def __init__(self, base_dir: Path, id_prefix: str = "", *, _reader=None) -> None:
         self.base_dir = Path(base_dir)
         _esc = re.escape(id_prefix)
+        self._id_prefix = id_prefix
         self._re_invoice_code = re.compile(rf"({_esc}\d+)$", re.IGNORECASE)
         # Allow injecting a custom reader for testing without real PDF files.
         self._read_text = _reader if _reader is not None else DocumentReader.read_text
+        # Results are only reusable when they come from the real reader.
+        self._cacheable = _reader is None
+
+    def _cache_key(self, path: Path) -> tuple[str, int, int, str] | None:
+        if not self._cacheable:
+            return None
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return (str(path), stat.st_mtime_ns, stat.st_size, self._id_prefix)
 
     def extract_cufe_code(self, text: str) -> str | None:
         """Extract and normalise a CUFE code from invoice text."""
@@ -76,7 +93,15 @@ class InvoiceValidator:
             if cancel_event is not None and cancel_event.is_set():
                 return False, False
             try:
-                return _check_one(f)
+                key = self._cache_key(f)
+                if key is not None and (cached := _RESULT_CACHE.get(key)) is not None:
+                    return cached
+                result = _check_one(f)
+                if key is not None:
+                    if len(_RESULT_CACHE) >= _RESULT_CACHE_MAX:
+                        _RESULT_CACHE.clear()
+                    _RESULT_CACHE[key] = result
+                return result
             finally:
                 if on_progress is not None:
                     with lock:
