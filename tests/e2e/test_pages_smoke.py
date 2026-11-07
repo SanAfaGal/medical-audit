@@ -122,3 +122,27 @@ class TestSettingsPage:
         )
         assert any("en uso" in message for message in duplicate)
         assert "Error al crear." not in duplicate  # the generic text was replaced by the server's message
+
+
+class TestHelpPage:
+    def test_loads_without_errors(self, session):
+        session.open("/help")
+        assert not session.page_errors
+
+
+class TestScriptsAreServed:
+    @pytest.mark.parametrize("path", ["/", "/audit", "/settings", "/help"])
+    def test_every_script_loads_with_a_version(self, session, path):
+        failed: list[str] = []
+        session.page.on(
+            "response",
+            lambda r: failed.append(f"{r.status} {r.url}") if "/static/js/" in r.url and r.status >= 400 else None,
+        )
+        session.open(path)
+        sources = session.page.evaluate(
+            "() => [...document.scripts].map(s => s.src).filter(s => s.includes('/static/js/'))"
+        )
+        assert sources, "page loads no local scripts"
+        assert all("?v=" in src for src in sources), sources
+        assert failed == []
+        assert not session.page_errors

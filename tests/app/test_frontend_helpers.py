@@ -38,7 +38,7 @@ def test_every_page_uses_the_single_toast_store():
 
 def test_base_template_loads_the_shared_scripts_and_the_toast_partial():
     base = (Path(__file__).resolve().parents[2] / "app" / "templates" / "base.html").read_text(encoding="utf-8")
-    assert "/static/js/api.js" in base and "/static/js/toast.js" in base
+    assert "asset('js/api.js')" in base and "asset('js/toast.js')" in base
     assert 'include "partials/toasts.html"' in base
     # api.js must load before toast.js (the store formats messages with apiErrorMessage)
-    assert base.index("/static/js/api.js") < base.index("/static/js/toast.js")
+    assert base.index("asset('js/api.js')") < base.index("asset('js/toast.js')")
