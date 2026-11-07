@@ -12,7 +12,6 @@ Todas las variables son leídas por `app/config.py` vía pydantic-settings.
 |---|---|---|---|
 | `DATABASE_URL` | Sí | — | Cadena de conexión asyncpg. Usar `localhost:5432` porque el backend corre nativamente. |
 | `SECRET_KEY` | Sí | — | Clave de 32 bytes en base64 para cifrado de credenciales almacenadas. |
-| `APP_PASSWORD` | Sí | — | Contraseña compartida (HTTP Basic Auth, usuario fijo `admin`) que protege toda la app excepto `/health` y `/health/db`. |
 | `POSTGRES_USER` | Sí | — | Usuario PostgreSQL (usado por el contenedor Docker). |
 | `POSTGRES_PASSWORD` | Sí | — | Contraseña PostgreSQL. |
 | `POSTGRES_DB` | Sí | — | Nombre de la base de datos PostgreSQL. |

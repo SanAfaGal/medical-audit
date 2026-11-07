@@ -8,7 +8,6 @@ class Settings(BaseSettings):
 
     database_url: str
     secret_key: str
-    app_password: str  # shared HTTP Basic Auth password protecting the whole app (paired with a fixed "admin" username)
     log_level: str = "INFO"
     host: str = "0.0.0.0"
     port: int = 8000

@@ -14,7 +14,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import engine
-from app.security import ApiKeyAuthMiddleware
 
 logger = structlog.get_logger()
 
@@ -41,8 +40,6 @@ app = FastAPI(
     redoc_url="/redoc" if settings.docs_enabled else None,
     openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
-
-app.add_middleware(ApiKeyAuthMiddleware, app_password=settings.app_password)
 
 
 @app.middleware("http")

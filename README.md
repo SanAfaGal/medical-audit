@@ -33,7 +33,7 @@ Aplicación web de producción para automatizar la auditoría de documentos de f
 | Almacenamiento en nube | Google Drive API |
 | Procesamiento de datos | pandas, openpyxl |
 | Logs | structlog (estructurado) |
-| Seguridad | HTTP Basic Auth compartido + cryptography para credenciales almacenadas |
+| Seguridad | Sin autenticación (red de confianza) + cryptography para credenciales almacenadas |
 | Gestor de paquetes | uv |
 | Testing | pytest + pytest-asyncio |
 
@@ -57,7 +57,7 @@ Aplicación web de producción para automatizar la auditoría de documentos de f
 - **Backend** (FastAPI + Uvicorn) corre de forma nativa en el host Windows. Accede a los archivos de auditoría directamente desde el sistema de archivos local sin overhead de virtualización.
 - **Base de datos** (PostgreSQL 16) corre en Docker con el puerto 5432 expuesto a `localhost`. Solo la base de datos está contenedorizada.
 - **Logos de instituciones** se almacenan en la base de datos como `BYTEA` y se sirven vía `GET /api/institutions/{id}/logo` — sin volúmenes compartidos.
-- El backend escucha en `0.0.0.0:8000`, por lo que cualquier dispositivo en la misma red LAN puede acceder a la app (protegido por HTTP Basic Auth — ver [Seguridad](#seguridad)).
+- El backend escucha en `0.0.0.0:8000`, por lo que cualquier dispositivo en la misma red LAN puede acceder a la app (**la app no tiene autenticación** — ver [Seguridad](#seguridad)).
 
 ---
 
@@ -70,7 +70,6 @@ medical-audit-v2/
 │   ├── config.py                  # Settings (pydantic-settings, lee desde .env)
 │   ├── database.py                # Session factory async de SQLAlchemy
 │   ├── crypto.py                  # Cifrado de credenciales almacenadas (SIHOS, Drive)
-│   ├── security.py                # Middleware de HTTP Basic Auth compartido
 │   ├── paths.py                   # Conversión de rutas Windows ↔ contenedor + helpers de sandbox
 │   ├── models/
 │   │   ├── base.py
@@ -160,8 +159,6 @@ Edita `.env` con tus valores locales. El `SECRET_KEY` se genera así:
 python -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
 ```
 
-`APP_PASSWORD` no hace falta generarla — es la contraseña de login (usuario fijo `admin`), elegí una memorable.
-
 **2. Iniciar la base de datos**
 
 ```bash
@@ -192,7 +189,7 @@ La ruta base de auditoría se configura desde la interfaz: **Configuración → 
 
 | URL | Descripción |
 |---|---|
-| `http://localhost:8000` | Aplicación principal (pide usuario/contraseña — usuario `admin`, la contraseña es `APP_PASSWORD`) |
+| `http://localhost:8000` | Aplicación principal (sin login) |
 | `http://<ip-lan>:8000` | Acceso desde otros dispositivos en la red |
 | `http://localhost:8000/docs` | Swagger UI (solo si `DOCS_ENABLED=true`) |
 | `http://localhost:8080` | Adminer — UI de base de datos (solo dev) |
@@ -266,9 +263,9 @@ Ambos stacks pueden correr al mismo tiempo sin conflicto (nombres de proyecto y 
 
 ## Seguridad
 
-- **HTTP Basic Auth en toda la app** — usuario fijo `admin` y una única contraseña compartida (`APP_PASSWORD`) protegen todas las rutas excepto `/health` y `/health/db`, vía `app/security.py`.
+- **Sin autenticación** — la app no pide usuario ni contraseña: cualquiera que alcance el puerto accede a todo (datos de auditoría y administración de credenciales SIHOS/Drive). Exponerla solo en una red de confianza (LAN cerrada, VPN o firewall); no publicarla a internet.
 - **`.env` nunca se commitea** — está en `.gitignore`. Usar `.env.example` como plantilla.
-- **Variables requeridas son obligatorias** — `docker-compose.yml` usa sintaxis `:?` para `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `APP_PASSWORD`. Si alguna falta, Docker Compose aborta con error explícito.
+- **Variables requeridas son obligatorias** — `docker-compose.yml` usa sintaxis `:?` para `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `SECRET_KEY`. Si alguna falta, Docker Compose aborta con error explícito.
 - **Secretos cifrados en reposo** — contraseñas SIHOS y credenciales de Google Drive se almacenan en DB cifradas vía `app/crypto.py`. La clave proviene de `SECRET_KEY`.
 - **Logos almacenados en DB** — los logos de instituciones se guardan como `BYTEA` en PostgreSQL y se sirven vía API, sin volúmenes compartidos.
 - **Contenedor sin root** — la imagen Docker corre como `appuser`, no como `root`.
