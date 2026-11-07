@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 
-from app.routers.api.explorer import _delete_path
+from app.services.explorer import ExplorerError
+from app.services.explorer.files import delete_path
 
 
 class TestDeletePathErrorMessage:
@@ -23,8 +23,8 @@ class TestDeletePathErrorMessage:
 
         with patch.object(Path, "unlink", side_effect=OSError(sensitive_detail)):
             with caplog.at_level("ERROR"):
-                with pytest.raises(HTTPException) as exc_info:
-                    _delete_path(target, sandbox)
+                with pytest.raises(ExplorerError) as exc_info:
+                    delete_path(target, sandbox)
 
         assert str(target) not in str(exc_info.value.detail)
         assert any(str(target) in record.message for record in caplog.records)

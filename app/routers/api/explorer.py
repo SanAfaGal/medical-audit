@@ -1,13 +1,17 @@
-"""Router para el explorador de archivos PDF integrado en la UI."""
+"""Router para el explorador de archivos PDF integrado en la UI.
+
+Solo traduce HTTP: resuelve el sandbox del período, delega en ``app/services/explorer`` (trabajo de disco en un
+hilo, fuera del event loop) y convierte ``ExplorerError`` en ``HTTPException``.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
+import functools
 import logging
-import shutil
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import ParamSpec, TypeVar
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -16,16 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.routers.responses import content_disposition, temp_file_response
-from app.paths import is_plain_filename, safe_resolve
 from app.routers.deps import load_period_scope
-from app.services.archive import build_zip_file
+from app.routers.responses import content_disposition, temp_file_response
 from app.schemas.explorer import (
     BatchDeleteResult,
     CopyRequest,
     DeleteBatchRequest,
     DeleteRequest,
-    FileNode,
     ListResponse,
     MergeRequest,
     MkdirRequest,
@@ -37,14 +38,30 @@ from app.schemas.explorer import (
     SplitRequest,
     UploadResult,
 )
+from app.services.archive import build_zip_file
+from app.services.explorer import ExplorerError
+from app.services.explorer import files as file_ops
+from app.services.explorer import pdf as pdf_ops
+from app.services.explorer.sandbox import resolve_in
 
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 logger = logging.getLogger(__name__)
 
+P = ParamSpec("P")
+R = TypeVar("R")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers de seguridad (sandbox)
-# ──────────────────────────────────────────────────────────────────────────────
+
+def _http_errors(endpoint: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    """Answer an ``ExplorerError`` raised by a service with the HTTP error it describes."""
+
+    @functools.wraps(endpoint)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return await endpoint(*args, **kwargs)
+        except ExplorerError as exc:
+            raise HTTPException(exc.status_code, exc.detail) from exc
+
+    return wrapper
 
 
 async def _resolve_sandbox(institution_id: int, period_id: int, db: AsyncSession) -> Path:
@@ -53,46 +70,8 @@ async def _resolve_sandbox(institution_id: int, period_id: int, db: AsyncSession
     return scope.paths.base.resolve()
 
 
-def _safe_resolve(sandbox: Path, rel: str) -> Path:
-    """Resuelve una ruta relativa dentro del sandbox. Lanza 400 si escapa del sandbox."""
-    try:
-        return safe_resolve(sandbox, rel.lstrip("/\\"))
-    except ValueError as exc:
-        raise HTTPException(400, "Ruta fuera del directorio permitido") from exc
-
-
-def _validate_entry_name(name: str) -> None:
-    """Valida que un nombre de archivo/carpeta no contenga separadores de ruta ni esté vacío."""
-    if not name or not name.strip():
-        raise HTTPException(400, "El nombre no puede estar vacío")
-    if not is_plain_filename(name):
-        raise HTTPException(400, "El nombre no puede contener separadores de ruta")
-
-
-def _delete_path(target: Path, sandbox: Path) -> str:
-    """Elimina un archivo o carpeta del sandbox. Devuelve mensaje descriptivo."""
-    if target == sandbox:
-        raise HTTPException(400, "No se puede eliminar la raíz del período")
-    if not target.exists():
-        raise HTTPException(404, "Archivo o carpeta no encontrado")
-    try:
-        if target.is_file():
-            target.unlink()
-            return f'"{target.name}" eliminado'
-        else:
-            shutil.rmtree(target)
-            return f'Carpeta "{target.name}" eliminada'
-    except OSError as e:
-        logger.error("Error al eliminar %s: %s", target, e)
-        raise HTTPException(500, "Error al eliminar el archivo o carpeta") from e
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Listar directorio
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 @router.get("/list", response_model=ListResponse)
+@_http_errors
 async def list_directory(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -102,379 +81,20 @@ async def list_directory(
 ):
     """Lista carpetas y archivos en el directorio indicado (los no-PDF se marcan con is_pdf=False)."""
     sandbox = await _resolve_sandbox(institution_id, period_id, db)
-
     rel = f"{root}/{path}".strip("/")
-    target = _safe_resolve(sandbox, rel)
+    target = resolve_in(sandbox, rel)
 
     if not target.exists():
         return ListResponse(entries=[], current_path=rel)
     if not target.is_dir():
-        raise HTTPException(400, "La ruta no es un directorio")
+        raise ExplorerError(400, "La ruta no es un directorio")
 
-    def _scan() -> list[FileNode]:
-        found: list[FileNode] = []
-        try:
-            for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-                if item.is_dir():
-                    found.append(
-                        FileNode(
-                            name=item.name,
-                            path=str(item.relative_to(sandbox)).replace("\\", "/"),
-                            is_dir=True,
-                            file_count=sum(1 for f in item.rglob("*") if f.is_file()),
-                        )
-                    )
-                elif item.is_file():
-                    found.append(
-                        FileNode(
-                            name=item.name,
-                            path=str(item.relative_to(sandbox)).replace("\\", "/"),
-                            is_dir=False,
-                            is_pdf=item.suffix.lower() == ".pdf",
-                            size=item.stat().st_size,
-                        )
-                    )
-        except PermissionError as e:
-            raise HTTPException(403, f"Sin permiso para leer el directorio: {e}") from e
-        return found
-
-    # Directory walks can touch thousands of files: run them off the event loop.
-    entries = await asyncio.to_thread(_scan)
-
+    entries = await asyncio.to_thread(file_ops.list_nodes, sandbox, target)  # a walk can touch thousands of files
     return ListResponse(entries=entries, current_path=rel)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Servir PDF
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@router.get("/file")
-async def serve_file(
-    institution_id: int = Query(...),
-    period_id: int = Query(...),
-    path: str = Query(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Sirve el PDF como StreamingResponse para previsualización."""
-    sandbox = await _resolve_sandbox(institution_id, period_id, db)
-    target = _safe_resolve(sandbox, path)
-
-    if not target.exists() or not target.is_file():
-        raise HTTPException(404, "Archivo no encontrado")
-    if target.suffix.lower() != ".pdf":
-        raise HTTPException(400, "Solo se pueden servir archivos PDF")
-
-    async def _iter():
-        async with aiofiles.open(target, "rb") as f:
-            while chunk := await f.read(65536):
-                yield chunk
-
-    return StreamingResponse(
-        _iter(),
-        media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(target.name, inline=True)},
-    )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Miniaturas
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@router.get("/thumbnails")
-async def get_thumbnails(
-    institution_id: int = Query(...),
-    period_id: int = Query(...),
-    path: str = Query(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Renderiza cada página como PNG base64 para la UI de reordenamiento."""
-    sandbox = await _resolve_sandbox(institution_id, period_id, db)
-    target = _safe_resolve(sandbox, path)
-
-    if not target.exists() or target.suffix.lower() != ".pdf":
-        raise HTTPException(404, "Archivo PDF no encontrado")
-
-    def _render() -> list[str]:
-        import fitz  # PyMuPDF
-
-        doc = fitz.open(str(target))
-        result = []
-        matrix = fitz.Matrix(0.5, 0.5)
-        for page in doc:
-            pix = page.get_pixmap(matrix=matrix)
-            png_bytes = pix.tobytes("png")
-            result.append(base64.b64encode(png_bytes).decode())
-        doc.close()
-        return result
-
-    thumbnails = await asyncio.get_running_loop().run_in_executor(None, _render)
-    return {"thumbnails": thumbnails, "count": len(thumbnails)}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Renombrar
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@router.post("/rename", response_model=OperationResult)
-async def rename_entry(body: RenameRequest, db: AsyncSession = Depends(get_db)):
-    """Renombra un archivo o carpeta."""
-    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-    src = _safe_resolve(sandbox, body.path)
-
-    if not src.exists():
-        raise HTTPException(404, "Archivo o carpeta no encontrado")
-
-    _validate_entry_name(body.new_name)
-
-    if src.is_file() and Path(body.new_name).suffix.lower() != src.suffix.lower():
-        raise HTTPException(400, "No se puede cambiar la extensión del archivo")
-
-    dst = src.parent / body.new_name
-    _safe_resolve(sandbox, str(dst.relative_to(sandbox)))  # verificar sandbox
-
-    try:
-        src.rename(dst)
-    except OSError as e:
-        logger.error("Error al renombrar %s a %s: %s", src, dst, e)
-        raise HTTPException(500, "Error al renombrar el archivo o carpeta") from e
-
-    return OperationResult(ok=True, message=f"Renombrado a {body.new_name}")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Mover
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@router.post("/move", response_model=OperationResult)
-async def move_entry(body: MoveRequest, db: AsyncSession = Depends(get_db)):
-    """Mueve un archivo o carpeta a otra carpeta destino."""
-    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-    src = _safe_resolve(sandbox, body.src)
-    dst_folder = _safe_resolve(sandbox, body.dst_folder)
-
-    if not src.exists():
-        raise HTTPException(404, "Origen no encontrado")
-    if not dst_folder.is_dir():
-        raise HTTPException(400, "Destino no es un directorio")
-
-    dst = dst_folder / src.name
-    try:
-        src.rename(dst)
-    except OSError as e:
-        logger.error("Error al mover %s a %s: %s", src, dst, e)
-        raise HTTPException(500, "Error al mover el archivo o carpeta") from e
-
-    return OperationResult(ok=True, message=f"Movido a {dst_folder.name}/{src.name}")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Unir PDFs (merge)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@router.post("/merge", response_model=OperationResult)
-async def merge_pdfs(body: MergeRequest, db: AsyncSession = Depends(get_db)):
-    """Une múltiples PDFs en uno solo."""
-    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-
-    if len(body.paths) < 2:
-        raise HTTPException(400, "Se necesitan al menos 2 PDFs para unir")
-
-    resolved_paths = [_safe_resolve(sandbox, p) for p in body.paths]
-    for p in resolved_paths:
-        if not p.exists() or p.suffix.lower() != ".pdf":
-            raise HTTPException(404, f"PDF no encontrado: {p.name}")
-
-    # Carpeta de salida: la del primer PDF
-    output_name = body.output_name if body.output_name.endswith(".pdf") else body.output_name + ".pdf"
-    output_path = resolved_paths[0].parent / output_name
-    _safe_resolve(sandbox, str(output_path.relative_to(sandbox)))  # verificar sandbox
-
-    def _merge():
-        import fitz
-
-        merged = fitz.open()
-        for p in resolved_paths:
-            doc = fitz.open(str(p))
-            merged.insert_pdf(doc)
-            doc.close()
-        merged.save(str(output_path))
-        merged.close()
-
-    await asyncio.get_running_loop().run_in_executor(None, _merge)
-    return OperationResult(ok=True, message=f"PDFs unidos en {output_name}")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Dividir PDF (split)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def _parse_ranges(ranges_str: str, total_pages: int) -> list[list[int]]:
-    """Parsea un string de rangos como '1-3, 5' (1-based) a listas de índices 0-based."""
-    groups: list[list[int]] = []
-    for raw_token in ranges_str.split(","):
-        token = raw_token.strip()
-        if not token:
-            continue
-        if "-" in token:
-            parts = token.split("-")
-            start = int(parts[0].strip()) - 1
-            end = int(parts[1].strip()) - 1
-            groups.append(list(range(max(0, start), min(total_pages - 1, end) + 1)))
-        else:
-            idx = int(token) - 1
-            if 0 <= idx < total_pages:
-                groups.append([idx])
-    return groups
-
-
-def _compute_split_groups(ranges: str | None, total_pages: int) -> list[list[int]]:
-    """Grupos de páginas (0-based) para dividir: por rangos si se dan, si no una página por grupo."""
-    if ranges:
-        return _parse_ranges(ranges, total_pages)
-    return [[i] for i in range(total_pages)]
-
-
-@router.get("/split-preview", response_model=SplitPreviewResult)
-async def preview_split(
-    institution_id: int = Query(...),
-    period_id: int = Query(...),
-    path: str = Query(...),
-    ranges: str | None = Query(None),
-    db: AsyncSession = Depends(get_db),
-):
-    """Calcula los grupos de páginas que resultarían de dividir, sin escribir archivos."""
-    sandbox = await _resolve_sandbox(institution_id, period_id, db)
-    src = _safe_resolve(sandbox, path)
-
-    if not src.exists() or src.suffix.lower() != ".pdf":
-        raise HTTPException(404, "PDF no encontrado")
-
-    def _preview() -> list[list[int]]:
-        import fitz
-
-        doc = fitz.open(str(src))
-        total = doc.page_count
-        doc.close()
-        return _compute_split_groups(ranges, total)
-
-    try:
-        groups = await asyncio.get_running_loop().run_in_executor(None, _preview)
-    except (ValueError, IndexError) as e:
-        raise HTTPException(400, f"Rango de páginas inválido: {e}") from e
-
-    return SplitPreviewResult(groups=groups)
-
-
-@router.post("/split", response_model=OperationResult)
-async def split_pdf(body: SplitRequest, db: AsyncSession = Depends(get_db)):
-    """Divide un PDF por rangos o página a página."""
-    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-    src = _safe_resolve(sandbox, body.path)
-
-    if not src.exists() or src.suffix.lower() != ".pdf":
-        raise HTTPException(404, "PDF no encontrado")
-
-    def _split():
-        import fitz
-
-        doc = fitz.open(str(src))
-        total = doc.page_count
-        stem = src.stem
-
-        groups = _compute_split_groups(body.ranges, total)
-
-        output_dir = src.parent
-        created = 0
-        for i, pages in enumerate(groups, start=1):
-            sub = fitz.open()
-            sub.insert_pdf(doc, from_page=pages[0], to_page=pages[-1])
-            # Para rangos no contiguos, insertar página por página
-            if len(pages) > 1 and pages != list(range(pages[0], pages[-1] + 1)):
-                sub = fitz.open()
-                for pg in pages:
-                    sub.insert_pdf(doc, from_page=pg, to_page=pg)
-            out_name = f"{stem}_parte{i:03d}.pdf"
-            sub.save(str(output_dir / out_name))
-            sub.close()
-            created += 1
-        doc.close()
-        return created
-
-    try:
-        n = await asyncio.get_running_loop().run_in_executor(None, _split)
-    except (ValueError, IndexError) as e:
-        raise HTTPException(400, f"Rango de páginas inválido: {e}") from e
-
-    return OperationResult(ok=True, message=f"PDF dividido en {n} archivo(s)")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Reordenar páginas
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@router.post("/reorder", response_model=OperationResult)
-async def reorder_pages(body: ReorderRequest, db: AsyncSession = Depends(get_db)):
-    """Reordena las páginas de un PDF y elimina las que no estén en `page_order` (in-place)."""
-    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-    src = _safe_resolve(sandbox, body.path)
-
-    if not src.exists() or src.suffix.lower() != ".pdf":
-        raise HTTPException(404, "PDF no encontrado")
-
-    def _reorder() -> int:
-        import fitz
-
-        doc = fitz.open(str(src))
-        page_count: int = doc.page_count
-        order = list(body.page_order)
-
-        if not order:
-            doc.close()
-            raise ValueError("Debe quedar al menos 1 página")
-        if len(order) != len(set(order)):
-            doc.close()
-            raise ValueError("No puede haber páginas repetidas")
-        for idx in order:
-            if idx < 0 or idx >= page_count:
-                doc.close()
-                raise ValueError(f"Índice de página inválido: {idx} (rango válido 0–{page_count - 1})")
-
-        doc.select(order)
-        # tobytes() evita guardar sobre el mismo archivo abierto (problema en Windows)
-        out_bytes = doc.tobytes(garbage=4, deflate=True)
-        doc.close()
-        src.write_bytes(out_bytes)
-        return page_count - len(order)
-
-    try:
-        deleted_count = await asyncio.get_running_loop().run_in_executor(None, _reorder)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except Exception as e:
-        raise HTTPException(500, f"Error al reordenar: {e}") from e
-
-    if deleted_count:
-        message = f"Se guardaron {len(body.page_order)} página(s) ({deleted_count} eliminada(s))"
-    else:
-        message = "Páginas reordenadas correctamente"
-    return OperationResult(ok=True, message=message)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Buscar archivos / carpetas por nombre (recursivo)
-# ──────────────────────────────────────────────────────────────────────────────
-
-_SEARCH_MAX_RESULTS = 100
-
-
 @router.get("/search", response_model=ListResponse)
+@_http_errors
 async def search_entries(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -486,154 +106,160 @@ async def search_entries(
     """Búsqueda recursiva de archivos y carpetas cuyo nombre contiene *q*."""
     sandbox = await _resolve_sandbox(institution_id, period_id, db)
     rel = f"{root}/{path}".strip("/") if path else root
-    base = _safe_resolve(sandbox, rel)
+    base = resolve_in(sandbox, rel)
 
     if not base.is_dir():
         return ListResponse(entries=[], current_path=rel)
 
-    q_lower = q.lower()
-
-    def _search() -> list[FileNode]:
-        found: list[FileNode] = []
-        for item in sorted(base.rglob("*"), key=lambda x: (not x.is_dir(), x.name.lower())):
-            if q_lower not in item.name.lower():
-                continue
-            if not item.is_dir() and not item.is_file():
-                continue
-            found.append(
-                FileNode(
-                    name=item.name,
-                    path=str(item.relative_to(sandbox)).replace("\\", "/"),
-                    is_dir=item.is_dir(),
-                    is_pdf=item.is_dir() or item.suffix.lower() == ".pdf",
-                    size=item.stat().st_size if item.is_file() else None,
-                )
-            )
-            if len(found) >= _SEARCH_MAX_RESULTS:
-                break
-        return found
-
-    entries = await asyncio.to_thread(_search)
-
+    entries = await asyncio.to_thread(file_ops.search_nodes, sandbox, base, q)
     return ListResponse(entries=entries, current_path=rel)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Copiar archivo o carpeta
-# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/file")
+@_http_errors
+async def serve_file(
+    institution_id: int = Query(...),
+    period_id: int = Query(...),
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sirve el PDF como StreamingResponse para previsualización."""
+    sandbox = await _resolve_sandbox(institution_id, period_id, db)
+    target = resolve_in(sandbox, path)
+
+    if not target.exists() or not target.is_file():
+        raise ExplorerError(404, "Archivo no encontrado")
+    if target.suffix.lower() != ".pdf":
+        raise ExplorerError(400, "Solo se pueden servir archivos PDF")
+
+    return StreamingResponse(
+        _stream(target),
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition(target.name, inline=True)},
+    )
 
 
-@router.post("/copy", response_model=OperationResult)
-async def copy_entry(body: CopyRequest, db: AsyncSession = Depends(get_db)):
-    """Copia un archivo o carpeta a otra carpeta destino."""
+async def _stream(path: Path):
+    async with aiofiles.open(path, "rb") as f:
+        while chunk := await f.read(65536):
+            yield chunk
+
+
+@router.get("/thumbnails")
+@_http_errors
+async def get_thumbnails(
+    institution_id: int = Query(...),
+    period_id: int = Query(...),
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Renderiza cada página como PNG base64 para la UI de reordenamiento."""
+    sandbox = await _resolve_sandbox(institution_id, period_id, db)
+    thumbnails = await asyncio.to_thread(pdf_ops.render_thumbnails, sandbox, path)
+    return {"thumbnails": thumbnails, "count": len(thumbnails)}
+
+
+@router.post("/rename", response_model=OperationResult)
+@_http_errors
+async def rename_entry(body: RenameRequest, db: AsyncSession = Depends(get_db)):
+    """Renombra un archivo o carpeta."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-    src = _safe_resolve(sandbox, body.src)
-    dst_folder = _safe_resolve(sandbox, body.dst_folder)
-
-    if not src.exists():
-        raise HTTPException(404, "Origen no encontrado")
-    if not dst_folder.is_dir():
-        raise HTTPException(400, "Destino no es un directorio")
-    if dst_folder == src.parent:
-        raise HTTPException(400, "El origen ya se encuentra en esa carpeta")
-    # Prevent copying a folder into one of its own descendants
-    if src.is_dir() and (dst_folder == src or dst_folder.is_relative_to(src)):
-        raise HTTPException(400, "No puedes copiar una carpeta dentro de sí misma")
-
-    dst = dst_folder / src.name
-
-    def _copy() -> None:
-        if src.is_file():
-            shutil.copy2(src, dst)
-        else:
-            shutil.copytree(src, dst, dirs_exist_ok=True)
-
-    try:
-        await asyncio.to_thread(_copy)
-    except OSError as e:
-        logger.error("Error al copiar %s a %s: %s", src, dst, e)
-        raise HTTPException(500, "Error al copiar el archivo o carpeta") from e
-
-    return OperationResult(ok=True, message=f'"{src.name}" copiado a {dst_folder.name}/')
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Eliminar archivo o carpeta
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@router.post("/delete", response_model=OperationResult)
-async def delete_entry(body: DeleteRequest, db: AsyncSession = Depends(get_db)):
-    """Elimina un archivo o carpeta (con todo su contenido si es carpeta)."""
-    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-    target = _safe_resolve(sandbox, body.path)
-    message = await asyncio.to_thread(_delete_path, target, sandbox)
+    message = await asyncio.to_thread(file_ops.rename, sandbox, body.path, body.new_name)
     return OperationResult(ok=True, message=message)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Eliminar en lote
-# ──────────────────────────────────────────────────────────────────────────────
+@router.post("/move", response_model=OperationResult)
+@_http_errors
+async def move_entry(body: MoveRequest, db: AsyncSession = Depends(get_db)):
+    """Mueve un archivo o carpeta a otra carpeta destino."""
+    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
+    message = await asyncio.to_thread(file_ops.move, sandbox, body.src, body.dst_folder)
+    return OperationResult(ok=True, message=message)
+
+
+@router.post("/copy", response_model=OperationResult)
+@_http_errors
+async def copy_entry(body: CopyRequest, db: AsyncSession = Depends(get_db)):
+    """Copia un archivo o carpeta a otra carpeta destino."""
+    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
+    message = await asyncio.to_thread(file_ops.copy, sandbox, body.src, body.dst_folder)
+    return OperationResult(ok=True, message=message)
+
+
+@router.post("/delete", response_model=OperationResult)
+@_http_errors
+async def delete_entry(body: DeleteRequest, db: AsyncSession = Depends(get_db)):
+    """Elimina un archivo o carpeta (con todo su contenido si es carpeta)."""
+    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
+    message = await asyncio.to_thread(file_ops.delete_one, sandbox, body.path)
+    return OperationResult(ok=True, message=message)
 
 
 @router.post("/delete-batch", response_model=BatchDeleteResult)
+@_http_errors
 async def delete_batch(body: DeleteBatchRequest, db: AsyncSession = Depends(get_db)):
     """Elimina múltiples archivos o carpetas en una sola operación."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-
-    deleted: list[str] = []
-    errors: list[str] = []
-
-    for rel_path in body.paths:
-        try:
-            target = _safe_resolve(sandbox, rel_path)
-            await asyncio.to_thread(_delete_path, target, sandbox)
-            deleted.append(rel_path)
-        except HTTPException as exc:
-            errors.append(f"{rel_path}: {exc.detail}")
-
-    return BatchDeleteResult(deleted=deleted, errors=errors)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Crear carpeta
-# ──────────────────────────────────────────────────────────────────────────────
+    return await asyncio.to_thread(file_ops.delete_many, sandbox, body.paths)
 
 
 @router.post("/mkdir", response_model=OperationResult)
+@_http_errors
 async def make_directory(body: MkdirRequest, db: AsyncSession = Depends(get_db)):
     """Crea una nueva carpeta dentro del sandbox."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
-    _validate_entry_name(body.name)
-
-    parent = _safe_resolve(sandbox, body.path) if body.path else sandbox
-    if not parent.is_dir():
-        raise HTTPException(400, "La carpeta padre no existe")
-
-    new_dir = parent / body.name
-    _safe_resolve(sandbox, str(new_dir.relative_to(sandbox)))  # confirmar sandbox
-
-    if new_dir.exists():
-        raise HTTPException(400, f'Ya existe una carpeta con el nombre "{body.name}"')
-
-    try:
-        new_dir.mkdir(parents=False)
-    except OSError as e:
-        logger.error("Error al crear la carpeta %s: %s", new_dir, e)
-        raise HTTPException(500, "Error al crear la carpeta") from e
-
-    rel = str(new_dir.relative_to(sandbox)).replace("\\", "/")
-    return OperationResult(ok=True, message=f'Carpeta "{body.name}" creada en {rel}')
+    message = await asyncio.to_thread(file_ops.make_directory, sandbox, body.path, body.name)
+    return OperationResult(ok=True, message=message)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Subir archivos (PDFs)
-# ──────────────────────────────────────────────────────────────────────────────
+@router.post("/merge", response_model=OperationResult)
+@_http_errors
+async def merge_pdfs(body: MergeRequest, db: AsyncSession = Depends(get_db)):
+    """Une múltiples PDFs en uno solo."""
+    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
+    name = await asyncio.to_thread(pdf_ops.merge_files, sandbox, body.paths, body.output_name)
+    return OperationResult(ok=True, message=f"PDFs unidos en {name}")
 
-_UPLOAD_CHUNK = 1024 * 1024
+
+@router.get("/split-preview", response_model=SplitPreviewResult)
+@_http_errors
+async def preview_split(
+    institution_id: int = Query(...),
+    period_id: int = Query(...),
+    path: str = Query(...),
+    ranges: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Calcula los grupos de páginas que resultarían de dividir, sin escribir archivos."""
+    sandbox = await _resolve_sandbox(institution_id, period_id, db)
+    groups = await asyncio.to_thread(pdf_ops.preview_split, sandbox, path, ranges)
+    return SplitPreviewResult(groups=groups)
+
+
+@router.post("/split", response_model=OperationResult)
+@_http_errors
+async def split_pdf(body: SplitRequest, db: AsyncSession = Depends(get_db)):
+    """Divide un PDF por rangos o página a página."""
+    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
+    created = await asyncio.to_thread(pdf_ops.split, sandbox, body.path, body.ranges)
+    return OperationResult(ok=True, message=f"PDF dividido en {created} archivo(s)")
+
+
+@router.post("/reorder", response_model=OperationResult)
+@_http_errors
+async def reorder_pages(body: ReorderRequest, db: AsyncSession = Depends(get_db)):
+    """Reordena las páginas de un PDF y elimina las que no estén en `page_order` (in-place)."""
+    sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
+    dropped = await asyncio.to_thread(pdf_ops.reorder, sandbox, body.path, body.page_order)
+    if dropped:
+        message = f"Se guardaron {len(body.page_order)} página(s) ({dropped} eliminada(s))"
+    else:
+        message = "Páginas reordenadas correctamente"
+    return OperationResult(ok=True, message=message)
 
 
 @router.post("/upload", response_model=UploadResult)
+@_http_errors
 async def upload_files(
     institution_id: int = Form(...),
     period_id: int = Form(...),
@@ -642,101 +268,13 @@ async def upload_files(
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Sube uno o más PDFs al directorio indicado.
-
-    `relative_paths_json` es un array JSON de rutas relativas (para preservar
-    la estructura de subcarpetas cuando se sube una carpeta completa).
-    Si está vacío o no coincide en longitud con `files`, se usa solo el nombre
-    de cada archivo.
-    """
+    """Sube uno o más PDFs al directorio indicado (ver ``file_ops.save_uploads`` para las reglas)."""
     sandbox = await _resolve_sandbox(institution_id, period_id, db)
-
-    # Carpeta destino base
-    dest_base = _safe_resolve(sandbox, path) if path else sandbox
-    if not dest_base.is_dir():
-        raise HTTPException(400, "La carpeta destino no existe")
-
-    # Parsear rutas relativas (presentes solo en upload de carpeta completa)
-    try:
-        relative_paths: list[str] = json.loads(relative_paths_json)
-        if not isinstance(relative_paths, list):
-            relative_paths = []
-    except (json.JSONDecodeError, ValueError):
-        relative_paths = []
-
-    is_folder_upload = len(relative_paths) == len(files) and any(relative_paths)
-
-    # Para upload de carpeta: verificar conflicto de nombre antes de escribir nada
-    if is_folder_upload:
-        root_name = Path(relative_paths[0]).parts[0]
-        root_dest = dest_base / root_name
-        _safe_resolve(sandbox, str(root_dest.relative_to(sandbox)))  # validar sandbox
-        if root_dest.exists():
-            raise HTTPException(
-                409,
-                f'Ya existe una carpeta llamada "{root_name}" en este directorio. '
-                "Renómbrala o elimínala antes de subir.",
-            )
-
-    uploaded: list[str] = []
-    skipped: list[str] = []
-    non_pdf_count: int = 0
-
-    for i, upload in enumerate(files):
-        filename = upload.filename or f"archivo_{i}"
-
-        # Determinar ruta destino
-        if is_folder_upload and relative_paths[i]:
-            # Preservar estructura completa incluyendo la carpeta raíz
-            dest_file = dest_base / Path(relative_paths[i])
-        else:
-            dest_file = dest_base / filename
-
-        # Solo aceptar PDFs — contar no-PDFs por separado para advertencia
-        if dest_file.suffix.lower() != ".pdf":
-            non_pdf_count += 1
-            skipped.append(filename)
-            continue
-
-        # Validar sandbox
-        try:
-            _safe_resolve(sandbox, str(dest_file.relative_to(sandbox)))
-        except HTTPException:
-            skipped.append(filename)
-            continue
-
-        # Crear directorios intermedios (subcarpetas anidadas)
-        dest_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Escribir
-        try:
-            size = 0
-            too_large = False
-            async with aiofiles.open(dest_file, "wb") as f:
-                # Streamed in chunks: no per-file size cap by default (0 = unlimited) and no RAM spike.
-                while chunk := await upload.read(_UPLOAD_CHUNK):
-                    size += len(chunk)
-                    if settings.max_upload_bytes and size > settings.max_upload_bytes:
-                        too_large = True
-                        break
-                    await f.write(chunk)
-            if too_large:
-                dest_file.unlink(missing_ok=True)
-                skipped.append(f"{filename}: excede el tamaño máximo permitido ({settings.max_upload_bytes} bytes)")
-                continue
-            uploaded.append(str(dest_file.relative_to(sandbox)).replace("\\", "/"))
-        except OSError as e:
-            skipped.append(f"{filename}: {e}")
-
-    return UploadResult(uploaded=uploaded, skipped=skipped, non_pdf_count=non_pdf_count)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Descarga de archivos individuales y ZIP
-# ──────────────────────────────────────────────────────────────────────────────
+    return await file_ops.save_uploads(sandbox, path, files, relative_paths_json, settings.max_upload_bytes)
 
 
 @router.get("/download-file")
+@_http_errors
 async def download_file(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -745,54 +283,31 @@ async def download_file(
 ):
     """Descarga un archivo individual como attachment."""
     sandbox = await _resolve_sandbox(institution_id, period_id, db)
-    abs_path = _safe_resolve(sandbox, rel_path)
-
-    if not abs_path.is_file():
-        raise HTTPException(404, "Archivo no encontrado")
-
-    async def _iter():
-        async with aiofiles.open(abs_path, "rb") as f:
-            while chunk := await f.read(65536):
-                yield chunk
+    target = resolve_in(sandbox, rel_path)
+    if not target.is_file():
+        raise ExplorerError(404, "Archivo no encontrado")
 
     return StreamingResponse(
-        _iter(),
+        _stream(target),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": content_disposition(abs_path.name)},
+        headers={"Content-Disposition": content_disposition(target.name)},
     )
 
 
 @router.get("/download-zip")
+@_http_errors
 async def download_zip(
     institution_id: int = Query(...),
     period_id: int = Query(...),
     rel_paths: list[str] = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Empaqueta una lista de rutas (archivos y/o carpetas) en un ZIP en memoria."""
+    """Empaqueta una lista de rutas (archivos y/o carpetas) en un ZIP temporal en disco."""
     sandbox = await _resolve_sandbox(institution_id, period_id, db)
-
-    def _entries():
-        for rel in rel_paths:
-            abs_p = _safe_resolve(sandbox, rel)
-            if abs_p.is_file():
-                yield abs_p, abs_p.name
-            elif abs_p.is_dir():
-                for f in abs_p.rglob("*"):
-                    if f.is_file():
-                        yield f, str(f.relative_to(abs_p.parent))
-
     # Temporary ZIP on disk (streamed file by file): packages of many GB never sit in memory.
-    zip_path = await asyncio.to_thread(build_zip_file, _entries())
-
+    zip_path = await asyncio.to_thread(build_zip_file, file_ops.zip_entries(sandbox, rel_paths))
     zip_name = (Path(rel_paths[0]).name + ".zip") if len(rel_paths) == 1 else "seleccion.zip"
-
     return temp_file_response(zip_path, zip_name, "application/zip")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Ocultar consola Windows
-# ──────────────────────────────────────────────────────────────────────────────
 
 
 @router.post("/console-hide", response_model=OperationResult)
