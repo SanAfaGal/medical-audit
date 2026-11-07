@@ -12,6 +12,10 @@ Todas las variables son leídas por `app/config.py` vía pydantic-settings.
 |---|---|---|---|
 | `DATABASE_URL` | Sí | — | Cadena de conexión asyncpg. Usar `localhost:5432` porque el backend corre nativamente. |
 | `SECRET_KEY` | Sí | — | Clave de 32 bytes en base64 para cifrado de credenciales almacenadas. |
+| `MAX_ARCHIVE_BYTES` | No | `0` | Tope en bytes del archivo comprimido subido en «cargar ZIP de Drive». `0` = sin límite. |
+| `MAX_UNCOMPRESSED_BYTES` | No | `0` | Tope en bytes del contenido ya descomprimido. `0` = sin límite. |
+| `MAX_ARCHIVE_MEMBERS` | No | `0` | Tope de archivos dentro de un comprimido. `0` = sin límite. |
+| `MAX_UPLOAD_BYTES` | No | `0` | Tope por archivo subido desde el explorador. `0` = sin límite. |
 | `POSTGRES_USER` | Sí | — | Usuario PostgreSQL (usado por el contenedor Docker). |
 | `POSTGRES_PASSWORD` | Sí | — | Contraseña PostgreSQL. |
 | `POSTGRES_DB` | Sí | — | Nombre de la base de datos PostgreSQL. |

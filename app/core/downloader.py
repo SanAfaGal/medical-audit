@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright
 
 from app.core.helpers import emit_event as _emit
 from app.core.helpers import read_lines_from_file
-from app.core.urlcheck import is_blocked_url
+from app.core.urlcheck import is_blocked_request
 
 logger = logging.getLogger(__name__)
 
@@ -159,9 +159,12 @@ class SihosDownloader:
             )
             context = await browser.new_context()
 
+            resolved: dict[str, bool] = {}
+
             async def _guard(route) -> None:
-                # Redirects or embedded resources must not reach loopback/metadata addresses (SSRF).
-                if is_blocked_url(route.request.url):
+                # Redirects or embedded resources must not reach loopback/metadata addresses (SSRF),
+                # whether given as an IP in any notation or as a name that resolves to one.
+                if await is_blocked_request(route.request.url, resolved):
                     logger.warning("Blocked request to %s", route.request.url)
                     await route.abort()
                 else:

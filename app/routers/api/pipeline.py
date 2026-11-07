@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import time
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -14,16 +12,18 @@ from typing import Literal
 from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.paths import audit_data_root
 from app.repositories.institution_repo import InstitutionRepo
 from app.repositories.invoice_repo import InvoiceRepo
 
 from app.services import pipeline_runner
-from app.services.archive import MAX_ARCHIVE_BYTES, ArchiveError, ArchiveToolMissing, extract_archive
+from app.services.archive import ArchiveError, ArchiveToolMissing, build_zip_file, extract_archive
 from app.services.stage_events import heartbeat_event, with_heartbeat
 from app.services.task_manager import HEARTBEAT_SECONDS, PipelineTaskManager, TaskAlreadyRunningError
 
@@ -42,6 +42,7 @@ async def run_stage(
     invoice_numbers: str = "",
     doc_type_id: int = 0,
     db: AsyncSession = Depends(get_db),
+    tm: PipelineTaskManager = Depends(get_task_manager),
 ):
     """Stream SSE log lines from a pipeline stage.
 
@@ -66,17 +67,37 @@ async def run_stage(
         extra["doc_type_id"] = doc_type_id
 
     async def event_gen():
-        started = last_line = time.monotonic()
-        stream = pipeline_runner.execute(stage, institution, period, db, extra)
-        async for line in with_heartbeat(stream, HEARTBEAT_SECONDS):
-            if line is None:  # quiet period: tell the browser the server is still working
-                now = time.monotonic()
-                yield heartbeat_event(idle=now - last_line, elapsed=now - started)
-                continue
-            last_line = time.monotonic()
-            payload = json.dumps({"msg": line})
-            yield f"data: {payload}\n\n"
-        yield 'data: {"msg": "[DONE]"}\n\n'
+        # Same per-(institution, period) lock as background tasks. Taken here, inside the generator,
+        # so the finally below always releases it even if the client drops before the first byte.
+        try:
+            run = tm.begin_sync(stage, institution_id, period_id)
+        except TaskAlreadyRunningError as exc:
+            busy = (
+                f"[ERROR] Ya hay una tarea activa para este hospital y período ({exc.run.stage}). Espera a que termine."
+            )
+            yield f"data: {json.dumps({'msg': busy})}\n\n"
+            yield 'data: {"msg": "[DONE]"}\n\n'
+            return
+
+        status: Literal["done", "error", "cancelled"] = "error"
+        try:
+            started = last_line = time.monotonic()
+            stream = pipeline_runner.execute(stage, institution, period, db, extra)
+            async for line in with_heartbeat(stream, HEARTBEAT_SECONDS):
+                if line is None:  # quiet period: tell the browser the server is still working
+                    now = time.monotonic()
+                    yield heartbeat_event(idle=now - last_line, elapsed=now - started)
+                    continue
+                last_line = time.monotonic()
+                payload = json.dumps({"msg": line})
+                yield f"data: {payload}\n\n"
+            status = "done"
+            yield 'data: {"msg": "[DONE]"}\n\n'
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            tm.end_sync(run, status)
 
     return StreamingResponse(
         event_gen(),
@@ -219,13 +240,13 @@ async def load_drive_zip(
     drive_path: Path = audit_data_root / institution.name / period.period_label / "DRIVE"
     drive_path.mkdir(parents=True, exist_ok=True)
 
-    file_bytes = await file.read(MAX_ARCHIVE_BYTES + 1)
-    if len(file_bytes) > MAX_ARCHIVE_BYTES:
-        raise HTTPException(413, f"Archivo demasiado grande (máx {MAX_ARCHIVE_BYTES // 1024**3} GB)")
+    # Starlette already spooled the upload to disk: hand the file object over, never read it all into memory.
+    if settings.max_archive_bytes and (file.size or 0) > settings.max_archive_bytes:
+        raise HTTPException(413, f"Archivo demasiado grande (máx {settings.max_archive_bytes} bytes)")
 
     try:
         # Extraction is blocking disk work: keep it off the event loop.
-        extracted = await asyncio.to_thread(extract_archive, file_bytes, file.filename or "", drive_path)
+        extracted = await asyncio.to_thread(extract_archive, file.file, file.filename or "", drive_path)
     except ArchiveToolMissing as exc:
         raise HTTPException(500, str(exc))
     except ArchiveError as exc:
@@ -313,8 +334,8 @@ async def stream_audit_zip(
     period_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Empaqueta la carpeta AUDIT en memoria y la devuelve como ZIP descargable.
-    No escribe nada en disco — el ZIP se genera al vuelo en cada descarga.
+    """Empaqueta la carpeta AUDIT en un ZIP temporal (en disco, no en memoria) y lo devuelve.
+    El ZIP temporal se borra al terminar el envío, así que no hay límite práctico de tamaño.
     """
     import re
 
@@ -334,24 +355,17 @@ async def stream_audit_zip(
     if not all_files:
         raise HTTPException(404, "No hay archivos en AUDIT")
 
-    def _build_zip_bytes() -> bytes:
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-            for f in all_files:
-                zf.write(f, f.relative_to(audit_path))
-        return buf.getvalue()
-
-    loop = asyncio.get_running_loop()
-    zip_bytes = await loop.run_in_executor(None, _build_zip_bytes)
+    zip_path = await asyncio.to_thread(build_zip_file, ((f, f.relative_to(audit_path)) for f in all_files))
 
     safe_inst = re.sub(r"[^\w]", "_", institution.name)
     safe_period = re.sub(r"[^\w]", "_", period.period_label)
     filename = f"{safe_inst}_{safe_period}.zip"
 
-    return Response(
-        content=zip_bytes,
+    return FileResponse(
+        zip_path,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
+        background=BackgroundTask(zip_path.unlink, missing_ok=True),
     )
 
 

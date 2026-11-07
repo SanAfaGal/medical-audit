@@ -20,11 +20,26 @@ logger = structlog.get_logger()
 _SKIP_LOG_PATHS = {"/health", "/health/db", "/static"}
 
 
+async def _ensure_base_data() -> None:
+    """Create the folder statuses the DB triggers and pipeline depend on, if the database is unseeded."""
+    from app.database import AsyncSessionLocal
+    from app.services.bootstrap import ensure_folder_statuses
+
+    try:
+        async with AsyncSessionLocal() as db:
+            added = await ensure_folder_statuses(db)
+        if added:
+            logger.warning("base_data_created", folder_statuses=added)
+    except Exception as exc:  # noqa: BLE001 - a DB that is still starting must not stop the app
+        logger.warning("base_data_check_failed", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.services.task_manager import PipelineTaskManager
 
     app.state.task_manager = PipelineTaskManager()
+    await _ensure_base_data()
     logger.info("startup", host=settings.host, port=settings.port, docs=settings.docs_enabled)
     yield
     await engine.dispose()

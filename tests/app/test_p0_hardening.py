@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 import app.services.archive as archive
+from app.config import settings
 from app.core.drive import DriveSync, _q
 from app.core.urlcheck import is_blocked_url, validate_portal_url
 from app.schemas.institution import InstitutionCreate, InstitutionUpdate
@@ -166,12 +167,12 @@ class TestArchive:
             extract_archive(b"x", "x.tar", tmp_path)
 
     def test_declared_size_limit(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(archive, "MAX_UNCOMPRESSED_BYTES", 10)
+        monkeypatch.setattr(settings, "max_uncompressed_bytes", 10)
         with pytest.raises(ArchiveError, match="demasiado grande"):
             extract_archive(_zip_bytes({"a/f.bin": b"x" * 100}), "x.zip", tmp_path)
 
     def test_member_count_limit(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(archive, "MAX_MEMBERS", 2)
+        monkeypatch.setattr(settings, "max_archive_members", 2)
         with pytest.raises(ArchiveError, match="demasiados"):
             extract_archive(_zip_bytes({f"d{i}/f": b"x" for i in range(3)}), "x.zip", tmp_path)
 
@@ -186,3 +187,176 @@ class TestArchive:
             pytest.skip("symlinks not available on this platform/user")
         with pytest.raises(ArchiveError, match="enlace simbólico"):
             archive._reject_symlinks(tmp_path / "tree")
+
+
+class TestLegacyIpNotations:
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "2130706433",
+            "0x7f.0.0.1",
+            "127.1",
+            "017700000001",
+            "0xA9FEA9FE",
+            "2852039166",
+        ],  # 127.0.0.1 / 169.254.169.254
+    )
+    def test_browser_style_ip_spellings_are_blocked(self, host):
+        assert is_blocked_url(f"http://{host}/")
+        with pytest.raises(ValueError):
+            validate_portal_url(f"http://{host}/")
+
+    def test_ordinary_names_are_not_mistaken_for_ips(self):
+        for host in ("1e100.net", "deadbeef.example.com", "sihos.hospital.org", "8.8.8.8"):
+            assert not is_blocked_url(f"http://{host}/")
+
+
+class TestRequestGuardResolvesNames:
+    async def test_name_resolving_to_loopback_is_blocked_and_cached(self, monkeypatch):
+        from app.core.urlcheck import is_blocked_request
+
+        calls = []
+
+        def fake(host, *a, **k):
+            calls.append(host)
+            return [(2, 1, 6, "", ("127.0.0.1", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake)
+        cache: dict[str, bool] = {}
+        assert await is_blocked_request("http://rebind.example.com/x", cache)
+        assert await is_blocked_request("http://rebind.example.com/y", cache)
+        assert calls == ["rebind.example.com"]  # second request served from the cache
+
+    async def test_name_resolving_to_lan_is_allowed(self, monkeypatch):
+        from app.core.urlcheck import is_blocked_request
+
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("10.1.2.3", 0))])
+        assert not await is_blocked_request("http://sihos.lan/", {})
+
+    async def test_literal_bad_ip_and_non_http_need_no_dns(self):
+        from app.core.urlcheck import is_blocked_request
+
+        assert await is_blocked_request("http://169.254.169.254/", {})
+        assert not await is_blocked_request("about:blank", {})
+
+
+class TestSevenZipAndRar:
+    def _sevenzip(self, files: dict[str, bytes]) -> bytes:
+        py7zr = pytest.importorskip("py7zr")
+        buf = io.BytesIO()
+        with py7zr.SevenZipFile(buf, "w") as z:
+            for name, content in files.items():
+                z.writestr(content, name)
+        return buf.getvalue()
+
+    def test_7z_extracts_from_memory_and_drops_wrapper(self, tmp_path):
+        data = self._sevenzip({"Drive/FE1/a.pdf": b"x", "Drive/FE2/b.pdf": b"y"})
+        extracted = extract_archive(data, "carpetas.7z", tmp_path)
+        assert (tmp_path / "FE1" / "a.pdf").read_bytes() == b"x"
+        assert len(extracted) == 2
+
+    def test_7z_declared_size_limit(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "max_uncompressed_bytes", 10)
+        with pytest.raises(ArchiveError, match="demasiado grande"):
+            extract_archive(self._sevenzip({"a/f.bin": b"x" * 100}), "x.7z", tmp_path)
+
+    def test_corrupt_7z(self, tmp_path):
+        pytest.importorskip("py7zr")
+        with pytest.raises(ArchiveError):
+            extract_archive(b"definitely not 7z", "x.7z", tmp_path)
+
+    def test_actual_size_check_catches_what_headers_hide(self, tmp_path, monkeypatch):
+        (tmp_path / "big.bin").write_bytes(b"x" * 50)
+        monkeypatch.setattr(settings, "max_uncompressed_bytes", 10)
+        with pytest.raises(ArchiveError, match="demasiado grande"):
+            archive._check_actual_size(tmp_path)
+
+    def test_rar_stops_streaming_when_real_output_exceeds_the_limit(self, tmp_path, monkeypatch):
+        """A RAR header can understate the size; the streaming copy must still enforce the cap."""
+        import sys
+        from contextlib import contextmanager
+
+        monkeypatch.setattr(settings, "max_uncompressed_bytes", 1000)
+        info = SimpleNamespace(filename="dir/big.bin", file_size=10, is_dir=lambda: False, is_symlink=lambda: False)
+
+        class _Error(Exception):
+            pass
+
+        class _FakeRar:
+            def __init__(self, path):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def infolist(self):
+                return [info]  # claims 10 bytes...
+
+            @contextmanager
+            def open(self, i):
+                yield io.BytesIO(b"x" * 5000)  # ...but really produces 5000
+
+        monkeypatch.setitem(sys.modules, "rarfile", SimpleNamespace(RarFile=_FakeRar, Error=_Error))
+        with pytest.raises(ArchiveError, match="demasiado grande"):
+            extract_archive(b"Rar!", "x.rar", tmp_path / "dest")
+
+    def test_rar_rejects_symlink_members(self, tmp_path, monkeypatch):
+        import sys
+
+        info = SimpleNamespace(filename="l", file_size=1, is_dir=lambda: False, is_symlink=lambda: True)
+
+        class _FakeRar:
+            def __init__(self, path):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def infolist(self):
+                return [info]
+
+        monkeypatch.setitem(sys.modules, "rarfile", SimpleNamespace(RarFile=_FakeRar, Error=Exception))
+        with pytest.raises(ArchiveError, match="enlace simbólico"):
+            extract_archive(b"Rar!", "x.rar", tmp_path / "dest")
+
+
+class TestNoLimitsByDefault:
+    def test_defaults_are_unlimited(self):
+        assert settings.max_archive_bytes == 0
+        assert settings.max_uncompressed_bytes == 0
+        assert settings.max_archive_members == 0
+        assert settings.max_upload_bytes == 0
+
+    def test_large_member_count_and_size_pass_without_limits(self, tmp_path):
+        data = _zip_bytes({f"d{i % 5}/f{i}.bin": b"x" * 1000 for i in range(300)})
+        assert len(extract_archive(data, "x.zip", tmp_path)) == 300
+
+    def test_accepts_a_file_object_not_just_bytes(self, tmp_path):
+        with io.BytesIO(_zip_bytes({"a/x.txt": b"1", "b/y.txt": b"2"})) as fh:
+            assert len(extract_archive(fh, "x.zip", tmp_path)) == 2
+
+
+class TestBuildZipFile:
+    def test_writes_a_real_zip_on_disk_and_stores_pdfs(self, tmp_path):
+        (tmp_path / "a.pdf").write_bytes(b"%PDF" + b"x" * 500)
+        (tmp_path / "b.txt").write_bytes(b"t" * 500)
+        path = archive.build_zip_file([(tmp_path / "a.pdf", "dir/a.pdf"), (tmp_path / "b.txt", Path("dir/b.txt"))])
+        try:
+            with zipfile.ZipFile(path) as zf:
+                kinds = {i.filename: i.compress_type for i in zf.infolist()}
+                assert kinds == {"dir/a.pdf": zipfile.ZIP_STORED, "dir/b.txt": zipfile.ZIP_DEFLATED}
+                assert zf.read("dir/b.txt") == b"t" * 500
+        finally:
+            path.unlink()
+
+    def test_failure_cleans_up_the_temp_file(self, tmp_path):
+        before = set(Path(archive.tempfile.gettempdir()).glob("audit_*.zip"))
+        with pytest.raises(FileNotFoundError):
+            archive.build_zip_file([(tmp_path / "missing.pdf", "x.pdf")])
+        assert set(Path(archive.tempfile.gettempdir()).glob("audit_*.zip")) == before

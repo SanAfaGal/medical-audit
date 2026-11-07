@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models.rules import DocType, FolderStatus, ServiceType
+from app.services.bootstrap import REQUIRED_FOLDER_STATUSES
 
 DEFAULT_SERVICE_TYPES = [
     {"code": "GENERAL", "display_name": "General", "priority": 0},
@@ -38,14 +39,7 @@ DEFAULT_DOC_TYPES = [
     {"code": "CUFE", "description": "CUFE", "prefix": None},
 ]
 
-DEFAULT_FOLDER_STATUSES = [
-    {"status": "PRESENTE"},
-    {"status": "PENDIENTE"},
-    {"status": "FALTANTE"},
-    {"status": "AUDITADA"},
-    {"status": "ANULAR"},
-    {"status": "REVISAR"},
-]
+DEFAULT_FOLDER_STATUSES = [{"status": name} for name in REQUIRED_FOLDER_STATUSES]
 
 
 async def seed() -> None:

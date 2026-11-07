@@ -93,6 +93,8 @@ Registros de documentos requeridos faltantes por factura.
 - `[DATA] {"type":"progress","current":N,"total":T,"item":"...","label":"Facturas"}` — progreso; la UI lo muestra como barra y no lo imprime en el log.
 - `event: heartbeat` con `data: {"idle": s, "elapsed": s}` cada 15 s **sin líneas nuevas**, en cualquier etapa: `idle` = segundos desde la última línea, `elapsed` = segundos desde que empezó.
 
+**Un solo trabajo por hospital y período.** Tanto `POST /run/{stage}` (409) como `GET /run/{stage}` (línea `[ERROR] Ya hay una tarea activa…` y `[DONE]`) comparten el mismo candado por institución + período, para que dos etapas nunca toquen los archivos del mismo período a la vez. Hospitales o períodos distintos corren en paralelo.
+
 El estado de las tareas vive en memoria del proceso, por eso el backend corre con **un solo worker** de uvicorn.
 
 Ver [docs/DOMAIN.md](DOMAIN.md#pipeline-de-auditoría) para el detalle de las 22 etapas del pipeline.

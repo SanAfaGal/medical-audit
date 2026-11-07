@@ -134,3 +134,50 @@ class TestHeartbeatAndCancel:
         assert run.status == "done"
         assert seen["extra"]["cancel_event"] is run.cancel_event
         assert run.last_activity >= before
+
+
+class TestSharedContextLock:
+    """Background tasks and request-streamed stages (GET /run) share one lock per institution/period."""
+
+    async def test_sync_run_blocks_background_start_until_released(self):
+        tm = PipelineTaskManager()
+        sync_run = tm.begin_sync("REMOVE_NON_PDF", 1, 1)
+        with pytest.raises(TaskAlreadyRunningError) as exc_info:
+            await tm.start("OTHER", 1, 1, {})
+        assert exc_info.value.run is sync_run
+
+        tm.end_sync(sync_run)
+        run = await tm.start("OTHER", 1, 1, {})
+        run._task.cancel()
+
+    async def test_background_task_blocks_sync_run(self):
+        tm = PipelineTaskManager()
+
+        async def _fake_run_stage(run, stage, institution_id, period_id, extra):
+            await asyncio.sleep(10)
+
+        tm._run_stage = _fake_run_stage
+        run = await tm.start("LONG", 1, 1, {})
+        try:
+            with pytest.raises(TaskAlreadyRunningError):
+                tm.begin_sync("REVISAR_SOBRANTES", 1, 1)
+        finally:
+            run._task.cancel()
+
+    def test_two_sync_runs_for_the_same_period_conflict_but_other_periods_do_not(self):
+        tm = PipelineTaskManager()
+        first = tm.begin_sync("A", 1, 1)
+        with pytest.raises(TaskAlreadyRunningError):
+            tm.begin_sync("B", 1, 1)
+        other = tm.begin_sync("B", 1, 2)  # different period: independent
+        tm.end_sync(first)
+        tm.end_sync(other)
+        tm.end_sync(tm.begin_sync("C", 1, 1))  # lock was released
+
+    def test_sync_runs_are_not_listed_as_reattachable_tasks(self):
+        tm = PipelineTaskManager()
+        run = tm.begin_sync("A", 1, 1)
+        assert tm.get_all_active() == []  # /active only offers background tasks
+        assert tm.get_active_for_context(1, 1) is run  # but the lock still sees it
+        tm.end_sync(run, "error")
+        assert tm.get_active_for_context(1, 1) is None

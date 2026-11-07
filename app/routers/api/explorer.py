@@ -4,22 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import io
 import json
 import logging
 import shutil
-import zipfile
 from pathlib import Path
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
+from app.config import settings
 from app.database import get_db
 from app.models.institution import Institution
 from app.models.period import AuditPeriod
 from app.paths import audit_data_root, safe_join
+from app.services.archive import build_zip_file
 from app.schemas.explorer import (
     BatchDeleteResult,
     CopyRequest,
@@ -638,7 +639,7 @@ async def make_directory(body: MkdirRequest, db: AsyncSession = Depends(get_db))
 # Subir archivos (PDFs)
 # ──────────────────────────────────────────────────────────────────────────────
 
-_MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200 MB per file
+_UPLOAD_CHUNK = 1024 * 1024
 
 
 @router.post("/upload", response_model=UploadResult)
@@ -718,12 +719,20 @@ async def upload_files(
 
         # Escribir
         try:
-            content = await upload.read(_MAX_UPLOAD_SIZE + 1)
-            if len(content) > _MAX_UPLOAD_SIZE:
-                skipped.append(f"{filename}: excede el tamaño máximo permitido (200 MB)")
-                continue
+            size = 0
+            too_large = False
             async with aiofiles.open(dest_file, "wb") as f:
-                await f.write(content)
+                # Streamed in chunks: no per-file size cap by default (0 = unlimited) and no RAM spike.
+                while chunk := await upload.read(_UPLOAD_CHUNK):
+                    size += len(chunk)
+                    if settings.max_upload_bytes and size > settings.max_upload_bytes:
+                        too_large = True
+                        break
+                    await f.write(chunk)
+            if too_large:
+                dest_file.unlink(missing_ok=True)
+                skipped.append(f"{filename}: excede el tamaño máximo permitido ({settings.max_upload_bytes} bytes)")
+                continue
             uploaded.append(str(dest_file.relative_to(sandbox)).replace("\\", "/"))
         except OSError as e:
             skipped.append(f"{filename}: {e}")
@@ -772,28 +781,26 @@ async def download_zip(
     """Empaqueta una lista de rutas (archivos y/o carpetas) en un ZIP en memoria."""
     sandbox = await _resolve_sandbox(institution_id, period_id, db)
 
-    def _build() -> bytes:
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-            for rel in rel_paths:
-                abs_p = _safe_resolve(sandbox, rel)
-                if abs_p.is_file():
-                    zf.write(abs_p, abs_p.name)
-                elif abs_p.is_dir():
-                    for f in abs_p.rglob("*"):
-                        if f.is_file():
-                            zf.write(f, f.relative_to(abs_p.parent))
-        return buf.getvalue()
+    def _entries():
+        for rel in rel_paths:
+            abs_p = _safe_resolve(sandbox, rel)
+            if abs_p.is_file():
+                yield abs_p, abs_p.name
+            elif abs_p.is_dir():
+                for f in abs_p.rglob("*"):
+                    if f.is_file():
+                        yield f, str(f.relative_to(abs_p.parent))
 
-    loop = asyncio.get_running_loop()
-    zip_bytes = await loop.run_in_executor(None, _build)
+    # Temporary ZIP on disk (streamed file by file): packages of many GB never sit in memory.
+    zip_path = await asyncio.to_thread(build_zip_file, _entries())
 
     zip_name = (Path(rel_paths[0]).name + ".zip") if len(rel_paths) == 1 else "seleccion.zip"
 
-    return Response(
-        content=zip_bytes,
+    return FileResponse(
+        zip_path,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+        filename=zip_name,
+        background=BackgroundTask(zip_path.unlink, missing_ok=True),
     )
 
 

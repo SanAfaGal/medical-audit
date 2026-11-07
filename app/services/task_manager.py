@@ -29,6 +29,9 @@ class PipelineRun:
     institution_id: int
     period_id: int
     status: Literal["running", "done", "error", "cancelled"] = "running"
+    # False for interactive stages streamed straight over the HTTP request (GET /run): they hold the
+    # per-context lock but have no background task, log buffer to replay or cancel handle.
+    background: bool = True
     logs: list[str] = field(default_factory=list)
     log_offset: int = 0
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -58,7 +61,34 @@ class PipelineTaskManager:
         )
 
     def get_all_active(self) -> list[PipelineRun]:
-        return [r for r in self._runs.values() if r.status == "running"]
+        """Running background tasks (the ones a client can re-attach to or cancel)."""
+        return [r for r in self._runs.values() if r.status == "running" and r.background]
+
+    def begin_sync(self, stage: str, institution_id: int, period_id: int) -> PipelineRun:
+        """Register a stage streamed over the request, under the same per-context lock as background tasks.
+
+        Raises TaskAlreadyRunningError if any stage is already running for the institution/period, so two
+        stages can never touch the same period's files at once, whichever way they were started.
+        Always pair with :meth:`end_sync` (use try/finally).
+        """
+        existing = self.get_active_for_context(institution_id, period_id)
+        if existing is not None:
+            raise TaskAlreadyRunningError(existing)
+        run = PipelineRun(
+            task_id=uuid.uuid4().hex,
+            stage=stage,
+            institution_id=institution_id,
+            period_id=period_id,
+            background=False,
+        )
+        self._runs[run.task_id] = run
+        self._evict_old_runs()
+        return run
+
+    def end_sync(self, run: PipelineRun, status: Literal["done", "error", "cancelled"] = "done") -> None:
+        """Release the lock taken by :meth:`begin_sync`."""
+        run.status = status
+        run.finished_at = datetime.utcnow()
 
     async def start(self, stage: str, institution_id: int, period_id: int, extra: dict) -> PipelineRun:
         # No `await` between the check and the registration below: this makes the
