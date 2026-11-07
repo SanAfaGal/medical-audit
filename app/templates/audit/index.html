@@ -928,16 +928,26 @@ function auditApp() {
         .sort();
     },
 
+    // ── API helpers: errors always surface as a toast, never as a half-parsed response ──
+    async _get(url, fallback) {
+      const res = await api.get(url);
+      if (!res.ok) { Alpine.store('toast').error(res.error); return fallback; }
+      return res.data;
+    },
+    // Awaits a mutation (api.post/patch/delete promise); toasts on failure. Returns true when it succeeded.
+    async _send(call) {
+      const res = await call;
+      if (!res.ok) Alpine.store('toast').error(res.error);
+      return res.ok;
+    },
+
     // ── Init ──────────────────────────────────────────
     async init() {
-      const [fsRes, dtRes, stRes] = await Promise.all([
-        fetch('/api/settings/folder-statuses'),
-        fetch('/api/settings/doc-types'),
-        fetch('/api/settings/service-types'),
+      [this.folderStatuses, this.docTypes, this.serviceTypes] = await Promise.all([
+        this._get('/api/settings/folder-statuses', []),
+        this._get('/api/settings/doc-types', []),
+        this._get('/api/settings/service-types', []),
       ]);
-      this.folderStatuses = await fsRes.json();
-      this.docTypes       = await dtRes.json();
-      this.serviceTypes   = await stRes.json();
 
       if (this.$store.ctx.institutionId) await this.loadFilterOptions();
       if (this.$store.ctx.periodId) { this.loadInvoices(); this.loadStats(); this.loadFindingsSummary(); }
@@ -960,30 +970,25 @@ function auditApp() {
     async loadFilterOptions() {
       const id = this.$store.ctx.institutionId;
       if (!id) return;
-      const [a, c, ct, ag] = await Promise.all([
-        fetch(`/api/institutions/administrators`),
-        fetch(`/api/institutions/contracts`),
-        fetch(`/api/institutions/contract-types`),
-        fetch(`/api/institutions/agreements`),
+      [this.admins, this.contracts, this.contractTypes, this.agreements] = await Promise.all([
+        this._get('/api/institutions/administrators', []),
+        this._get('/api/institutions/contracts', []),
+        this._get('/api/institutions/contract-types', []),
+        this._get('/api/institutions/agreements', []),
       ]);
-      this.admins         = await a.json();
-      this.contracts      = await c.json();
-      this.contractTypes  = await ct.json();
-      this.agreements     = await ag.json();
     },
 
     async loadStats() {
       const pid = this.$store.ctx.periodId;
       if (!pid) return;
-      const res = await fetch(`/api/invoices/stats?period_id=${pid}`);
-      this.stats = await res.json();
+      const stats = await this._get(`/api/invoices/stats?period_id=${pid}`, null);
+      if (stats) this.stats = stats;
     },
 
     async loadFindingsSummary() {
       const pid = this.$store.ctx.periodId;
       if (!pid) return;
-      const res = await fetch(`/api/invoices/findings-summary?period_id=${pid}`);
-      this.findingsSummary = await res.json();
+      this.findingsSummary = await this._get(`/api/invoices/findings-summary?period_id=${pid}`, []);
     },
 
     toggleFindingFilter(docTypeId) {
@@ -1003,8 +1008,8 @@ function auditApp() {
       if (this.filterServiceTypeId)       url += `&service_type_id=${this.filterServiceTypeId}`;
       if (this.searchQuery)               url += `&search=${encodeURIComponent(this.searchQuery)}`;
       if (this.filterFindingDocTypeId)    url += `&has_finding_doc_type_id=${this.filterFindingDocTypeId}`;
-      const res  = await fetch(url);
-      const data = await res.json();
+      const data = await this._get(url, null);
+      if (!data) return;
       this.invoices = data.items;
       this.total    = data.total;
       // If allFilterSelected, check if newly loaded page is still in set
@@ -1055,8 +1060,8 @@ function auditApp() {
       if (this.filterServiceTypeId)       url += `&service_type_id=${this.filterServiceTypeId}`;
       if (this.searchQuery)               url += `&search=${encodeURIComponent(this.searchQuery)}`;
       if (this.filterFindingDocTypeId)    url += `&has_finding_doc_type_id=${this.filterFindingDocTypeId}`;
-      const res  = await fetch(url);
-      const ids  = await res.json();
+      const ids = await this._get(url, null);
+      if (!ids) return;
       this.selectedIds = new Set(ids);
       this.allFilterSelected = true;
     },
@@ -1072,11 +1077,9 @@ function auditApp() {
     // ── Batch operations ──────────────────────────────
     async applyBatchStatus() {
       if (!this.batchStatusId || this.selectedIds.size === 0) return;
-      await fetch('/api/invoices/batch-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_ids: [...this.selectedIds], folder_status_id: parseInt(this.batchStatusId) }),
-      });
+      await this._send(api.post('/api/invoices/batch-status', {
+        invoice_ids: [...this.selectedIds], folder_status_id: parseInt(this.batchStatusId),
+      }));
       this.batchStatusId = '';
       this.clearSelection();
       await Promise.all([this.loadInvoices(), this.loadStats(), this.loadFindingsSummary()]);
@@ -1084,11 +1087,7 @@ function auditApp() {
 
     async doBatchDeleteInvoices() {
       if (this.selectedIds.size === 0) return;
-      await fetch('/api/invoices/batch-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_ids: [...this.selectedIds] }),
-      });
+      await this._send(api.post('/api/invoices/batch-delete', { invoice_ids: [...this.selectedIds] }));
       if (this.selectedInvoice && this.selectedIds.has(this.selectedInvoice.id)) {
         this.selectedInvoice = null;
         this.missingFiles = [];
@@ -1099,16 +1098,11 @@ function auditApp() {
 
     async doBatchDeleteFindings() {
       if (this.selectedIds.size === 0) return;
-      await fetch('/api/missing-files/batch-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_ids: [...this.selectedIds] }),
-      });
+      await this._send(api.post('/api/missing-files/batch-delete', { invoice_ids: [...this.selectedIds] }));
       this.clearSelection();
       await Promise.all([this.loadInvoices(), this.loadStats(), this.loadFindingsSummary()]);
       if (this.selectedInvoice) {
-        const res = await fetch(`/api/missing-files/${this.selectedInvoice.id}`);
-        this.missingFiles = await res.json();
+        this.missingFiles = await this._get(`/api/missing-files/${this.selectedInvoice.id}`, []);
       }
     },
 
@@ -1118,27 +1112,22 @@ function auditApp() {
       this.detailStatusId  = inv.folder_status_id;
       this.newDocTypeId    = '';
       this.confirmDeleteInvoice = false;
-      const res = await fetch(`/api/missing-files/${inv.id}`);
-      this.missingFiles = await res.json();
+      this.missingFiles = await this._get(`/api/missing-files/${inv.id}`, []);
     },
 
     async updateStatus() {
       if (!this.selectedInvoice || !this.detailStatusId) return;
-      await fetch(`/api/invoices/${this.selectedInvoice.id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder_status_id: parseInt(this.detailStatusId) }),
-      });
+      await this._send(api.patch(`/api/invoices/${this.selectedInvoice.id}/status`, {
+        folder_status_id: parseInt(this.detailStatusId),
+      }));
       await Promise.all([this.loadInvoices(), this.loadStats(), this.loadFindingsSummary()]);
     },
 
     async addFile() {
       if (!this.newDocTypeId || !this.selectedInvoice) return;
-      await fetch('/api/missing-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoice_id: this.selectedInvoice.id, doc_type_id: parseInt(this.newDocTypeId), expected_path: '' }),
-      });
+      await this._send(api.post('/api/missing-files', {
+        invoice_id: this.selectedInvoice.id, doc_type_id: parseInt(this.newDocTypeId), expected_path: '',
+      }));
       this.newDocTypeId = '';
       await this.selectInvoice(this.selectedInvoice);
       await Promise.all([this.loadInvoices(), this.loadStats(), this.loadFindingsSummary()]);
@@ -1146,15 +1135,14 @@ function auditApp() {
 
     async deleteFile(docTypeId) {
       if (!this.selectedInvoice) return;
-      await fetch(`/api/missing-files/${this.selectedInvoice.id}/${docTypeId}`, { method: 'DELETE' });
+      await this._send(api.delete(`/api/missing-files/${this.selectedInvoice.id}/${docTypeId}`));
       await this.selectInvoice(this.selectedInvoice);
       await Promise.all([this.loadInvoices(), this.loadStats(), this.loadFindingsSummary()]);
     },
 
     async deleteInvoice() {
       if (!this.selectedInvoice) return;
-      const res = await fetch(`/api/invoices/${this.selectedInvoice.id}`, { method: 'DELETE' });
-      if (res.ok || res.status === 204) {
+      if (await this._send(api.delete(`/api/invoices/${this.selectedInvoice.id}`))) {
         this.selectedInvoice = null;
         this.confirmDeleteInvoice = false;
         await Promise.all([this.loadInvoices(), this.loadStats(), this.loadFindingsSummary()]);

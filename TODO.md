@@ -16,7 +16,7 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 ## Frontend
 
 - [ ] **Probar la UI en un navegador** lo que hoy solo está validado por sintaxis y por API: toasts (ahora todos abajo a la derecha, incluidos los de ajustes), barra de progreso N/total, aviso de «sin líneas nuevas», banner de tarea de otro hospital, reconexión al cerrar y reabrir la pestaña, y trabajar con dos hospitales en dos pestañas.
-- [ ] **Migrar las ~85 llamadas `fetch` directas a `api.*`** (`app/static/js/api.js`) para que todas manejen igual errores 422, 204 y fallos de red. Ya se aplicó `apiErrorMessage` a los 21 sitios donde un error se mostraba directo.
+- [x] **Migrar las llamadas `fetch` directas a `api.*`** (`audit`, `base`, `pipeline`, `settings`): todos los errores (422 en lista, 204, caída de red) se muestran igual. Quedan a propósito `fetch` solo en la descarga de ZIP (blob) y los `EventSource` de SSE. Verificado con Chromium headless contra el servidor de dev (carga, crear/borrar, errores 404/409/500 y red caída).
 - [ ] **Sacar el JS embebido de las plantillas** (`settings` ~2 200 líneas, `pipeline` ~1 800, `base`, `audit`) a `app/static/js/*.js` para poder lintearlo y probarlo.
 - [ ] Un lint/test para el JS de las plantillas (hoy solo hay tests de `api.js` y `toast.js` en `tests/js/`).
 

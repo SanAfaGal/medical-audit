@@ -1232,12 +1232,9 @@ function pipeline() {
         if (nums) params.set('invoice_numbers', nums);
       }
 
-      const res = await fetch(`/api/pipeline/run/${stageId}?${params}`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(apiErrorMessage(err.detail, `Error al iniciar ${stageId}`));
-      }
-      const { task_id } = await res.json();
+      const res = await api.post(`/api/pipeline/run/${stageId}?${params}`);
+      if (!res.ok) throw new Error(res.error || `Error al iniciar ${stageId}`);
+      const { task_id } = res.data;
       this.taskId = task_id;
       this.$store.pipeline.setTask(
         task_id, stageId, parseInt(institutionId), parseInt(periodId),
@@ -1304,7 +1301,7 @@ function pipeline() {
           }
           // Verify the task still exists on the server before reconnecting
           try {
-            const res = await fetch(`/api/pipeline/status/${taskId}`);
+            const res = await api.get(`/api/pipeline/status/${taskId}`);
             if (res.status === 404) {
               this.logLines.push('[WARN] La tarea ya no existe en el servidor (reinicio detectado). Estado limpiado.');
               this.$nextTick(() => this.scrollLog());
@@ -1400,9 +1397,9 @@ function pipeline() {
       const ctx = this.$store.ctx;
       if (!ctx.institutionId || !ctx.periodId || this.running) return;
       try {
-        const res = await fetch(`/api/pipeline/active?institution_id=${ctx.institutionId}&period_id=${ctx.periodId}`);
+        const res = await api.get(`/api/pipeline/active?institution_id=${ctx.institutionId}&period_id=${ctx.periodId}`);
         if (!res.ok) return;
-        const [run] = await res.json();
+        const [run] = res.data;
         if (!run || this.running) return;
         this.$store.pipeline.setTask(run.task_id, run.stage, run.institution_id, run.period_id,
                                      ctx.institution?.display_name || '');
@@ -1420,9 +1417,7 @@ function pipeline() {
       this.streamActive = false;
       const taskId = this.taskId || this.$store.pipeline.taskId;
       if (this._evtSource) { this._evtSource.close(); this._evtSource = null; }
-      if (taskId) {
-        try { await fetch(`/api/pipeline/${taskId}`, { method: 'DELETE' }); } catch {}
-      }
+      if (taskId) await api.delete(`/api/pipeline/${taskId}`);
       this.running = false;
       this.currentStageLabel = '';
       this.$store.pipeline.clear();
@@ -1448,7 +1443,7 @@ function pipeline() {
       this.$watch('selectedStages',    v => sessionStorage.setItem('pipeline_selectedStages',    JSON.stringify(v)));
       this.$watch('stageStatuses',     v => sessionStorage.setItem('pipeline_stageStatuses',     JSON.stringify(v)));
       this.$watch('stageResults',      v => sessionStorage.setItem('pipeline_stageResults',      JSON.stringify(v)));
-      fetch('/api/settings/doc-types').then(r => r.json()).then(d => { this.docTypes = d; });
+      api.get('/api/settings/doc-types').then(r => { if (r.ok) this.docTypes = r.data; });
 
       // Detección de inactividad: avisa si no llegan líneas nuevas y consulta al servidor
       this._idleTimer = setInterval(() => {
@@ -1500,21 +1495,17 @@ function pipeline() {
             fd.append('institution_id', institutionId);
             fd.append('period_id', periodId);
             fd.append('file', this.zipFile);
-            let res;
-            try {
-              res = await fetch('/api/pipeline/load-drive-zip', { method:'POST', body:fd });
-            } catch (netErr) {
-              const msg = `[ERROR] No se pudo subir el archivo. Verifica la conexión o que el servidor esté disponible.`;
-              this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
-            }
+            const res = await api.post('/api/pipeline/load-drive-zip', fd);
             if (!res.ok) {
-              const errMsg = res.status === 413
-                ? 'El archivo excede el límite de tamaño permitido por el servidor'
-                : apiErrorMessage((await res.json().catch(() => ({}))).detail, 'Error desconocido');
+              const errMsg = res.status === 0
+                ? 'No se pudo subir el archivo. Verifica la conexión o que el servidor esté disponible.'
+                : res.status === 413
+                  ? 'El archivo excede el límite de tamaño permitido por el servidor'
+                  : res.error;
               const msg = `[ERROR] ${errMsg}`;
               this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
             }
-            const data = await res.json();
+            const data = res.data;
             const okMsg = `[OK] Archivos extraídos en DRIVE: ${data.extracted}`;
             this.logLines.push(okMsg);
             this._updateStageResult(stageId, okMsg);
@@ -1531,13 +1522,12 @@ function pipeline() {
             };
 
             this.logLines.push('[INFO] Verificando mapeos del Excel...');
-            const scanRes = await fetch('/api/invoices/ingest', { method:'POST', body:buildForm(true) });
+            const scanRes = await api.post('/api/invoices/ingest', buildForm(true));
             if (!scanRes.ok) {
-              const err = await scanRes.json();
-              const msg = `[ERROR] ${apiErrorMessage(err.detail, 'Error desconocido')}`;
+              const msg = `[ERROR] ${scanRes.error}`;
               this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
             }
-            const scan = await scanRes.json();
+            const scan = scanRes.data;
 
             const hasUnmapped = scan.unknown_admins?.length || scan.unknown_contracts?.length || scan.unknown_services?.length;
             if (hasUnmapped) {
@@ -1561,13 +1551,12 @@ function pipeline() {
                 fd.append('period_id', periodId);
                 fd.append('file', this.excelFile);
                 fd.append('save_mappings_only', 'true');
-                const saveRes = await fetch('/api/invoices/ingest', { method: 'POST', body: fd });
+                const saveRes = await api.post('/api/invoices/ingest', fd);
                 if (saveRes.ok) {
                   const m = '[OK] Registros sin mapear guardados. Ve a Configuración → Mapeos para asignarlos, luego vuelve a cargar el Excel.';
                   this.logLines.push(m); this._markLine(stageId, m);
                 } else {
-                  const err = await saveRes.json().catch(() => ({}));
-                  const m = `[ERROR] ${apiErrorMessage(err.detail, 'Error al guardar registros')}`;
+                  const m = `[ERROR] ${saveRes.error}`;
                   this.logLines.push(m); this._markLine(stageId, m);
                 }
                 this.scrollLog(); continue;
@@ -1579,13 +1568,12 @@ function pipeline() {
               this.logLines.push('[INFO] Todos los mapeos completos, cargando...');
             }
 
-            const res = await fetch('/api/invoices/ingest', { method:'POST', body:buildForm(false) });
+            const res = await api.post('/api/invoices/ingest', buildForm(false));
             if (!res.ok) {
-              const err = await res.json();
-              const msg = `[ERROR] ${apiErrorMessage(err.detail, 'Error desconocido')}`;
+              const msg = `[ERROR] ${res.error}`;
               this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
             }
-            const data = await res.json();
+            const data = res.data;
             const okMsg = `[OK] Facturas insertadas: ${data.inserted}`;
             this.logLines.push(okMsg);
             this._updateStageResult(stageId, okMsg);
@@ -1653,21 +1641,17 @@ function pipeline() {
       }
       const institutionId = this.$store.ctx.institutionId;
       const periodId = this.$store.ctx.periodId;
-      const res = await fetch('/api/invoices/annul-folders', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          institution_id: parseInt(institutionId),
-          period_id: parseInt(periodId),
-          decisions: this.annulData.map(f => ({
-            folder_path: f.folder_path,
-            invoice_id: f.invoice_id,
-            action: f.action,
-          })),
-        }),
+      const res = await api.post('/api/invoices/annul-folders', {
+        institution_id: parseInt(institutionId),
+        period_id: parseInt(periodId),
+        decisions: this.annulData.map(f => ({
+          folder_path: f.folder_path,
+          invoice_id: f.invoice_id,
+          action: f.action,
+        })),
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = res.data;
         const msg = `[INFO] Anuladas: ${data.annulled} carpeta(s), omitidas: ${data.skipped}`;
         this.logLines.push(msg);
         if (data.errors?.length) {
@@ -1676,8 +1660,7 @@ function pipeline() {
         this.scrollLog();
         this.annulData = null;
       } else {
-        const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
-        this.showToast(false, 'Error al aplicar decisiones: ' + (apiErrorMessage(err.detail, JSON.stringify(err))));
+        this.showToast(false, 'Error al aplicar decisiones: ' + res.error);
       }
     },
 
@@ -1688,22 +1671,16 @@ function pipeline() {
     async applyRename(inv, sob) {
       const docTypeId = parseInt(sob.selected_doc_type_id);
       if (!docTypeId) return;
-      const res = await fetch(`/api/invoices/${inv.invoice_id}/rename-surplus`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          folder_path: inv.folder_path,
-          old_filename: sob.filename,
-          doc_type_id: docTypeId,
-        })
+      const res = await api.post(`/api/invoices/${inv.invoice_id}/rename-surplus`, {
+        folder_path: inv.folder_path,
+        old_filename: sob.filename,
+        doc_type_id: docTypeId,
       });
       if (res.ok) {
-        const data = await res.json();
-        sob._new_filename = data.new_filename;
+        sob._new_filename = res.data.new_filename;
         sob._done = true;
       } else {
-        const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
-        this.showToast(false, apiErrorMessage(err.detail, JSON.stringify(err)));
+        this.showToast(false, res.error);
       }
     },
 
@@ -1718,14 +1695,12 @@ function pipeline() {
 
       if (!decisions.length) { this.nonPdfData = null; return; }
 
-      const res = await fetch('/api/pipeline/process-non-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ institution_id: institutionId, period_id: periodId, decisions }),
+      const res = await api.post('/api/pipeline/process-non-pdf', {
+        institution_id: institutionId, period_id: periodId, decisions,
       });
 
       if (res.ok) {
-        const result = await res.json();
+        const result = res.data;
         [...(this.nonPdfData.non_pdf), ...(this.nonPdfData.corrupt_pdfs)]
           .forEach(f => { if (!f._done) f._done = true; });
         const summary = `[OK] No-PDF: ${result.deleted} eliminados, ${result.converted} convertidos a PDF` +
@@ -1735,8 +1710,7 @@ function pipeline() {
         this.$nextTick(() => this.scrollLog());
         if (!result.errors.length) this.nonPdfData = null;
       } else {
-        const err = await res.json().catch(() => ({ detail: 'Error desconocido' }));
-        this.logLines.push(`[ERROR] ${apiErrorMessage(err.detail, 'Error al procesar archivos')}`);
+        this.logLines.push(`[ERROR] ${res.error}`);
         this.$nextTick(() => this.scrollLog());
       }
     },
@@ -1758,17 +1732,14 @@ function pipeline() {
     async executeDeleteSurplus() {
       const { inv, sob } = this.deleteConfirmPending;
       this.deleteConfirmPending = null;
-      const res = await fetch(`/api/invoices/${inv.invoice_id}/delete-surplus`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ folder_path: inv.folder_path, filename: sob.filename })
+      const res = await api.post(`/api/invoices/${inv.invoice_id}/delete-surplus`, {
+        folder_path: inv.folder_path, filename: sob.filename,
       });
       if (res.ok) {
         sob._deleted = true;
         sob._done = true;
       } else {
-        const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
-        this.showToast(false, apiErrorMessage(err.detail, JSON.stringify(err)));
+        this.showToast(false, res.error);
       }
     },
   };

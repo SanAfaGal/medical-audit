@@ -229,16 +229,13 @@
           this.$watch(() => Alpine.store('ctx').periodId, _resetToStage);
         },
 
-        // Wrapper fetch que normaliza errores FastAPI {"detail":"..."} → {ok, message}
+        // Wrapper sobre api.request que conserva el contrato del explorador: devuelve el JSON de la
+        // respuesta, o {ok:false, message} si falla (errores FastAPI, 422 en lista y caída de red).
         async _apiFetch(url, opts = {}) {
-          try {
-            const res = await fetch(url, opts);
-            const data = await res.json();
-            if (!res.ok) return { ok: false, message: apiErrorMessage(data.detail, `Error ${res.status}`) };
-            return data;
-          } catch (e) {
-            return { ok: false, message: `Error de red: ${e.message}` };
-          }
+          const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body;  // FormData pasa tal cual
+          const res = await api.request(opts.method || 'GET', url, body);
+          if (!res.ok) return { ok: false, message: res.error };
+          return res.data;
         },
 
         isSearchActive() {
@@ -255,13 +252,8 @@
           const root = this.rootFolder;
           const subPath = this.currentPath.split('/').slice(1).join('/');
           const url = `/api/explorer/list?institution_id=${this.institutionId}&period_id=${this.periodId}&root=${root}&path=${encodeURIComponent(subPath)}`;
-          try {
-            const res = await fetch(url);
-            const data = await res.json();
-            this.entries = data.entries || [];
-          } catch {
-            this.entries = [];
-          }
+          const res = await api.get(url);
+          this.entries = res.ok ? (res.data.entries || []) : [];
           // Limpiar selecciones que ya no existen en el listado actual
           if (this.selectedEntries.length) {
             const currentPaths = new Set(this.entries.map(e => e.path));
@@ -671,11 +663,8 @@
           const root = this.moveBrowserRoot || this.rootFolder;
           const subPath = path.split('/').slice(1).join('/');
           const url = `/api/explorer/list?institution_id=${this.institutionId}&period_id=${this.periodId}&root=${root}&path=${encodeURIComponent(subPath)}`;
-          try {
-            const res = await fetch(url);
-            const data = await res.json();
-            this.moveBrowserEntries = (data.entries || []).filter(e => e.is_dir);
-          } catch { this.moveBrowserEntries = []; }
+          const res = await api.get(url);
+          this.moveBrowserEntries = res.ok ? (res.data.entries || []).filter(e => e.is_dir) : [];
         },
 
         moveBrowserUp() {
@@ -921,6 +910,7 @@
           this.showToast('loading', `Preparando ZIP: ${label}…`);
 
           try {
+            // Descarga binaria (blob): se queda en fetch, api.* solo entiende JSON/texto.
             const response = await fetch(`/api/explorer/download-zip?${params}`);
             if (!response.ok) {
               const err = await response.json().catch(() => ({}));
@@ -980,8 +970,9 @@
         },
 
         async _loadInstitutions() {
-          const res = await fetch('/api/institutions');
-          this.institutions = await res.json();
+          const res = await api.get('/api/institutions');
+          if (!res.ok) Alpine.store('toast').error(res.error);
+          this.institutions = res.ok ? res.data : [];
           if (this.institutionId) {
             const found = this.institutions.find(i => i.id == this.institutionId);
             if (found) { this.institution = found; await this._loadPeriods(); }
@@ -992,8 +983,9 @@
 
         async _loadPeriods() {
           if (!this.institutionId) { this.periods = []; return; }
-          const res = await fetch(`/api/institutions/${this.institutionId}/periods`);
-          this.periods = await res.json();
+          const res = await api.get(`/api/institutions/${this.institutionId}/periods`);
+          if (!res.ok) Alpine.store('toast').error(res.error);
+          this.periods = res.ok ? res.data : [];
           if (this.periodId) {
             const found = this.periods.find(p => p.id == this.periodId);
             if (found) this.period = found;
