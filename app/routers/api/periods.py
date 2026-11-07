@@ -7,11 +7,13 @@ import logging
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.paths import audit_data_root
+from app.paths import period_paths
+from app.routers.deps import PeriodScope, institution_or_404, period_scope_by_id
+from app.models.institution import Institution
 from app.repositories.institution_repo import InstitutionRepo
 from app.repositories.invoice_repo import InvoiceRepo
 from app.schemas.invoice import PeriodCreate, PeriodOut
@@ -43,27 +45,21 @@ def _dir_size(path: Path) -> int:
 
 
 @router.get("/{institution_id}/periods", response_model=list[PeriodOut])
-async def list_periods(institution_id: int, db: AsyncSession = Depends(get_db)):
-    inst_repo = InstitutionRepo(db)
-    institution = await inst_repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    inv_repo = InvoiceRepo(db)
-    return await inv_repo.get_periods(institution_id)
+async def list_periods(institution: Institution = Depends(institution_or_404), db: AsyncSession = Depends(get_db)):
+    return await InvoiceRepo(db).get_periods(institution.id)
 
 
 @router.post("/{institution_id}/periods", response_model=PeriodOut, status_code=201)
-async def create_period(institution_id: int, data: PeriodCreate, db: AsyncSession = Depends(get_db)):
-    inst_repo = InstitutionRepo(db)
-    institution = await inst_repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-
+async def create_period(
+    data: PeriodCreate,
+    institution: Institution = Depends(institution_or_404),
+    db: AsyncSession = Depends(get_db),
+):
     inv_repo = InvoiceRepo(db)
-    period = await inv_repo.get_or_create_period(institution_id, data.date_from, data.date_to, data.period_label)
+    period = await inv_repo.get_or_create_period(institution.id, data.date_from, data.date_to, data.period_label)
     await db.commit()
 
-    inst_root = str(audit_data_root / institution.name)
+    inst_root = str(period_paths(institution.name, data.period_label).base.parent)
     try:
         created = await asyncio.to_thread(_create_period_dirs, inst_root, data.period_label)
         for path in created:
@@ -76,16 +72,9 @@ async def create_period(institution_id: int, data: PeriodCreate, db: AsyncSessio
 
 
 @router.get("/periods/{period_id}/disk-usage")
-async def get_period_disk_usage(period_id: int, db: AsyncSession = Depends(get_db)):
+async def get_period_disk_usage(scope: PeriodScope = Depends(period_scope_by_id)):
     """Calcula el uso de disco de un período (DRIVE + STAGE + AUDIT)."""
-    period = await InvoiceRepo(db).get_period_by_id(period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
-    institution = await InstitutionRepo(db).get_by_id(period.institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-
-    base = audit_data_root / institution.name / period.period_label
+    base = scope.paths.base
     sizes = await asyncio.to_thread(lambda: {name: _dir_size(base / name) for name in _PERIOD_SUBDIRS})
     return {
         "total_bytes": sum(sizes.values()),
@@ -97,16 +86,9 @@ async def get_period_disk_usage(period_id: int, db: AsyncSession = Depends(get_d
 
 
 @router.post("/periods/{period_id}/purge-disk", status_code=200)
-async def purge_period_disk(period_id: int, db: AsyncSession = Depends(get_db)):
+async def purge_period_disk(scope: PeriodScope = Depends(period_scope_by_id)):
     """Elimina las carpetas de disco del período; mantiene el período y sus datos en BD."""
-    period = await InvoiceRepo(db).get_period_by_id(period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
-    institution = await InstitutionRepo(db).get_by_id(period.institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-
-    period_path = audit_data_root / institution.name / period.period_label
+    period_path = scope.paths.base
     if period_path.exists():
         await asyncio.to_thread(shutil.rmtree, period_path, True)
         logger.info("Carpetas de período purgadas: %s", period_path)
@@ -123,14 +105,12 @@ async def delete_period(period_id: int, db: AsyncSession = Depends(get_db)):
 
     institution = await InstitutionRepo(db).get_by_id(period.institution_id)
     # Guardar antes del delete (el objeto expira tras el flush)
-    inst_name = institution.name if institution else None
-    period_label = period.period_label
+    period_path = period_paths(institution.name, period.period_label).base if institution else None
 
     await InvoiceRepo(db).delete_period(period_id)
     await db.commit()
 
-    if inst_name:
-        period_path = audit_data_root / inst_name / period_label
+    if period_path is not None:
         if period_path.exists():
             await asyncio.to_thread(shutil.rmtree, period_path, True)
             logger.info("Carpetas de período eliminadas: %s", period_path)

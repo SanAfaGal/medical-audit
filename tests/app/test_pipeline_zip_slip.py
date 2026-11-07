@@ -26,7 +26,7 @@ def _malicious_zip_bytes() -> bytes:
 class TestLoadDriveZipSlip:
     async def test_rejects_zip_with_path_traversal_member(self, tmp_path):
         institution = SimpleNamespace(id=1, name="ACME")
-        period = SimpleNamespace(id=1, period_label="2024-01")
+        period = SimpleNamespace(id=1, institution_id=1, period_label="2024-01")
 
         async def _fake_get(model, pk):
             if model is Institution:
@@ -40,9 +40,27 @@ class TestLoadDriveZipSlip:
 
         upload = UploadFile(file=io.BytesIO(_malicious_zip_bytes()), filename="evil.zip")
 
-        with patch("app.routers.api.pipeline.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             with pytest.raises(HTTPException) as exc_info:
                 await load_drive_zip(institution_id=1, period_id=1, file=upload, db=db)
 
         assert exc_info.value.status_code == 400
         assert not (tmp_path / "evil.txt").exists()
+
+    async def test_period_of_another_institution_is_rejected_before_touching_the_disk(self, tmp_path):
+        institution = SimpleNamespace(id=1, name="ACME")
+        other_periods = SimpleNamespace(id=7, institution_id=2, period_label="2024-01")
+
+        async def _fake_get(model, pk):
+            return {Institution: institution, AuditPeriod: other_periods}.get(model)
+
+        db = AsyncMock()
+        db.get = AsyncMock(side_effect=_fake_get)
+        upload = UploadFile(file=io.BytesIO(_malicious_zip_bytes()), filename="x.zip")
+
+        with patch("app.paths.audit_data_root", tmp_path):
+            with pytest.raises(HTTPException) as exc_info:
+                await load_drive_zip(institution_id=1, period_id=7, file=upload, db=db)
+
+        assert exc_info.value.status_code == 404
+        assert not (tmp_path / "ACME").exists()  # nothing was created for a mismatched pair

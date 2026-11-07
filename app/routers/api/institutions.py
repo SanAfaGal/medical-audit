@@ -13,6 +13,7 @@ from app import crypto  # noqa: E402
 from app.database import get_db  # noqa: E402
 from app.models.institution import Institution  # noqa: E402
 from app.repositories.institution_repo import InstitutionRepo  # noqa: E402
+from app.routers.deps import institution_or_404, load_institution  # noqa: E402
 from app.schemas.institution import (  # noqa: E402
     AdministratorCreate,
     AdministratorOut,
@@ -92,14 +93,11 @@ async def serve_logo(institution_id: int, db: AsyncSession = Depends(get_db)):
 async def upload_drive_credentials(
     institution_id: int,
     file: UploadFile = File(...),
+    institution: Institution = Depends(institution_or_404),
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a Google Drive service-account JSON file and store it encrypted."""
     import json as _json
-
-    institution = await InstitutionRepo(db).get_by_id(institution_id)
-    if institution is None:
-        raise HTTPException(status_code=404, detail="Institución no encontrada")
 
     _MAX_SIZE = 64 * 1024
     raw = await file.read(_MAX_SIZE + 1)
@@ -121,11 +119,9 @@ async def upload_drive_credentials(
 async def upload_logo(
     institution_id: int,
     file: UploadFile = File(...),
+    institution: Institution = Depends(institution_or_404),
     db: AsyncSession = Depends(get_db),
 ):
-    institution = await InstitutionRepo(db).get_by_id(institution_id)
-    if institution is None:
-        raise HTTPException(status_code=404, detail="Institution not found")
 
     content_type = (file.content_type or "").split(";")[0].strip()
     if content_type not in _ALLOWED_MIME:
@@ -327,12 +323,8 @@ async def delete_agreement(agreement_id: int, db: AsyncSession = Depends(get_db)
 
 
 @router.get("/{institution_id}/services", response_model=list[ServiceOut])
-async def list_services(institution_id: int, db: AsyncSession = Depends(get_db)):
-    repo = InstitutionRepo(db)
-    institution = await repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    return await repo.get_services(institution_id)
+async def list_services(institution: Institution = Depends(institution_or_404), db: AsyncSession = Depends(get_db)):
+    return await InstitutionRepo(db).get_services(institution.id)
 
 
 @router.patch("/services/{service_id}", response_model=ServiceOut)
@@ -352,12 +344,10 @@ async def update_service(service_id: int, data: ServiceUpdate, db: AsyncSession 
 
 
 @router.get("/{institution_id}/service-type-documents", response_model=list[ServiceTypeDocumentOut])
-async def list_service_type_documents(institution_id: int, db: AsyncSession = Depends(get_db)):
-    repo = InstitutionRepo(db)
-    institution = await repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    return await repo.get_service_type_documents(institution_id)
+async def list_service_type_documents(
+    institution: Institution = Depends(institution_or_404), db: AsyncSession = Depends(get_db)
+):
+    return await InstitutionRepo(db).get_service_type_documents(institution.id)
 
 
 @router.post(
@@ -366,15 +356,12 @@ async def list_service_type_documents(institution_id: int, db: AsyncSession = De
     status_code=201,
 )
 async def create_service_type_document(
-    institution_id: int,
     data: ServiceTypeDocumentCreate,
+    institution: Institution = Depends(institution_or_404),
     db: AsyncSession = Depends(get_db),
 ):
     repo = InstitutionRepo(db)
-    institution = await repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    obj = await repo.upsert_service_type_document(institution_id, data.service_type_id, data.doc_type_id)
+    obj = await repo.upsert_service_type_document(institution.id, data.service_type_id, data.doc_type_id)
     await db.commit()
     return obj
 
@@ -400,12 +387,12 @@ async def delete_service_type_document(
 
 
 @router.post("/{institution_id}/services", response_model=ServiceOut, status_code=201)
-async def create_service(institution_id: int, data: ServiceCreate, db: AsyncSession = Depends(get_db)):
-    repo = InstitutionRepo(db)
-    inst = await repo.get_by_id(institution_id)
-    if not inst:
-        raise HTTPException(404, "Institución no encontrada")
-    svc = await repo.create_service(institution_id, data.raw_service, data.service_type_id or None)
+async def create_service(
+    data: ServiceCreate,
+    institution: Institution = Depends(institution_or_404),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = await InstitutionRepo(db).create_service(institution.id, data.raw_service, data.service_type_id or None)
     await db.commit()
     return svc
 
@@ -416,10 +403,8 @@ async def copy_mappings(institution_id: int, data: MappingsCopyRequest, db: Asyn
     if data.source_institution_id == institution_id:
         raise HTTPException(400, "La institución de origen y destino son la misma")
     repo = InstitutionRepo(db)
-    if not await repo.get_by_id(institution_id):
-        raise HTTPException(404, "Institución destino no encontrada")
-    if not await repo.get_by_id(data.source_institution_id):
-        raise HTTPException(404, "Institución de origen no encontrada")
+    await load_institution(db, institution_id, "Institución destino no encontrada")
+    await load_institution(db, data.source_institution_id, "Institución de origen no encontrada")
     result = await repo.copy_mappings(data.source_institution_id, institution_id)
     await db.commit()
     return result
@@ -440,11 +425,7 @@ async def delete_service(service_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{institution_id}", response_model=InstitutionOut)
-async def get_institution(institution_id: int, db: AsyncSession = Depends(get_db)):
-    repo = InstitutionRepo(db)
-    institution = await repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
+async def get_institution(institution: Institution = Depends(institution_or_404)):
     return _institution_out(institution)
 
 

@@ -18,9 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.routers.responses import temp_file_response
-from app.paths import audit_data_root
-from app.repositories.institution_repo import InstitutionRepo
-from app.repositories.invoice_repo import InvoiceRepo
+from app.paths import safe_resolve
+from app.routers.deps import PeriodScope, load_period_scope, period_scope
 
 from app.services import pipeline as pipeline_runner
 from app.services.archive import ArchiveError, ArchiveToolMissing, build_zip_file, extract_archive
@@ -41,6 +40,7 @@ async def run_stage(
     period_id: int,
     invoice_numbers: str = "",
     doc_type_id: int = 0,
+    scope: PeriodScope = Depends(period_scope),
     db: AsyncSession = Depends(get_db),
     tm: PipelineTaskManager = Depends(get_task_manager),
 ):
@@ -50,15 +50,7 @@ async def run_stage(
     - ``invoice_numbers``: comma-separated list, used by DOWNLOAD_INVOICES_FROM_SIHOS.
     - ``doc_type_id``: doc type to target, used by DOWNLOAD_MEDICATION_SHEETS.
     """
-    inst_repo = InstitutionRepo(db)
-    institution = await inst_repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-
-    inv_repo = InvoiceRepo(db)
-    period = await inv_repo.get_period_by_id(period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
+    institution, period = scope.institution, scope.period
 
     extra: dict = {}
     if invoice_numbers:
@@ -116,17 +108,10 @@ async def start_stage_task(
     period_id: int,
     invoice_numbers: str = "",
     doc_type_id: int = 0,
-    db: AsyncSession = Depends(get_db),
+    scope: PeriodScope = Depends(period_scope),
     tm: PipelineTaskManager = Depends(get_task_manager),
 ):
     """Start a pipeline stage as a background task; returns task_id for streaming."""
-    institution = await InstitutionRepo(db).get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    period = await InvoiceRepo(db).get_period_by_id(period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
-
     extra: dict = {}
     if invoice_numbers:
         extra["invoice_numbers"] = [n.strip() for n in invoice_numbers.split(",") if n.strip()]
@@ -227,17 +212,7 @@ async def load_drive_zip(
     db: AsyncSession = Depends(get_db),
 ):
     """Extract a .zip / .7z / .rar archive into the DRIVE folder of the given period."""
-    inst_repo = InstitutionRepo(db)
-    institution = await inst_repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-
-    inv_repo = InvoiceRepo(db)
-    period = await inv_repo.get_period_by_id(period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
-
-    drive_path: Path = audit_data_root / institution.name / period.period_label / "DRIVE"
+    drive_path: Path = (await load_period_scope(db, institution_id, period_id)).paths.drive
     drive_path.mkdir(parents=True, exist_ok=True)
 
     # Starlette already spooled the upload to disk: hand the file object over, never read it all into memory.
@@ -278,14 +253,7 @@ async def process_non_pdf_decisions(
     """Apply delete/convert decisions for files found in the REMOVE_NON_PDF scan."""
     from app.core.ops import IMAGE_EXTENSIONS, convert_image_to_pdf
 
-    institution = await InstitutionRepo(db).get_by_id(data.institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    period = await InvoiceRepo(db).get_period_by_id(data.period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
-
-    stage_path = audit_data_root / institution.name / period.period_label / "STAGE"
+    stage_path = (await load_period_scope(db, data.institution_id, data.period_id)).paths.stage
     if not stage_path.is_dir():
         raise HTTPException(400, "Directorio STAGE no existe")
 
@@ -329,24 +297,14 @@ async def process_non_pdf_decisions(
 
 
 @router.get("/stream-audit-zip")
-async def stream_audit_zip(
-    institution_id: int,
-    period_id: int,
-    db: AsyncSession = Depends(get_db),
-):
+async def stream_audit_zip(scope: PeriodScope = Depends(period_scope)):
     """Empaqueta la carpeta AUDIT en un ZIP temporal (en disco, no en memoria) y lo devuelve.
     El ZIP temporal se borra al terminar el envío, así que no hay límite práctico de tamaño.
     """
     import re
 
-    institution = await InstitutionRepo(db).get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    period = await InvoiceRepo(db).get_period_by_id(period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
-    base = audit_data_root / institution.name / period.period_label
-    audit_path = base / "AUDIT"
+    institution, period = scope.institution, scope.period
+    audit_path = scope.paths.audit
 
     if not audit_path.is_dir():
         raise HTTPException(404, "Directorio AUDIT no encontrado")
@@ -381,21 +339,11 @@ async def file_preview(
     institution_id: int,
     period_id: int,
     rel_path: str,
-    db: AsyncSession = Depends(get_db),
+    scope: PeriodScope = Depends(period_scope),
 ):
     """Serve a non-PDF file from STAGE for in-browser preview."""
-    institution = await InstitutionRepo(db).get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    period = await InvoiceRepo(db).get_period_by_id(period_id)
-    if not period:
-        raise HTTPException(404, "Período no encontrado")
-
-    stage_path = audit_data_root / institution.name / period.period_label / "STAGE"
-
     try:
-        abs_path = (stage_path / rel_path).resolve()
-        abs_path.relative_to(stage_path.resolve())
+        abs_path = safe_resolve(scope.paths.stage, rel_path)
     except (ValueError, OSError) as exc:
         raise HTTPException(400, "Ruta inválida") from exc
 

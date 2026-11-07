@@ -17,9 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.routers.responses import content_disposition, temp_file_response
-from app.models.institution import Institution
-from app.models.period import AuditPeriod
-from app.paths import audit_data_root, safe_resolve
+from app.paths import safe_resolve
+from app.routers.deps import load_period_scope
 from app.services.archive import build_zip_file
 from app.schemas.explorer import (
     BatchDeleteResult,
@@ -50,16 +49,8 @@ logger = logging.getLogger(__name__)
 
 async def _resolve_sandbox(institution_id: int, period_id: int, db: AsyncSession) -> Path:
     """Devuelve la ruta sandbox: audit_data_root / institution.name / period.period_label."""
-    institution = await db.get(Institution, institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-
-    period = await db.get(AuditPeriod, period_id)
-    if not period or period.institution_id != institution_id:
-        raise HTTPException(404, "Período no encontrado")
-
-    sandbox = (audit_data_root / institution.name / period.period_label).resolve()
-    return sandbox
+    scope = await load_period_scope(db, institution_id, period_id)
+    return scope.paths.base.resolve()
 
 
 def _safe_resolve(sandbox: Path, rel: str) -> Path:

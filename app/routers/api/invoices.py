@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.repositories.finding_repo import MissingFileRepo
+from app.routers.deps import load_institution, load_period_scope, load_period_scope_by_id
 from app.repositories.invoice_repo import InvoiceRepo
 from app.schemas.invoice import (
     BatchStatusUpdate,
@@ -174,12 +175,8 @@ async def ingest_excel(
 ):
     """Upload and ingest a SIHOS Excel export."""
     from app.services.billing import ingest
-    from app.repositories.institution_repo import InstitutionRepo
 
-    inst_repo = InstitutionRepo(db)
-    institution = await inst_repo.get_by_id(institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
+    institution = await load_institution(db, institution_id)
 
     file_bytes = await file.read()
     result = await ingest(
@@ -270,13 +267,6 @@ async def export_invoices(period_id: int, db: AsyncSession = Depends(get_db)):
     )
 
 
-def _period_sandbox(institution_name: str, period_label: str) -> Path:
-    """Sandbox of a period: audit_root/<institution>/<period> (read at call time so tests can patch the root)."""
-    from app.paths import audit_data_root
-
-    return (audit_data_root / institution_name / period_label).resolve()
-
-
 def _invoice_folder(sandbox: Path, folder_path: str) -> Path:
     """Resolve a client-supplied folder inside the period sandbox, at least one level below DRIVE/STAGE/AUDIT.
 
@@ -292,13 +282,8 @@ def _invoice_folder(sandbox: Path, folder_path: str) -> Path:
 
 async def _invoice_sandbox(db: AsyncSession, invoice) -> Path:
     """Sandbox of the period the invoice belongs to (the client cannot choose another one)."""
-    from app.repositories.institution_repo import InstitutionRepo
-
-    period = await InvoiceRepo(db).get_period_by_id(invoice.audit_period_id)
-    institution = await InstitutionRepo(db).get_by_id(period.institution_id) if period else None
-    if not period or not institution:
-        raise HTTPException(404, "Período de la factura no encontrado")
-    return _period_sandbox(institution.name, period.period_label)
+    scope = await load_period_scope_by_id(db, invoice.audit_period_id)
+    return scope.paths.base.resolve()
 
 
 class RenameSurplusRequest(BaseModel):
@@ -421,18 +406,10 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     import asyncio
     import shutil
 
-    from app.repositories.institution_repo import InstitutionRepo
-
     inv_repo = InvoiceRepo(db)
 
     # Scope every deletion to this period's sandbox (audit_root/<institution>/<period>), never the whole root.
-    institution = await InstitutionRepo(db).get_by_id(data.institution_id)
-    if not institution:
-        raise HTTPException(404, "Institución no encontrada")
-    period = await inv_repo.get_period_by_id(data.period_id)
-    if not period or period.institution_id != data.institution_id:
-        raise HTTPException(404, "Período no encontrado")
-    sandbox = _period_sandbox(institution.name, period.period_label)
+    sandbox = (await load_period_scope(db, data.institution_id, data.period_id)).paths.base.resolve()
 
     anular_status = await inv_repo.get_or_create_folder_status("ANULAR")
 

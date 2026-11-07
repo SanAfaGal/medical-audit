@@ -53,7 +53,7 @@ def _explorer_fixtures(tmp_path):
 async def _upload(tmp_path, content: bytes, name: str = "big.pdf"):
     db, sandbox = _explorer_fixtures(tmp_path)
     upload = UploadFile(file=io.BytesIO(content), filename=name)
-    with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+    with patch("app.paths.audit_data_root", tmp_path):
         result = await upload_files(
             institution_id=1, period_id=1, path="", relative_paths_json="[]", files=[upload], db=db
         )

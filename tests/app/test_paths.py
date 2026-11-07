@@ -47,3 +47,21 @@ class TestSafeResolve:
         base.mkdir()
         with pytest.raises(ValueError):
             safe_resolve(base, tmp_path / "base-evil" / "x")
+
+
+class TestPeriodPaths:
+    def test_layout_of_a_period(self, tmp_path):
+        from unittest.mock import patch
+
+        from app.paths import period_paths
+
+        with patch("app.paths.audit_data_root", tmp_path):
+            paths = period_paths("HOSP", "2024-01")
+
+        base = tmp_path / "HOSP" / "2024-01"
+        assert (paths.base, paths.drive, paths.stage, paths.audit) == (
+            base,
+            base / "DRIVE",
+            base / "STAGE",
+            base / "AUDIT",
+        )

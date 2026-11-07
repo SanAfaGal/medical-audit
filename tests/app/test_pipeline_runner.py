@@ -98,7 +98,7 @@ class TestExecute:
         stage_dir.mkdir(parents=True)
 
         db = AsyncMock()
-        with patch("app.services.pipeline.context.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             lines = [line async for line in execute("REMOVE_NON_PDF", inst, period, db)]
 
         assert any("[INFO]" in line for line in lines)
@@ -156,7 +156,7 @@ class TestStageGuards:
         from app.services.pipeline.context import build_context as _build_context
 
         # audit_data_root points to tmp_path; STAGE subdir is never created → path absent
-        with patch("app.services.pipeline.context.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             ctx = _build_context(inst, period, db, {})
             lines = [line async for line in handler(ctx)]
         assert any("[WARN]" in line or "[ERROR]" in line for line in lines), (
@@ -186,7 +186,7 @@ class TestRemoveNonPdfStage:
         (stage_dir / "valid.pdf").write_bytes(b"%PDF-1.4 test")  # minimal valid header
 
         db = AsyncMock()
-        with patch("app.services.pipeline.context.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             ctx = _build_context(inst, period, db, {})
             handler = _STAGE_HANDLERS["REMOVE_NON_PDF"]
             lines = [line async for line in handler(ctx)]
@@ -213,7 +213,7 @@ class TestDeleteUnreadablePdfsStage:
         db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
 
         with (
-            patch("app.services.pipeline.context.audit_data_root", tmp_path),
+            patch("app.paths.audit_data_root", tmp_path),
             patch("app.core.reader.DocumentReader.find_needing_ocr", return_value=[pdf_path]),
         ):
             lines = [line async for line in execute("DELETE_UNREADABLE_PDFS", inst, period, db)]
@@ -270,7 +270,7 @@ class TestDownloadDriveStage:
             patch("app.crypto.decrypt", return_value='{"type": "service_account"}'),
             patch("app.core.drive.DriveSync", return_value=fake_drive),
             patch("app.repositories.invoice_repo.InvoiceRepo", return_value=inv_repo_instance),
-            patch("app.services.pipeline.context.audit_data_root", tmp_path),
+            patch("app.paths.audit_data_root", tmp_path),
         ):
             ctx = _build_context(institution, period, db, {})
             [line async for line in _STAGE_HANDLERS["DOWNLOAD_DRIVE"](ctx)]

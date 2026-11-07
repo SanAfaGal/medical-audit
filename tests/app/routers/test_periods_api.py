@@ -15,7 +15,7 @@ _PERIOD = {"date_from": "2024-01-01", "date_to": "2024-01-31", "period_label": "
 def audit_root(tmp_path):
     root = tmp_path / "audit"
     root.mkdir()
-    with patch("app.routers.api.periods.audit_data_root", root):
+    with patch("app.paths.audit_data_root", root):
         yield root
 
 

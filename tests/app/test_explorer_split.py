@@ -54,7 +54,7 @@ class TestSplitPdfInvalidRanges:
         _make_minimal_pdf(sandbox / "test.pdf")
 
         body = SplitRequest(institution_id=1, period_id=1, path="test.pdf", ranges="abc")
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             with pytest.raises(HTTPException) as exc_info:
                 await split_pdf(body, db)
         assert exc_info.value.status_code == 400
@@ -70,7 +70,7 @@ class TestPreviewSplit:
         sandbox.mkdir(parents=True)
         _make_pdf(sandbox / "test.pdf", 5)
 
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             result = await preview_split(institution_id=1, period_id=1, path="test.pdf", ranges=None, db=db)
         assert result.groups == [[0], [1], [2], [3], [4]]
 
@@ -83,7 +83,7 @@ class TestPreviewSplit:
         sandbox.mkdir(parents=True)
         _make_pdf(sandbox / "test.pdf", 5)
 
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             result = await preview_split(institution_id=1, period_id=1, path="test.pdf", ranges="1-3, 5", db=db)
         assert result.groups == [[0, 1, 2], [4]]
 
@@ -96,7 +96,7 @@ class TestPreviewSplit:
         sandbox.mkdir(parents=True)
         _make_pdf(sandbox / "test.pdf", 5)
 
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             with pytest.raises(HTTPException) as exc_info:
                 await preview_split(institution_id=1, period_id=1, path="test.pdf", ranges="abc", db=db)
         assert exc_info.value.status_code == 400

@@ -48,7 +48,7 @@ class TestReorderPagesDeletion:
         _make_pdf(pdf_path, 3)
 
         body = ReorderRequest(institution_id=1, period_id=1, path="test.pdf", page_order=[2, 0])
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             result = await reorder_pages(body, db)
 
         assert result.ok is True
@@ -66,7 +66,7 @@ class TestReorderPagesDeletion:
         _make_pdf(sandbox / "test.pdf", 2)
 
         body = ReorderRequest(institution_id=1, period_id=1, path="test.pdf", page_order=[])
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             with pytest.raises(HTTPException) as exc_info:
                 await reorder_pages(body, db)
         assert exc_info.value.status_code == 400
@@ -81,7 +81,7 @@ class TestReorderPagesDeletion:
         _make_pdf(sandbox / "test.pdf", 2)
 
         body = ReorderRequest(institution_id=1, period_id=1, path="test.pdf", page_order=[0, 0])
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             with pytest.raises(HTTPException) as exc_info:
                 await reorder_pages(body, db)
         assert exc_info.value.status_code == 400
@@ -96,7 +96,7 @@ class TestReorderPagesDeletion:
         _make_pdf(sandbox / "test.pdf", 2)
 
         body = ReorderRequest(institution_id=1, period_id=1, path="test.pdf", page_order=[0, 5])
-        with patch("app.routers.api.explorer.audit_data_root", tmp_path):
+        with patch("app.paths.audit_data_root", tmp_path):
             with pytest.raises(HTTPException) as exc_info:
                 await reorder_pages(body, db)
         assert exc_info.value.status_code == 400

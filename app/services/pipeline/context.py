@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.institution import Institution
 from app.models.period import AuditPeriod
-from app.paths import audit_data_root
+from app.paths import period_paths
 
 
 class StageContext(TypedDict, total=False):
@@ -34,15 +34,15 @@ class StageContext(TypedDict, total=False):
 def build_context(
     institution: Institution, period: AuditPeriod, db: AsyncSession, extra: dict[str, Any]
 ) -> StageContext:
-    base = audit_data_root / institution.name / period.period_label
+    paths = period_paths(institution.name, period.period_label)
     ctx: StageContext = {
         "institution": institution,
         "period": period,
         "db": db,
-        "base_path": base,
-        "drive_path": base / "DRIVE",
-        "stage_path": base / "STAGE",
-        "audit_path": base / "AUDIT",
+        "base_path": paths.base,
+        "drive_path": paths.drive,
+        "stage_path": paths.stage,
+        "audit_path": paths.audit,
     }
     ctx.update(extra)  # type: ignore[typeddict-item]  # extras are validated by the stage that reads them
     return ctx
