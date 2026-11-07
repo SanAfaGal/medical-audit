@@ -43,3 +43,27 @@ class TestFindNeedingOcr:
         cancel.set()
 
         assert DocumentReader.find_needing_ocr([blank], cancel_event=cancel) == []
+
+
+class TestFindUnopenable:
+    def test_flags_corrupt_files_and_other_formats_named_pdf(self, tmp_path: Path):
+        good = _pdf(tmp_path / "good.pdf", "hola")
+        corrupt = tmp_path / "corrupt.pdf"
+        corrupt.write_bytes(b"%PDF-1.4 truncated")
+        not_a_pdf = tmp_path / "photo.pdf"
+        not_a_pdf.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+
+        assert DocumentReader.find_unopenable([good, corrupt, not_a_pdf]) == [corrupt, not_a_pdf]
+
+    def test_reports_progress_in_order_and_honours_cancel(self, tmp_path: Path):
+        files = [_pdf(tmp_path / f"{n}.pdf", "x") for n in range(3)]
+        calls: list[tuple[int, int]] = []
+
+        DocumentReader.find_unopenable(files, on_progress=lambda d, t, _n: calls.append((d, t)))
+        assert calls == [(1, 3), (2, 3), (3, 3)]
+
+        cancel = threading.Event()
+        cancel.set()
+        calls.clear()
+        DocumentReader.find_unopenable(files, on_progress=lambda d, t, _n: calls.append((d, t)), cancel_event=cancel)
+        assert calls == []

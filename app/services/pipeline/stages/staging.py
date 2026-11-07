@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from pathlib import Path
-import asyncio
 import json
 import shutil
 
@@ -103,34 +102,28 @@ async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
 
     non_pdf_list, pdf_candidates = await executor(_scan, stage_path)
 
-    # Check each PDF for corruption in chunks to report intermediate progress.
-    _PDF_CHECK_CHUNK = 50
-    can_open_results: list[bool] = []
-    if pdf_candidates:
-        total_pdfs = len(pdf_candidates)
-        yield progress_line(0, total_pdfs, label="PDFs")
-        for chunk_start in range(0, total_pdfs, _PDF_CHECK_CHUNK):
-            chunk = pdf_candidates[chunk_start : chunk_start + _PDF_CHECK_CHUNK]
-            chunk_results = await asyncio.gather(*[executor(DocumentReader._can_open, f) for f in chunk])
-            can_open_results.extend(chunk_results)
-            processed = min(chunk_start + _PDF_CHECK_CHUNK, total_pdfs)
-            yield plog("INFO", f"Verificando PDFs: {processed}/{total_pdfs}")
-            yield progress_line(processed, total_pdfs, label="PDFs")
+    job = ProgressJob(
+        lambda on_progress, cancel: DocumentReader.find_unopenable(pdf_candidates, on_progress, cancel),
+        ctx,
+        label="PDFs",
+        total=len(pdf_candidates),
+    )
+    async for line in job:
+        yield line
 
     corrupt_list: list[dict] = []
-    for f, ok in zip(pdf_candidates, can_open_results, strict=True):
-        if not ok:
-            try:
-                size_kb = round(f.stat().st_size / 1024, 1)
-            except OSError:
-                size_kb = 0.0
-            corrupt_list.append(
-                {
-                    "rel_path": f.relative_to(stage_path).as_posix(),
-                    "filename": f.name,
-                    "size_kb": size_kb,
-                }
-            )
+    for f in job.result:
+        try:
+            size_kb = round(f.stat().st_size / 1024, 1)
+        except OSError:
+            size_kb = 0.0
+        corrupt_list.append(
+            {
+                "rel_path": f.relative_to(stage_path).as_posix(),
+                "filename": f.name,
+                "size_kb": size_kb,
+            }
+        )
 
     yield plog("INFO", f"Archivos no-PDF encontrados: {len(non_pdf_list)}")
     yield plog("INFO", f"PDFs corruptos encontrados: {len(corrupt_list)}")

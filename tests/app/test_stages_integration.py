@@ -159,3 +159,29 @@ class TestProgressJob:
         assert job.result == "done"
         assert lines[0].startswith("[DATA]") and '"current": 0' in lines[0] and '"total": 3' in lines[0]
         assert '"label": "Cosas"' in lines[-1]
+
+
+class TestRemoveNonPdf:
+    async def test_reports_a_corrupt_pdf_and_a_non_pdf_for_review(self, stage_env):
+        import json
+
+        stage_path = stage_env["stage_path"]
+        _invoice(stage_path, "40", "texto HSL40")
+        folder = stage_path / "HSL40"
+        (folder / "CRC_900123456_HSL40.pdf").write_bytes(b"%PDF-1.4 truncated")
+        (folder / "foto.jpg").write_bytes(b"\xff\xd8\xff")
+
+        lines = await _run("REMOVE_NON_PDF", stage_env)
+
+        payload = json.loads(next(line for line in lines if line.startswith('[DATA] {"stage"'))[len("[DATA] ") :])
+        assert [f["filename"] for f in payload["corrupt_pdfs"]] == ["CRC_900123456_HSL40.pdf"]
+        assert [f["filename"] for f in payload["non_pdf"]] == ["foto.jpg"]
+        assert any('"type": "progress"' in line and '"current": 2' in line for line in lines)
+
+    async def test_clean_stage_reports_nothing_to_review(self, stage_env):
+        _invoice(stage_env["stage_path"], "41", "texto HSL41")
+
+        lines = await _run("REMOVE_NON_PDF", stage_env)
+
+        assert not any(line.startswith('[DATA] {"stage"') for line in lines)
+        assert any("STAGE limpio" in line for line in lines)
