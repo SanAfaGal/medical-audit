@@ -5,13 +5,16 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from pathlib import Path
 import json
+import threading
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.helpers import ProgressFn
 from app.services.pipeline.context import StageContext
 from app.services.pipeline.helpers import build_ct_map, ct_for_folder, get_executor
 from app.services.pipeline.logfmt import plog
 from app.services.pipeline.registry import stage
+from app.services.stage_events import progress_line, run_with_progress
 
 import logging
 
@@ -43,7 +46,16 @@ async def _verify_invoice_code(ctx: StageContext) -> AsyncGenerator[str, None]:
     invoices = await executor(scanner.find_by_prefix, invoice_prefix)
 
     validator = InvoiceValidator(stage_path, institution.invoice_id_prefix or "")
-    missing_code, _ = await executor(validator.validate_invoice_files, invoices)
+    yield progress_line(0, len(invoices), label="Facturas")
+    out: list = []
+    async for line in run_with_progress(
+        lambda on_progress, cancel: validator.validate_invoice_files(invoices, on_progress, cancel),
+        ctx,
+        out,
+        label="Facturas",
+    ):
+        yield line
+    missing_code, _ = out[0]
     for f in missing_code:
         yield plog("WARN", f"Sin número de factura en PDF: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Facturas sin código: {len(missing_code)}")
@@ -54,7 +66,6 @@ async def _check_invoice_number_on_files(ctx: StageContext) -> AsyncGenerator[st
     """Verify that files inside each invoice folder match the folder name."""
     from app.core.inspector import FolderInspector
 
-    executor = get_executor()
     stage_path: Path = ctx["stage_path"]
     institution = ctx["institution"]
 
@@ -63,7 +74,15 @@ async def _check_invoice_number_on_files(ctx: StageContext) -> AsyncGenerator[st
         return
 
     inspector = FolderInspector(stage_path, institution.invoice_id_prefix or "")
-    mismatched = await executor(inspector.find_mismatched_files)
+    out: list = []
+    async for line in run_with_progress(
+        lambda on_progress, cancel: inspector.find_mismatched_files(None, on_progress, cancel),
+        ctx,
+        out,
+        label="Carpetas",
+    ):
+        yield line
+    mismatched = out[0]
     for f in mismatched:
         yield plog("WARN", f"Archivo desajustado: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Archivos desajustados: {len(mismatched)}")
@@ -268,7 +287,6 @@ async def _check_required_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
     from app.repositories.invoice_repo import InvoiceRepo
     from app.repositories.rules_repo import RulesRepo
 
-    executor = get_executor()
     stage_path: Path = ctx["stage_path"]
     institution = ctx["institution"]
     period = ctx["period"]
@@ -298,10 +316,15 @@ async def _check_required_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
 
     def _check_all_folders(
         inv_data: list[tuple[int, str, int | None]],
+        on_progress: ProgressFn,
+        cancel_event: threading.Event | None,
     ) -> dict[int, tuple[str, list[int]]]:
         """Returns {invoice_id: (invoice_number, [missing_doc_type_ids])}"""
         results: dict[int, tuple[str, list[int]]] = {}
-        for inv_id, inv_number, svc_type_id in inv_data:
+        for index, (inv_id, inv_number, svc_type_id) in enumerate(inv_data, 1):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            on_progress(index, len(inv_data), inv_number)
             required_dt_ids = std_map.get(svc_type_id, []) if svc_type_id is not None else []
             if not required_dt_ids:
                 continue
@@ -312,7 +335,16 @@ async def _check_required_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
                 results[inv_id] = (inv_number, [int(c) for c in missing_codes])
         return results
 
-    findings_map = await executor(_check_all_folders, invoice_data)
+    yield progress_line(0, len(invoice_data), label="Facturas")
+    out: list = []
+    async for line in run_with_progress(
+        lambda on_progress, cancel: _check_all_folders(invoice_data, on_progress, cancel),
+        ctx,
+        out,
+        label="Facturas",
+    ):
+        yield line
+    findings_map = out[0]
 
     # Bulk upsert all findings in one DB call
     all_findings: list[tuple[int, int]] = [
@@ -402,13 +434,13 @@ async def _revisar_sobrantes(ctx: StageContext) -> AsyncGenerator[str, None]:
         for num, inv in invoice_by_number.items()
     }
 
-    executor = get_executor()
-
     def _scan_folders(
         s_path: Path,
         inv_snap: dict,
         s_std_map: dict,
         s_prefix_map: dict,
+        on_progress: ProgressFn,
+        cancel_event: threading.Event | None,
     ) -> tuple[list[dict], list[str], int]:
         from difflib import SequenceMatcher as SM
 
@@ -416,9 +448,11 @@ async def _revisar_sobrantes(ctx: StageContext) -> AsyncGenerator[str, None]:
         log_lines: list[str] = []
         total = 0
 
-        for folder in sorted(s_path.iterdir()):
-            if not folder.is_dir():
-                continue
+        folders = sorted(d for d in s_path.iterdir() if d.is_dir())
+        for index, folder in enumerate(folders, 1):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            on_progress(index, len(folders), folder.name)
 
             folder_key = folder.name.upper()
             inv_data = inv_snap.get(folder_key)
@@ -520,7 +554,17 @@ async def _revisar_sobrantes(ctx: StageContext) -> AsyncGenerator[str, None]:
 
         return items_out, log_lines, total
 
-    items, log_lines, total_sobrantes = await executor(_scan_folders, stage_path, invoice_snapshot, std_map, prefix_map)
+    out: list = []
+    async for line in run_with_progress(
+        lambda on_progress, cancel: _scan_folders(
+            stage_path, invoice_snapshot, std_map, prefix_map, on_progress, cancel
+        ),
+        ctx,
+        out,
+        label="Carpetas",
+    ):
+        yield line
+    items, log_lines, total_sobrantes = out[0]
 
     for line in log_lines:
         yield line
@@ -558,7 +602,16 @@ async def _verify_cufe(ctx: StageContext) -> AsyncGenerator[str, None]:
     invoices = await executor(scanner.find_by_prefix, invoice_prefix)
 
     validator = InvoiceValidator(stage_path, institution.invoice_id_prefix or "")
-    _, missing_cufe = await executor(validator.validate_invoice_files, invoices)
+    yield progress_line(0, len(invoices), label="Facturas")
+    out: list = []
+    async for line in run_with_progress(
+        lambda on_progress, cancel: validator.validate_invoice_files(invoices, on_progress, cancel),
+        ctx,
+        out,
+        label="Facturas",
+    ):
+        yield line
+    _, missing_cufe = out[0]
     for f in missing_cufe:
         yield plog("WARN", f"Sin CUFE: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Facturas sin CUFE: {len(missing_cufe)}")

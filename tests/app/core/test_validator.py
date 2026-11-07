@@ -148,3 +148,25 @@ class TestValidateInvoiceFiles:
         assert good not in missing_code
         assert bad_cufe in missing_cufe
         assert good not in missing_cufe
+
+    def test_reports_progress_for_every_file(self, tmp_path: Path, id_prefix: str):
+        files = [tmp_path / f"FEV_900_{id_prefix}{n}.pdf" for n in range(5)]
+        for f in files:
+            f.write_bytes(b"")
+        calls: list[tuple[int, int]] = []
+
+        v = InvoiceValidator(tmp_path, id_prefix, _reader=lambda _p: "")
+        v.validate_invoice_files(files, on_progress=lambda done, total, _name: calls.append((done, total)))
+
+        assert sorted(calls) == [(n, 5) for n in range(1, 6)]
+
+    def test_cancel_event_skips_remaining_files(self, tmp_path: Path, id_prefix: str):
+        import threading
+
+        f = tmp_path / f"FEV_900_{id_prefix}1.pdf"
+        f.write_bytes(b"")
+        cancel = threading.Event()
+        cancel.set()
+
+        v = InvoiceValidator(tmp_path, id_prefix, _reader=lambda _p: "")
+        assert v.validate_invoice_files([f], cancel_event=cancel) == ([], [])

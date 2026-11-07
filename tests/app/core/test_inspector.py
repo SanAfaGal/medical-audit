@@ -133,3 +133,22 @@ class TestResolveDirPaths:
         result = inspector.resolve_dir_paths(["HSL123", "GHOST"])
         names = {d.name for d in result}
         assert "GHOST" not in names
+
+
+class TestFindMismatchedFilesProgress:
+    def test_progress_once_per_folder_and_cancel(self, tmp_path: Path, id_prefix: str):
+        import threading
+
+        for name in ("HSL1", "HSL2", "HSL3"):
+            (tmp_path / name).mkdir()
+        inspector = FolderInspector(tmp_path, id_prefix)
+
+        calls: list[tuple[int, int]] = []
+        inspector.find_mismatched_files(on_progress=lambda d, t, _n: calls.append((d, t)))
+        assert calls == [(1, 3), (2, 3), (3, 3)]
+
+        cancel = threading.Event()
+        cancel.set()
+        calls.clear()
+        inspector.find_mismatched_files(on_progress=lambda d, t, _n: calls.append((d, t)), cancel_event=cancel)
+        assert calls == []

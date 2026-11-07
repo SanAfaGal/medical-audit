@@ -3,9 +3,13 @@
 import logging
 import shutil
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+#: ``on_progress(done, total, item)`` callback accepted by long-running scans (called from worker threads).
+ProgressFn = Callable[[int, int, str], None]
 
 
 def remove_accents(text: str | object) -> str:

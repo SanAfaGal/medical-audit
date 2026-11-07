@@ -2,8 +2,11 @@
 
 import logging
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from app.core.helpers import ProgressFn
 
 _PDF_CHECK_WORKERS = min(16, (os.cpu_count() or 4) * 2)
 
@@ -53,7 +56,7 @@ class DocumentReader:
                     return False
                 doc.load_page(0)
                 return True
-        except Exception:
+        except Exception:  # noqa: BLE001 - fitz raises many types on corrupt files; any failure = unreadable
             return False
 
     @staticmethod
@@ -83,7 +86,7 @@ class DocumentReader:
                             rows = [" | ".join(cell if cell else "" for cell in row) for row in table]
                             return "\n".join(rows)
             return None
-        except Exception as exc:  # pdfplumber raises various errors on corrupt PDFs
+        except Exception as exc:  # noqa: BLE001 - pdfplumber raises various errors on corrupt PDFs
             logger.error("Error reading tables from PDF %s: %s", file_path.name, exc)
             return None
 
@@ -94,15 +97,40 @@ class DocumentReader:
             return []
         with ThreadPoolExecutor(max_workers=_PDF_CHECK_WORKERS) as pool:
             results = pool.map(DocumentReader._can_open, files)
-        return [f for f, ok in zip(files, results) if not ok]
+        return [f for f, ok in zip(files, results, strict=True) if not ok]
 
     @staticmethod
-    def find_needing_ocr(files: list[Path]) -> list[Path]:
-        """Return valid PDFs that contain no readable text layer (parallel)."""
+    def find_needing_ocr(
+        files: list[Path],
+        on_progress: ProgressFn | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[Path]:
+        """Return valid PDFs that contain no readable text layer (parallel).
+
+        ``on_progress(done, total, file_name)`` is called after each file; once ``cancel_event``
+        is set the remaining files are skipped.
+        """
         if not files:
             return []
 
+        total = len(files)
+        done_count = 0
+        lock = threading.Lock()
+
         def _needs_ocr(f: Path) -> bool:
+            nonlocal done_count
+            if cancel_event is not None and cancel_event.is_set():
+                return False
+            try:
+                return _needs_ocr_one(f)
+            finally:
+                if on_progress is not None:
+                    with lock:
+                        done_count += 1
+                        current = done_count
+                    on_progress(current, total, f.name)
+
+        def _needs_ocr_one(f: Path) -> bool:
             import fitz
 
             try:
@@ -117,4 +145,4 @@ class DocumentReader:
 
         with ThreadPoolExecutor(max_workers=_PDF_CHECK_WORKERS) as pool:
             results = pool.map(_needs_ocr, files)
-        return [f for f, needs in zip(files, results) if needs]
+        return [f for f, needs in zip(files, results, strict=True) if needs]

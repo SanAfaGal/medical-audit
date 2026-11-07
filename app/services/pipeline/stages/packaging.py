@@ -13,6 +13,9 @@ from app.services.pipeline.registry import stage
 from app.services.stage_events import progress_line
 
 
+_MOVE_CHUNK = 25  # folders per progress report
+
+
 @stage("ORGANIZE")
 async def _organize(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Move eligible invoices (PRESENTE + no findings) to AUDIT/ADMIN[/CONTRACT]/FOLDER."""
@@ -101,7 +104,18 @@ async def _organize(ctx: StageContext) -> AsyncGenerator[str, None]:
                 failed.append(src.name)
         return moved, failed
 
-    moved_pairs, failed_names = await executor(_batch_move, planned)
+    # Move in chunks so the UI progress bar advances while the disk work runs in a thread.
+    moved_pairs: list[tuple[str, str]] = []
+    failed_names: list[str] = []
+    total_moves = len(planned)
+    yield progress_line(0, total_moves, label="Facturas")
+    for start in range(0, total_moves, _MOVE_CHUNK):
+        chunk_moved, chunk_failed = await executor(_batch_move, planned[start : start + _MOVE_CHUNK])
+        moved_pairs.extend(chunk_moved)
+        failed_names.extend(chunk_failed)
+        done = min(start + _MOVE_CHUNK, total_moves)
+        yield plog("INFO", f"Moviendo carpetas: {done}/{total_moves}")
+        yield progress_line(done, total_moves, label="Facturas")
 
     # Derive moved_numbers from planned vs failed
     failed_set = set(failed_names)

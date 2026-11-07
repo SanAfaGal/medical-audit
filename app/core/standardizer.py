@@ -2,9 +2,12 @@
 
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+from app.core.helpers import ProgressFn
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +82,25 @@ class FilenameStandardizer:
         name = f"{prefix}_{self.nit}_{self.suffix_const}{file_id}.pdf"
         return name, "Ok"
 
-    def run(self, files: list[Path]) -> list[RenameResult]:
-        """Normalise a list of PDF files and return a report for each."""
-        results: list[RenameResult] = []
+    def run(
+        self,
+        files: list[Path],
+        on_progress: ProgressFn | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[RenameResult]:
+        """Normalise a list of PDF files and return a report for each.
 
-        for f in files:
+        ``on_progress(done, total, file_name)`` is called as each file starts; the loop stops
+        early when ``cancel_event`` is set.
+        """
+        results: list[RenameResult] = []
+        total = len(files)
+
+        for index, f in enumerate(files, 1):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if on_progress is not None:
+                on_progress(index, total, f.name)
             if not f.is_file():
                 continue
 

@@ -7,6 +7,8 @@ being re-implemented per stage:
   event contract that blocking jobs in ``app/core`` emit (see ``app.core.helpers.emit_event``).
 * ``run_with_events``  - runs a blocking job in a worker thread and streams its events as log
   lines, wiring task cancellation to the thread.
+* ``run_with_progress``  - like ``run_with_events`` but only drives the progress bar, for scans that
+  report their findings once at the end.
 * ``with_heartbeat`` / ``heartbeat_event``  - server-side liveness signal that works for *any*
   stage, including ones that never emit a line.
 """
@@ -16,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import threading
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, TypeVar
 
 T = TypeVar("T")
@@ -104,6 +107,47 @@ async def run_with_events(
     except asyncio.CancelledError:
         if cancel_event is not None:
             cancel_event.set()  # stop the worker thread after the current item
+        raise
+
+
+async def run_with_progress(
+    run_blocking: Callable[[Callable[[int, int, str], None], threading.Event | None], T],
+    ctx: Mapping[str, Any],
+    result: list[T],
+    *,
+    label: str = "Archivos",
+    interval: float = 0.3,
+) -> AsyncGenerator[str, None]:
+    """Run a blocking job in a thread and stream only its progress bar (no per-item log lines).
+
+    For jobs that scan many files and report their findings at the end: the thread calls
+    ``on_progress(done, total, item)`` as often as it likes and the UI gets at most one
+    ``[DATA]`` progress line per ``interval``. ``run_blocking(on_progress, cancel_event)``'s return
+    value is appended to ``result`` once the job ends.
+    """
+    loop = asyncio.get_running_loop()
+    latest: dict[str, tuple[int, int, str]] = {}
+
+    def _on_progress(done: int, total: int, item: str = "") -> None:
+        latest["cur"] = (done, total, item)  # a single dict store is atomic under the GIL
+
+    cancel_event = ctx.get("cancel_event")
+    task = asyncio.ensure_future(loop.run_in_executor(None, lambda: run_blocking(_on_progress, cancel_event)))
+    last: tuple[int, int, str] | None = None
+    try:
+        while not task.done():
+            cur = latest.get("cur")
+            if cur is not None and cur != last:
+                last = cur
+                yield progress_line(cur[0], cur[1], cur[2], label)
+            await asyncio.sleep(interval)
+        result.append(await task)  # propagate exceptions
+        cur = latest.get("cur")
+        if cur is not None and cur != last:
+            yield progress_line(cur[0], cur[1], cur[2], label)
+    except asyncio.CancelledError:
+        if cancel_event is not None:
+            cancel_event.set()
         raise
 
 

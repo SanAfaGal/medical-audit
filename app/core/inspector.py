@@ -2,7 +2,10 @@
 
 import logging
 import re
+import threading
 from pathlib import Path
+
+from app.core.helpers import ProgressFn
 
 logger = logging.getLogger(__name__)
 
@@ -130,11 +133,18 @@ class FolderInspector:
         """
         return [d for d in self.base_dir.iterdir() if d.is_dir() and _VOID_MARKER in d.name.upper()]
 
-    def find_mismatched_files(self, skip_dirs: list[Path] | None = None) -> list[Path]:
+    def find_mismatched_files(
+        self,
+        skip_dirs: list[Path] | None = None,
+        on_progress: ProgressFn | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[Path]:
         """Return files whose invoice suffix does not match their parent folder name.
 
         Args:
             skip_dirs: Directories to exclude from the scan.
+            on_progress: ``(done, total, folder_name)`` callback, called once per folder.
+            cancel_event: When set, the scan stops and returns what it found so far.
 
         Returns:
             Files where the trailing invoice identifier differs from the parent
@@ -143,9 +153,12 @@ class FolderInspector:
         skip_set = set(skip_dirs) if skip_dirs else set()
         mismatched: list[Path] = []
 
-        for folder in self.base_dir.iterdir():
-            if not folder.is_dir() or folder in skip_set:
-                continue
+        folders = [d for d in self.base_dir.iterdir() if d.is_dir() and d not in skip_set]
+        for index, folder in enumerate(folders, 1):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if on_progress is not None:
+                on_progress(index, len(folders), folder.name)
             for file in folder.iterdir():
                 if file.is_file():
                     match = self._re_folder_suffix.search(file.stem)

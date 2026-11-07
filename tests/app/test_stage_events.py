@@ -234,3 +234,24 @@ class TestDriveEvents:
     def test_empty_input_returns_immediately(self):
         drive = _FakeDrive(set(), [])
         assert self._run(drive, [])[0] == []
+
+
+async def test_run_with_progress_streams_bar_and_returns_result():
+    import threading
+    import time
+
+    from app.services.stage_events import run_with_progress
+
+    def job(on_progress, _cancel):
+        for i in range(1, 4):
+            on_progress(i, 3, f"f{i}")
+            time.sleep(0.05)
+        return "ok"
+
+    out: list = []
+    lines = [line async for line in run_with_progress(job, {"cancel_event": threading.Event()}, out, interval=0.01)]
+
+    assert out == ["ok"]
+    assert lines, "expected at least the final progress line"
+    assert all(line.startswith("[DATA] ") and '"type": "progress"' in line for line in lines)
+    assert '"current": 3' in lines[-1]

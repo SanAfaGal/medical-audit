@@ -12,6 +12,7 @@ from app.services.pipeline.context import StageContext
 from app.services.pipeline.helpers import build_ct_map, ct_for_folder, get_executor
 from app.services.pipeline.logfmt import plog
 from app.services.pipeline.registry import stage
+from app.services.stage_events import progress_line, run_with_progress
 
 
 @stage("RUN_STAGING")
@@ -119,15 +120,17 @@ async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
     can_open_results: list[bool] = []
     if pdf_candidates:
         total_pdfs = len(pdf_candidates)
+        yield progress_line(0, total_pdfs, label="PDFs")
         for chunk_start in range(0, total_pdfs, _PDF_CHECK_CHUNK):
             chunk = pdf_candidates[chunk_start : chunk_start + _PDF_CHECK_CHUNK]
             chunk_results = await asyncio.gather(*[executor(DocumentReader._can_open, f) for f in chunk])
             can_open_results.extend(chunk_results)
             processed = min(chunk_start + _PDF_CHECK_CHUNK, total_pdfs)
             yield plog("INFO", f"Verificando PDFs: {processed}/{total_pdfs}")
+            yield progress_line(processed, total_pdfs, label="PDFs")
 
     corrupt_list: list[dict] = []
-    for f, ok in zip(pdf_candidates, can_open_results):
+    for f, ok in zip(pdf_candidates, can_open_results, strict=True):
         if not ok:
             try:
                 size_kb = round(f.stat().st_size / 1024, 1)
@@ -245,7 +248,13 @@ async def _normalize_files(ctx: StageContext) -> AsyncGenerator[str, None]:
             valid_prefixes=prefixes,
             suffix_const=institution.invoice_id_prefix or "",
         )
-        results = await executor(standardizer.run, invalid)
+        yield progress_line(0, len(invalid), label="Archivos")
+        out: list = []
+        async for line in run_with_progress(
+            lambda on_progress, cancel: standardizer.run(invalid, on_progress, cancel), ctx, out, label="Archivos"
+        ):
+            yield line
+        results = out[0]
 
         # Build invoice_number → contract_type_name map for the period (one query)
         ct_map = await build_ct_map(db, period) if period else {}
@@ -297,7 +306,16 @@ async def _list_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None]:
     invoices = await executor(scanner.find_by_prefix, invoice_prefix)
     yield plog("INFO", f"PDFs de factura encontrados: {len(invoices)}")
 
-    no_text = await executor(DocumentReader.find_needing_ocr, invoices)
+    yield progress_line(0, len(invoices), label="PDFs")
+    out: list = []
+    async for line in run_with_progress(
+        lambda on_progress, cancel: DocumentReader.find_needing_ocr(invoices, on_progress, cancel),
+        ctx,
+        out,
+        label="PDFs",
+    ):
+        yield line
+    no_text = out[0]
     for f in no_text:
         yield plog("WARN", f"Sin capa de texto: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Facturas sin texto: {len(no_text)}")
@@ -332,7 +350,16 @@ async def _delete_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None
 
     scanner = DocumentScanner(stage_path)
     invoices = await executor(scanner.find_by_prefix, invoice_prefix)
-    no_text = await executor(DocumentReader.find_needing_ocr, invoices)
+    yield progress_line(0, len(invoices), label="PDFs")
+    out: list = []
+    async for line in run_with_progress(
+        lambda on_progress, cancel: DocumentReader.find_needing_ocr(invoices, on_progress, cancel),
+        ctx,
+        out,
+        label="PDFs",
+    ):
+        yield line
+    no_text = out[0]
     yield plog("INFO", f"PDFs sin texto a mover a cuarentena: {len(no_text)}")
 
     quarantine_root = stage_path / "_CUARENTENA_SIN_TEXTO"
@@ -345,7 +372,8 @@ async def _delete_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None
         return dest
 
     moved = 0
-    for f in no_text:
+    for index, f in enumerate(no_text, 1):
+        yield progress_line(index - 1, len(no_text), f.name, "PDFs")
         try:
             dest = await executor(_quarantine, f)
             moved += 1

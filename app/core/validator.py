@@ -3,12 +3,13 @@
 import logging
 import os
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 _PDF_WORKERS = min(16, (os.cpu_count() or 4) * 2)
 
-from app.core.helpers import remove_accents  # noqa: E402
+from app.core.helpers import ProgressFn, remove_accents  # noqa: E402
 from app.core.reader import DocumentReader  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -109,15 +110,41 @@ class InvoiceValidator:
                     missing.append(f)
         return missing
 
-    def validate_invoice_files(self, file_paths: list[Path]) -> tuple[list[Path], list[Path]]:
-        """Check invoice code and CUFE presence in a single read pass per file (parallel)."""
+    def validate_invoice_files(
+        self,
+        file_paths: list[Path],
+        on_progress: ProgressFn | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[list[Path], list[Path]]:
+        """Check invoice code and CUFE presence in a single read pass per file (parallel).
+
+        ``on_progress(done, total, file_name)`` is called after each file (from worker threads).
+        When ``cancel_event`` is set the remaining files are skipped and reported as valid.
+        """
         if not file_paths:
             return [], []
+
+        total = len(file_paths)
+        done_count = 0
+        lock = threading.Lock()
 
         re_invoice_code = self._re_invoice_code
         read_text = self._read_text
 
         def _check(f: Path) -> tuple[bool, bool]:
+            nonlocal done_count
+            if cancel_event is not None and cancel_event.is_set():
+                return False, False
+            try:
+                return _check_one(f)
+            finally:
+                if on_progress is not None:
+                    with lock:
+                        done_count += 1
+                        current = done_count
+                    on_progress(current, total, f.name)
+
+        def _check_one(f: Path) -> tuple[bool, bool]:
             content = read_text(f)
             if not content:
                 return False, True
@@ -132,6 +159,6 @@ class InvoiceValidator:
         with ThreadPoolExecutor(max_workers=_PDF_WORKERS) as pool:
             results = list(pool.map(_check, file_paths))
 
-        missing_invoice_code = [f for f, (mc, _) in zip(file_paths, results) if mc]
-        missing_cufe = [f for f, (_, mc) in zip(file_paths, results) if mc]
+        missing_invoice_code = [f for f, (mc, _) in zip(file_paths, results, strict=True) if mc]
+        missing_cufe = [f for f, (_, mc) in zip(file_paths, results, strict=True) if mc]
         return missing_invoice_code, missing_cufe

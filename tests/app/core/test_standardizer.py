@@ -117,3 +117,21 @@ class TestRun:
     def test_non_file_path_skipped(self, tmp_path: Path, standardizer: FilenameStandardizer):
         results = standardizer.run([tmp_path / "ghost.pdf"])
         assert results == []
+
+
+def test_run_reports_progress_and_honours_cancel(tmp_path: Path, standardizer: FilenameStandardizer):
+    import threading
+
+    files = []
+    for n in range(3):
+        f = tmp_path / f"unknown{n}.pdf"
+        f.write_bytes(b"")
+        files.append(f)
+
+    calls: list[tuple[int, int]] = []
+    standardizer.run(files, on_progress=lambda d, t, _n: calls.append((d, t)))
+    assert calls == [(1, 3), (2, 3), (3, 3)]
+
+    cancel = threading.Event()
+    cancel.set()
+    assert standardizer.run(files, cancel_event=cancel) == []
