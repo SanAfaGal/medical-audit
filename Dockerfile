@@ -49,52 +49,40 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
 
-# ── Stage 3: full — Ghostscript + Playwright ──────────────────────────────────
+# ── Stage 3a: pw-browser — descarga Chromium headless shell (en paralelo con apt) ─
+# Reutiliza el venv del builder (trae el paquete playwright) y baja solo el shell
+# headless + ffmpeg. Sin --with-deps: las libs de sistema las instala el stage full.
+# El cache mount evita re-descargar (~170 MB); se copian solo los dirs necesarios
+# para no arrastrar navegadores viejos que haya dejado el cache en otras builds.
+FROM builder AS pw-browser
+
+RUN --mount=type=cache,target=/pw-cache     PLAYWRIGHT_BROWSERS_PATH=/pw-cache /app/.venv/bin/python -m playwright install --only-shell chromium     && mkdir -p /pw     && cp -a /pw-cache/chromium_headless_shell-* /pw-cache/ffmpeg-* /pw/
+
+# ── Stage 3b: full — Ghostscript + Playwright ─────────────────────────────────
+# BuildKit ejecuta en paralelo: apt de este stage, uv sync (builder) y la descarga
+# del navegador (pw-browser). Solo se juntan en los COPY --from de abajo.
 FROM python:3.11-slim AS full
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends gosu ghostscript \
-    && rm -rf /var/lib/apt/lists/*
+# Una sola pasada de apt: gosu + Ghostscript + libs de sistema de Chromium headless
+# (lista de `playwright install-deps --dry-run chromium`, sin xvfb ni fuentes CJK/emoji,
+# innecesarias para descargar). Incluye el usuario para poder usar COPY --chown abajo.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked     --mount=type=cache,target=/var/lib/apt,sharing=locked     rm -f /etc/apt/apt.conf.d/docker-clean     && apt-get update && apt-get install -y --no-install-recommends         gosu ghostscript         libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2         libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3         libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3         libxkbcommon0 libxrandr2 libfontconfig1 libfreetype6 fonts-liberation     && useradd --uid 10001 --no-create-home --shell /bin/false appuser
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# ENVs temprano: PATH activo para RUN posteriores, evita rutas absolutas
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
+ENV PATH="/app/.venv/bin:$PATH"     PYTHONUNBUFFERED=1     PYTHONDONTWRITEBYTECODE=1     PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
 
-COPY pyproject.toml uv.lock ./
-
-# uv sync: cacheado mientras pyproject.toml/uv.lock no cambien
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
-
-# Una sola capa para: crear usuario + instalar Chromium + fijar ownership.
-# Se invalida cuando cambia pyproject.toml/uv.lock, pero la descarga de Chromium
-# (~170 MB) y los .deb de --with-deps salen de cache mounts de BuildKit: solo se
-# bajan la primera vez (o al subir la versión de Playwright). El navegador se
-# copia luego a /app/.playwright porque un cache mount no queda en la imagen.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    --mount=type=cache,target=/pw-cache \
-    rm -f /etc/apt/apt.conf.d/docker-clean \
-    && useradd --uid 10001 --no-create-home --shell /bin/false appuser \
-    && PLAYWRIGHT_BROWSERS_PATH=/pw-cache python -m playwright install --only-shell chromium --with-deps \
-    && mkdir -p /app/.playwright \
-    && cp -a /pw-cache/. /app/.playwright/ \
-    && rm -rf /app/.playwright/.links \
-    && chown -R appuser:appuser /app/.venv /app/.playwright
+# COPY --chown fija el dueño al copiar: sin RUN chown -R (que duplicaba ~500 MB de capa)
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+COPY --from=pw-browser --chown=appuser:appuser /pw /app/.playwright
 
 # Entrypoint — rara vez cambia, cacheado antes del código fuente
 COPY scripts/docker-entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
-    && chmod +x /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh     && chmod +x /usr/local/bin/entrypoint.sh
 
 # Código fuente — única capa que se invalida en cada deploy.
-# COPY --chown elimina el "RUN chown -R /app" que antes escaneaba GB de archivos.
 COPY --chown=appuser:appuser app         ./app
 COPY --chown=appuser:appuser alembic     ./alembic
 COPY --chown=appuser:appuser alembic.ini ./
@@ -102,8 +90,7 @@ COPY --chown=appuser:appuser seeds       ./seeds
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
