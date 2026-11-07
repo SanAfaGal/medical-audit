@@ -5,7 +5,7 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 
 ## Seguridad
 
-- [ ] **Limitar el puerto de producción.** `docker-compose.yml` publica `"80:8000"` en todas las interfaces y la app no tiene autenticación. Publicarlo solo en una IP interna (`"192.168.x.x:80:8000"`) o en `127.0.0.1` detrás de un proxy, o cerrar el puerto con firewall. Falta definir desde qué red se accede.
+- [ ] **Firewall del equipo que despliega** (el acceso desde la LAN es intencional): crear la regla solo para la subred local y perfil Privado, y confirmar que la red del equipo está marcada como «Privada». Los comandos están en `docs/DEPLOY.md` («Acceso desde la red LAN»). Pendiente de hacerlo en el equipo real; sin login, quien llegue al puerto lo ve todo.
 - [ ] **Probar la extracción de 7z y RAR con archivos reales.** `app/services/archive.py` se probó con archivos simulados y con un 7z generado en memoria, pero no con un archivo hostil real (enlaces simbólicos, cabeceras que mienten sobre el tamaño). El RAR necesita `unrar`/`bsdtar` instalado en la imagen.
 - [ ] **DNS rebinding.** El guardia de redirecciones del navegador (`app/core/urlcheck.py::is_blocked_request`) resuelve el host por su cuenta; Chromium resuelve de nuevo al conectar. Un DNS hostil podría cambiar la respuesta entre ambos. Cierre completo: pasar Chromium por un proxy de salida que valide la IP real.
 - [ ] **Rotación de la clave de cifrado.** `app/crypto.py` usa Fernet con una sal fija y no hay forma de rotar `SECRET_KEY` sin perder las credenciales guardadas. Evaluar `MultiFernet`.
@@ -23,16 +23,16 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 ## Pipeline y progreso
 
 - [x] **Barra N/total en las etapas que procesan archivos locales.** Hecho con `run_with_progress` (`stage_events.py`) y callbacks `on_progress`/`cancel_event` en `app/core` (validator, reader, standardizer, inspector). Falta probarla en el navegador (ver Frontend).
-- [ ] **Partir `verification.py`** (569 líneas) y `_revisar_sobrantes` (complejidad 17, 69 sentencias) en `app/services/pipeline/stages/`.
+- [x] **`verification.py` partido** en `invoice_checks.py`, `folder_checks.py` y `findings.py`; la lógica de sobrantes y de documentos requeridos salió a `services/pipeline/surplus.py` y `required_docs.py` (puras y con tests).
 - [ ] **Duplicación entre las etapas SIHOS** (`DOWNLOAD_INVOICES_FROM_SIHOS` y `DOWNLOAD_MEDICATION_SHEETS`): extraer la construcción del `SihosDownloader` y las comprobaciones previas.
 - [ ] Estado de tareas en memoria: un reinicio del backend pierde las tareas en curso (la UI ya lo detecta con `/api/pipeline/status`). Persistirlas solo si se necesita sobrevivir a reinicios.
 
 ## Mantenibilidad y modularización
 
-- [ ] **Routers gordos.** `explorer.py` (~800 líneas), `pipeline.py` y `invoices.py` mezclan HTTP con lógica de archivos y consultas. Mover a servicios (`services/explorer.py`, etc.). `load_drive_zip` ya salió a `services/archive.py`.
+- [ ] **Routers gordos.** `explorer.py` ya quedó delgado (809 → 324 líneas; la lógica vive en `services/explorer/` y los servicios lanzan `ExplorerError`). Faltan `pipeline.py` y `invoices.py`, que aún mezclan HTTP con lógica de archivos (anular carpetas, sobrantes, exportar a Excel, ZIP de AUDIT).
 - [x] **Consultas directas en routers** movidas a `InstitutionRepo`/`InvoiceRepo` (`institutions.py`, `invoices.py`, `periods.py`); quedan solo los `repo.delete`/`update` ya encapsulados.
 - [x] **Unificar la validación de rutas.** Un único contrato `app/paths.py::safe_resolve(base, target)` (relativo o absoluto); `safe_join` eliminado.
-- [ ] **Tipado.** Poner un `Protocol` a `event_fn` en `app/core`, reducir los `type: ignore` (9) y los `noqa` (32), y valorar `mypy --strict` por módulos.
+- [x] **Tipado.** `mypy --strict` en toda la app (solo se relajan `disallow_untyped_defs`/`disallow_incomplete_defs` en `app/routers/*`, y `disallow_untyped_calls` en `core/drive.py` por google-auth). `EventFn`, `ProgressFn` y `ThreadRunner` son Protocols; `type: ignore` 11 → 1 y `noqa: E402` 24 → 9 (los que quedan son los imports diferidos de `models/` contra ciclos).
 - [ ] **Estado global al importar.** `settings`, `audit_data_root` y `crypto._fernet` se crean al importar el módulo; hace que los tests necesiten variables de entorno falsas.
 - [x] Reglas de `ruff` pendientes: `B904`, `B905`, `BLE001`, `PLW2901` corregidas y activadas en `pyproject.toml` (los 7 `except Exception` legítimos llevan `noqa` con motivo).
 - [x] **Docker.** El target `api` del `Dockerfile` no lo usa ningún compose, duplica ~500 MB con `chown -R` y usa otro uid (1000) que `full` (10001). Quitarlo o alinearlo.
@@ -51,7 +51,6 @@ Medido con 1000 facturas / 6000 PDFs sintéticos en SSD local de 18 núcleos (el
 - [ ] **Calentar el pool al arrancar** (hoy el primer escaneo paga ~1 s de arranque de procesos en Windows).
 - [ ] **No medido todavía**: disco de red (el recorrido de carpetas sí pesaría), PDFs escaneados reales (imágenes grandes), `COMPRESS_AUDIT` (Ghostscript), las consultas SQL con muchas facturas (`filter_invoices`, `get_stats`) y las descargas SIHOS/Drive.
 - [ ] `/api/invoices/ids` y la exportación a Excel cargan todo sin paginar: revisar con períodos grandes.
-- [ ] Guardar el benchmark como script reproducible (hoy vive en el directorio temporal de la sesión).
 
 ## Documentación
 

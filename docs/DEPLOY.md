@@ -394,7 +394,7 @@ docker compose -f docker-compose.yml down -v
 
 ## Acceso desde la red LAN
 
-La aplicación es accesible desde cualquier dispositivo en la misma red local.
+La aplicación es accesible desde cualquier dispositivo en la misma red local: el contenedor publica el puerto 80 en todas las interfaces del equipo, y eso es lo esperado. Lo que hay que cuidar es que el firewall solo deje pasar a **esa** red, porque la app no tiene login.
 
 ```bash
 # Obtener la IP del servidor (Windows)
@@ -404,17 +404,26 @@ ipconfig   # buscar "IPv4 Address"
 ip addr show | grep "inet "
 ```
 
-Si no responde desde otros dispositivos, abrir el puerto 80 en el firewall:
+Si no responde desde otros dispositivos, abrir el puerto 80 en el firewall **solo para la red local**:
 
 ```powershell
 # Windows — ejecutar como Administrador
-New-NetFirewallRule -DisplayName "Medical Audit Prod" -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow
+# -Profile Private: solo si la red está marcada como "Privada" (no en redes públicas, p. ej. wifi de invitados)
+# -RemoteAddress LocalSubnet: solo equipos de la misma subred que este
+New-NetFirewallRule -DisplayName "Medical Audit Prod" -Direction Inbound -Protocol TCP -LocalPort 80 `
+  -Action Allow -Profile Private -RemoteAddress LocalSubnet
 ```
 
 ```bash
-# Ubuntu/Debian
-sudo ufw allow 80/tcp
+# Ubuntu/Debian — cambiar 192.168.1.0/24 por la subred real
+sudo ufw allow from 192.168.1.0/24 to any port 80 proto tcp
 ```
+
+Comprobaciones recomendadas en el equipo que despliega:
+
+- La conexión de red debe estar marcada como **Privada** (Configuración → Red e Internet → propiedades de la red). En una red «Pública» Windows bloquea el acceso entrante por defecto, y es la señal de que no es la red de confianza.
+- Si el equipo tiene otra tarjeta (VPN, hotspot, wifi de invitados), el puerto también queda publicado ahí. Con `-RemoteAddress LocalSubnet` solo entra la subred de cada interfaz; si alguna no es de confianza, desactivar esa interfaz o bloquear el puerto en ella.
+- Si hay IP fija reservada en el router (DHCP), la dirección que se comparte con los compañeros no cambia al reiniciar.
 
 ---
 
