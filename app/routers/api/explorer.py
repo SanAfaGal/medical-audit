@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.routers.responses import content_disposition, temp_file_response
-from app.paths import safe_resolve
+from app.paths import is_plain_filename, safe_resolve
 from app.routers.deps import load_period_scope
 from app.services.archive import build_zip_file
 from app.schemas.explorer import (
@@ -65,7 +65,7 @@ def _validate_entry_name(name: str) -> None:
     """Valida que un nombre de archivo/carpeta no contenga separadores de ruta ni esté vacío."""
     if not name or not name.strip():
         raise HTTPException(400, "El nombre no puede estar vacío")
-    if "/" in name or "\\" in name:
+    if not is_plain_filename(name):
         raise HTTPException(400, "El nombre no puede contener separadores de ruta")
 
 

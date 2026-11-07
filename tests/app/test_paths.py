@@ -65,3 +65,17 @@ class TestPeriodPaths:
             base / "STAGE",
             base / "AUDIT",
         )
+
+
+class TestIsPlainFilename:
+    @pytest.mark.parametrize("name", ["a.pdf", "FEV_900_HSL1.pdf", "con espacios.pdf"])
+    def test_accepts_bare_names(self, name):
+        from app.paths import is_plain_filename
+
+        assert is_plain_filename(name)
+
+    @pytest.mark.parametrize("name", ["", "   ", "a/b.pdf", "a\\b.pdf", "..", "../x.pdf", "x..y/z"])
+    def test_rejects_everything_else(self, name):
+        from app.paths import is_plain_filename
+
+        assert not is_plain_filename(name)

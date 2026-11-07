@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.paths import is_plain_filename
 from app.repositories.finding_repo import MissingFileRepo
 from app.routers.deps import load_institution, load_period_scope, load_period_scope_by_id
 from app.repositories.invoice_repo import InvoiceRepo
@@ -308,7 +309,7 @@ async def rename_surplus_file(
     if not invoice:
         raise HTTPException(404, "Factura no encontrada")
 
-    if "/" in data.old_filename or "\\" in data.old_filename or ".." in data.old_filename:
+    if not is_plain_filename(data.old_filename):
         raise HTTPException(400, "Nombre de archivo inválido")
 
     rules_repo = RulesRepo(db)
@@ -362,7 +363,7 @@ async def delete_surplus_file(
     if not invoice:
         raise HTTPException(404, "Factura no encontrada")
 
-    if "/" in data.filename or "\\" in data.filename or ".." in data.filename:
+    if not is_plain_filename(data.filename):
         raise HTTPException(400, "Nombre de archivo inválido")
 
     try:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from asyncpg import ForeignKeyViolationError
+from collections.abc import Awaitable
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -31,6 +33,20 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 # ------------------------------------------------------------------
 
 
+async def _delete_or_409(db: AsyncSession, delete_call: Awaitable[bool], *, not_found: str, in_use: str) -> None:
+    """Run a repo delete: 404 when the row is gone, 409 with a specific message when other rows still use it.
+
+    SQLAlchemy reports the database's foreign-key error as ``IntegrityError`` (not asyncpg's own exception).
+    """
+    try:
+        if not await delete_call:
+            raise HTTPException(404, not_found)
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(409, in_use) from exc
+
+
 @router.get("/service-types", response_model=list[ServiceTypeOut])
 async def list_service_types(db: AsyncSession = Depends(get_db)):
     return await RulesRepo(db).get_service_types()
@@ -47,7 +63,7 @@ async def create_service_type(data: ServiceTypeCreate, db: AsyncSession = Depend
 @router.patch("/service-types/{service_type_id}", response_model=ServiceTypeOut)
 async def update_service_type(service_type_id: int, data: ServiceTypeUpdate, db: AsyncSession = Depends(get_db)):
     repo = RulesRepo(db)
-    obj = await repo.update_service_type(service_type_id, {k: v for k, v in data.model_dump().items() if v is not None})
+    obj = await repo.update_service_type(service_type_id, data.model_dump(exclude_none=True))
     if not obj:
         raise HTTPException(404, "Tipo de servicio no encontrado")
     await db.commit()
@@ -75,7 +91,7 @@ async def create_doc_type(data: DocTypeCreate, db: AsyncSession = Depends(get_db
 @router.patch("/doc-types/{doc_type_id}", response_model=DocTypeOut)
 async def update_doc_type(doc_type_id: int, data: DocTypeUpdate, db: AsyncSession = Depends(get_db)):
     repo = RulesRepo(db)
-    obj = await repo.update_doc_type(doc_type_id, {k: v for k, v in data.model_dump().items() if v is not None})
+    obj = await repo.update_doc_type(doc_type_id, data.model_dump(exclude_none=True))
     if not obj:
         raise HTTPException(404, "Tipo de documento no encontrado")
     await db.commit()
@@ -99,15 +115,12 @@ async def list_folder_statuses(db: AsyncSession = Depends(get_db)):
 
 @router.delete("/service-types/{service_type_id}", status_code=204)
 async def delete_service_type(service_type_id: int, db: AsyncSession = Depends(get_db)):
-    try:
-        deleted = await RulesRepo(db).delete_service_type(service_type_id)
-        if not deleted:
-            raise HTTPException(404, "Tipo de servicio no encontrado")
-        await db.commit()
-    except HTTPException:
-        raise
-    except ForeignKeyViolationError as exc:
-        raise HTTPException(409, "No se puede eliminar: hay facturas o servicios que usan este tipo") from exc
+    await _delete_or_409(
+        db,
+        RulesRepo(db).delete_service_type(service_type_id),
+        not_found="Tipo de servicio no encontrado",
+        in_use="No se puede eliminar: hay facturas o servicios que usan este tipo",
+    )
 
 
 # ------------------------------------------------------------------
@@ -117,15 +130,12 @@ async def delete_service_type(service_type_id: int, db: AsyncSession = Depends(g
 
 @router.delete("/doc-types/{doc_type_id}", status_code=204)
 async def delete_doc_type(doc_type_id: int, db: AsyncSession = Depends(get_db)):
-    try:
-        deleted = await RulesRepo(db).delete_doc_type(doc_type_id)
-        if not deleted:
-            raise HTTPException(404, "Tipo de documento no encontrado")
-        await db.commit()
-    except HTTPException:
-        raise
-    except ForeignKeyViolationError as exc:
-        raise HTTPException(409, "No se puede eliminar: hay hallazgos que usan este tipo") from exc
+    await _delete_or_409(
+        db,
+        RulesRepo(db).delete_doc_type(doc_type_id),
+        not_found="Tipo de documento no encontrado",
+        in_use="No se puede eliminar: hay hallazgos que usan este tipo",
+    )
 
 
 # ------------------------------------------------------------------
@@ -151,15 +161,12 @@ async def update_folder_status(fs_id: int, data: FolderStatusUpdate, db: AsyncSe
 
 @router.delete("/folder-statuses/{fs_id}", status_code=204)
 async def delete_folder_status(fs_id: int, db: AsyncSession = Depends(get_db)):
-    try:
-        deleted = await RulesRepo(db).delete_folder_status(fs_id)
-        if not deleted:
-            raise HTTPException(404, "Estado no encontrado")
-        await db.commit()
-    except HTTPException:
-        raise
-    except ForeignKeyViolationError as exc:
-        raise HTTPException(409, "No se puede eliminar: hay facturas que usan este estado") from exc
+    await _delete_or_409(
+        db,
+        RulesRepo(db).delete_folder_status(fs_id),
+        not_found="Estado no encontrado",
+        in_use="No se puede eliminar: hay facturas que usan este estado",
+    )
 
 
 # ------------------------------------------------------------------
@@ -183,9 +190,7 @@ async def create_prefix_correction(data: PrefixCorrectionCreate, db: AsyncSessio
 async def update_prefix_correction(
     correction_id: int, data: PrefixCorrectionUpdate, db: AsyncSession = Depends(get_db)
 ):
-    obj = await RulesRepo(db).update_prefix_correction(
-        correction_id, {k: v for k, v in data.model_dump().items() if v is not None}
-    )
+    obj = await RulesRepo(db).update_prefix_correction(correction_id, data.model_dump(exclude_none=True))
     if not obj:
         raise HTTPException(404, "Corrección no encontrada")
     await db.commit()

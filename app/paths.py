@@ -49,3 +49,8 @@ class PeriodPaths:
 def period_paths(institution_name: str, period_label: str) -> PeriodPaths:
     """The one place that knows where a period lives on disk (the audit root is read at call time)."""
     return PeriodPaths(audit_data_root / institution_name / period_label)
+
+
+def is_plain_filename(name: str) -> bool:
+    """True for a bare file name: not empty, no path separators and not a ``..`` component."""
+    return bool(name.strip()) and "/" not in name and "\\" not in name and ".." not in name

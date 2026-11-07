@@ -432,7 +432,7 @@ async def get_institution(institution: Institution = Depends(institution_or_404)
 @router.put("/{institution_id}", response_model=InstitutionOut)
 async def update_institution(institution_id: int, data: InstitutionUpdate, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    obj = _encrypt_sensitive({k: v for k, v in data.model_dump().items() if v is not None})
+    obj = _encrypt_sensitive(data.model_dump(exclude_none=True))
     updated = await repo.update(institution_id, obj)
     if not updated:
         raise HTTPException(404, "Institución no encontrada")
