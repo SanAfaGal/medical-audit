@@ -391,10 +391,19 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     import shutil
 
     from app.paths import audit_data_root, safe_resolve
-
-    audit_root = audit_data_root
+    from app.repositories.institution_repo import InstitutionRepo
 
     inv_repo = InvoiceRepo(db)
+
+    # Scope every deletion to this period's sandbox (audit_root/<institution>/<period>), never the whole root.
+    institution = await InstitutionRepo(db).get_by_id(data.institution_id)
+    if not institution:
+        raise HTTPException(404, "Institución no encontrada")
+    period = await inv_repo.get_period_by_id(data.period_id)
+    if not period or period.institution_id != data.institution_id:
+        raise HTTPException(404, "Período no encontrado")
+    sandbox = (audit_data_root / institution.name / period.period_label).resolve()
+
     anular_status = await inv_repo.get_or_create_folder_status("ANULAR")
 
     annulled = 0
@@ -406,11 +415,14 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
             skipped += 1
             continue
 
-        # Security: folder must resolve to a path inside the audit data root
+        # Security: the folder must be inside the period sandbox and at least one level below a
+        # phase folder (DRIVE/STAGE/AUDIT). Empty, "." or a phase folder itself would wipe far too much.
         try:
-            folder = safe_resolve(audit_root, decision.folder_path)
+            folder = safe_resolve(sandbox, decision.folder_path)
+            if len(folder.relative_to(sandbox).parts) < 2:
+                raise ValueError("not an invoice folder")
         except ValueError:
-            errors.append(f"Ruta fuera del directorio de auditoría: {decision.folder_path}")
+            errors.append(f"Ruta fuera del directorio del período: {decision.folder_path}")
             continue
 
         # Update DB status

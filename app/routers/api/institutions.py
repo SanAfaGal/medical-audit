@@ -11,6 +11,7 @@ _MAX_LOGO_SIZE = 5 * 1024 * 1024  # 5 MB
 
 from app import crypto  # noqa: E402
 from app.database import get_db  # noqa: E402
+from app.models.institution import Institution  # noqa: E402
 from app.repositories.institution_repo import InstitutionRepo  # noqa: E402
 from app.schemas.institution import (  # noqa: E402
     AdministratorCreate,
@@ -53,6 +54,15 @@ def _encrypt_sensitive(data: dict) -> dict:
     return out
 
 
+def _institution_out(inst: Institution) -> InstitutionOut:
+    """Build the response with the derived fields (logo URL and has-credential flags, never the secrets)."""
+    item = InstitutionOut.model_validate(inst)
+    item.logo_url = f"/api/institutions/{inst.id}/logo" if inst.logo_content_type else None
+    item.has_drive_credentials = bool(inst.drive_credentials_enc)
+    item.has_sihos_password = bool(inst.sihos_password)
+    return item
+
+
 # ------------------------------------------------------------------
 # Institutions
 # ------------------------------------------------------------------
@@ -62,14 +72,7 @@ def _encrypt_sensitive(data: dict) -> dict:
 async def list_institutions(db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
     institutions = await repo.get_all()
-    out = []
-    for inst in institutions:
-        item = InstitutionOut.model_validate(inst)
-        item.logo_url = f"/api/institutions/{inst.id}/logo" if inst.logo_content_type else None
-        item.has_drive_credentials = bool(inst.drive_credentials_enc)
-        item.has_sihos_password = bool(inst.sihos_password)
-        out.append(item)
-    return out
+    return [_institution_out(inst) for inst in institutions]
 
 
 @router.get("/{institution_id}/logo")
@@ -145,7 +148,7 @@ async def create_institution(data: InstitutionCreate, db: AsyncSession = Depends
     obj = _encrypt_sensitive(data.model_dump())
     institution = await repo.create(obj)
     await db.commit()
-    return institution
+    return _institution_out(institution)
 
 
 # ------------------------------------------------------------------
@@ -295,8 +298,7 @@ async def create_agreement(data: AgreementCreate, db: AsyncSession = Depends(get
     repo = InstitutionRepo(db)
     ag = await repo.create_agreement(data.administrator_id, data.contract_id, data.contract_type_id)
     await db.commit()
-    await db.refresh(ag)
-    return ag
+    return await repo.get_agreement(ag.id)  # reload with administrator/contract/contract_type for the response
 
 
 @router.patch("/agreements/{agreement_id}", response_model=AgreementOut)
@@ -443,7 +445,7 @@ async def get_institution(institution_id: int, db: AsyncSession = Depends(get_db
     institution = await repo.get_by_id(institution_id)
     if not institution:
         raise HTTPException(404, "Institución no encontrada")
-    return institution
+    return _institution_out(institution)
 
 
 @router.put("/{institution_id}", response_model=InstitutionOut)
@@ -454,7 +456,7 @@ async def update_institution(institution_id: int, data: InstitutionUpdate, db: A
     if not updated:
         raise HTTPException(404, "Institución no encontrada")
     await db.commit()
-    return updated
+    return _institution_out(updated)
 
 
 @router.delete("/{institution_id}", status_code=204)

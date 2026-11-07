@@ -39,7 +39,7 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 
 ## Pruebas y CI
 
-- [ ] **Cobertura.** Suite completa = 55 % de `app/` (umbral 60 %, hoy no se cumple). El CI corría el umbral solo con `-m db` (27 %), ahora corre toda la suite. Faltan tests de los routers de instituciones, ajustes y hallazgos, y de `app/core/processor.py`. Decidir: subir tests o bajar el umbral a 50 %.
+- [x] **Cobertura.** Suite completa en 60,2 % (umbral 60 % cumplido) con tests HTTP de instituciones, ajustes, hallazgos, facturas, períodos y tareas del pipeline (`tests/app/routers/`). Sigue baja en etapas (`verification.py` 26 %, `packaging.py` 20 %, `downloads.py` 27 %), `routers/api/pipeline.py` (29 %) y `core/ops.py`/`core/drive.py` (~45 %): subir el umbral cuando se cubran.
 - [x] **Fixture `-m db` en Windows.** Arreglado con `NullPool` en `tests/app/repos/conftest.py`; los 37 tests `-m db` pasan en local. Usar una BD aparte con `TEST_DATABASE_URL` (el fixture hace `drop_all`; en dev existe `medical_audit_test`).
 - [ ] Test de integración de extremo a extremo para dos hospitales en paralelo (hoy solo se comprobó a mano con el SIHOS simulado).
 
