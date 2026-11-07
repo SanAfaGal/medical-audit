@@ -19,7 +19,7 @@ from app.database import get_db
 from app.routers.responses import content_disposition, temp_file_response
 from app.models.institution import Institution
 from app.models.period import AuditPeriod
-from app.paths import audit_data_root, safe_join
+from app.paths import audit_data_root, safe_resolve
 from app.services.archive import build_zip_file
 from app.schemas.explorer import (
     BatchDeleteResult,
@@ -65,9 +65,9 @@ async def _resolve_sandbox(institution_id: int, period_id: int, db: AsyncSession
 def _safe_resolve(sandbox: Path, rel: str) -> Path:
     """Resuelve una ruta relativa dentro del sandbox. Lanza 400 si escapa del sandbox."""
     try:
-        return safe_join(sandbox, rel.lstrip("/\\"))
-    except ValueError:
-        raise HTTPException(400, "Ruta fuera del directorio permitido")
+        return safe_resolve(sandbox, rel.lstrip("/\\"))
+    except ValueError as exc:
+        raise HTTPException(400, "Ruta fuera del directorio permitido") from exc
 
 
 def _validate_entry_name(name: str) -> None:
@@ -93,7 +93,7 @@ def _delete_path(target: Path, sandbox: Path) -> str:
             return f'Carpeta "{target.name}" eliminada'
     except OSError as e:
         logger.error("Error al eliminar %s: %s", target, e)
-        raise HTTPException(500, "Error al eliminar el archivo o carpeta")
+        raise HTTPException(500, "Error al eliminar el archivo o carpeta") from e
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -144,7 +144,7 @@ async def list_directory(
                         )
                     )
         except PermissionError as e:
-            raise HTTPException(403, f"Sin permiso para leer el directorio: {e}")
+            raise HTTPException(403, f"Sin permiso para leer el directorio: {e}") from e
         return found
 
     # Directory walks can touch thousands of files: run them off the event loop.
@@ -248,7 +248,7 @@ async def rename_entry(body: RenameRequest, db: AsyncSession = Depends(get_db)):
         src.rename(dst)
     except OSError as e:
         logger.error("Error al renombrar %s a %s: %s", src, dst, e)
-        raise HTTPException(500, "Error al renombrar el archivo o carpeta")
+        raise HTTPException(500, "Error al renombrar el archivo o carpeta") from e
 
     return OperationResult(ok=True, message=f"Renombrado a {body.new_name}")
 
@@ -275,7 +275,7 @@ async def move_entry(body: MoveRequest, db: AsyncSession = Depends(get_db)):
         src.rename(dst)
     except OSError as e:
         logger.error("Error al mover %s a %s: %s", src, dst, e)
-        raise HTTPException(500, "Error al mover el archivo o carpeta")
+        raise HTTPException(500, "Error al mover el archivo o carpeta") from e
 
     return OperationResult(ok=True, message=f"Movido a {dst_folder.name}/{src.name}")
 
@@ -326,8 +326,8 @@ async def merge_pdfs(body: MergeRequest, db: AsyncSession = Depends(get_db)):
 def _parse_ranges(ranges_str: str, total_pages: int) -> list[list[int]]:
     """Parsea un string de rangos como '1-3, 5' (1-based) a listas de índices 0-based."""
     groups: list[list[int]] = []
-    for token in ranges_str.split(","):
-        token = token.strip()
+    for raw_token in ranges_str.split(","):
+        token = raw_token.strip()
         if not token:
             continue
         if "-" in token:
@@ -375,7 +375,7 @@ async def preview_split(
     try:
         groups = await asyncio.get_running_loop().run_in_executor(None, _preview)
     except (ValueError, IndexError) as e:
-        raise HTTPException(400, f"Rango de páginas inválido: {e}")
+        raise HTTPException(400, f"Rango de páginas inválido: {e}") from e
 
     return SplitPreviewResult(groups=groups)
 
@@ -418,7 +418,7 @@ async def split_pdf(body: SplitRequest, db: AsyncSession = Depends(get_db)):
     try:
         n = await asyncio.get_running_loop().run_in_executor(None, _split)
     except (ValueError, IndexError) as e:
-        raise HTTPException(400, f"Rango de páginas inválido: {e}")
+        raise HTTPException(400, f"Rango de páginas inválido: {e}") from e
 
     return OperationResult(ok=True, message=f"PDF dividido en {n} archivo(s)")
 
@@ -465,9 +465,9 @@ async def reorder_pages(body: ReorderRequest, db: AsyncSession = Depends(get_db)
     try:
         deleted_count = await asyncio.get_running_loop().run_in_executor(None, _reorder)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     except Exception as e:
-        raise HTTPException(500, f"Error al reordenar: {e}")
+        raise HTTPException(500, f"Error al reordenar: {e}") from e
 
     if deleted_count:
         message = f"Se guardaron {len(body.page_order)} página(s) ({deleted_count} eliminada(s))"
@@ -561,7 +561,7 @@ async def copy_entry(body: CopyRequest, db: AsyncSession = Depends(get_db)):
         await asyncio.to_thread(_copy)
     except OSError as e:
         logger.error("Error al copiar %s a %s: %s", src, dst, e)
-        raise HTTPException(500, "Error al copiar el archivo o carpeta")
+        raise HTTPException(500, "Error al copiar el archivo o carpeta") from e
 
     return OperationResult(ok=True, message=f'"{src.name}" copiado a {dst_folder.name}/')
 
@@ -629,7 +629,7 @@ async def make_directory(body: MkdirRequest, db: AsyncSession = Depends(get_db))
         new_dir.mkdir(parents=False)
     except OSError as e:
         logger.error("Error al crear la carpeta %s: %s", new_dir, e)
-        raise HTTPException(500, "Error al crear la carpeta")
+        raise HTTPException(500, "Error al crear la carpeta") from e
 
     rel = str(new_dir.relative_to(sandbox)).replace("\\", "/")
     return OperationResult(ok=True, message=f'Carpeta "{body.name}" creada en {rel}')
@@ -814,5 +814,5 @@ async def console_hide():
         if hwnd:
             ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE = 0
         return OperationResult(ok=True, message="Consola ocultada")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - best-effort Windows-only call; report, never crash
         return OperationResult(ok=False, message=f"No se pudo ocultar la consola: {e}")

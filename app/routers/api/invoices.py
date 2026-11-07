@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import Response
@@ -298,9 +297,9 @@ async def rename_surplus_file(
 
     rules_repo = RulesRepo(db)
     try:
-        folder = safe_resolve(Path(data.folder_path), audit_data_root)
-    except ValueError:
-        raise HTTPException(400, "Ruta fuera del directorio de auditoría")
+        folder = safe_resolve(audit_data_root, data.folder_path)
+    except ValueError as exc:
+        raise HTTPException(400, "Ruta fuera del directorio de auditoría") from exc
 
     if not folder.is_dir():
         raise HTTPException(400, "Carpeta no encontrada")
@@ -351,9 +350,9 @@ async def delete_surplus_file(
         raise HTTPException(400, "Nombre de archivo inválido")
 
     try:
-        folder = safe_resolve(Path(data.folder_path), audit_data_root)
-    except ValueError:
-        raise HTTPException(400, "Ruta fuera del directorio de auditoría")
+        folder = safe_resolve(audit_data_root, data.folder_path)
+    except ValueError as exc:
+        raise HTTPException(400, "Ruta fuera del directorio de auditoría") from exc
 
     target = folder / data.filename
     if not target.exists():
@@ -391,20 +390,12 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     import asyncio
     import shutil
 
-    from sqlalchemy import select, update
-
-    from app.models.invoice import Invoice
-    from app.models.rules import FolderStatus
     from app.paths import audit_data_root, safe_resolve
 
     audit_root = audit_data_root
 
-    # Get-or-create ANULAR folder status
-    anular_status = (await db.execute(select(FolderStatus).where(FolderStatus.status == "ANULAR"))).scalar_one_or_none()
-    if anular_status is None:
-        anular_status = FolderStatus(status="ANULAR")
-        db.add(anular_status)
-        await db.flush()
+    inv_repo = InvoiceRepo(db)
+    anular_status = await inv_repo.get_or_create_folder_status("ANULAR")
 
     annulled = 0
     skipped = 0
@@ -417,16 +408,14 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
 
         # Security: folder must resolve to a path inside the audit data root
         try:
-            folder = safe_resolve(Path(decision.folder_path), audit_root)
+            folder = safe_resolve(audit_root, decision.folder_path)
         except ValueError:
             errors.append(f"Ruta fuera del directorio de auditoría: {decision.folder_path}")
             continue
 
         # Update DB status
         if decision.invoice_id is not None:
-            await db.execute(
-                update(Invoice).where(Invoice.id == decision.invoice_id).values(folder_status_id=anular_status.id)
-            )
+            await inv_repo.update_folder_status(decision.invoice_id, anular_status.id)
 
         # Delete folder from disk
         if folder.exists() and folder.is_dir():

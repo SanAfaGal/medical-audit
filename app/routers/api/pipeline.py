@@ -136,7 +136,7 @@ async def start_stage_task(
     try:
         run = await tm.start(stage, institution_id, period_id, extra)
     except TaskAlreadyRunningError as exc:
-        raise HTTPException(409, f"Ya hay una tarea activa: {exc.run.task_id}")
+        raise HTTPException(409, f"Ya hay una tarea activa: {exc.run.task_id}") from exc
     return {"task_id": run.task_id, "stage": stage}
 
 
@@ -248,9 +248,9 @@ async def load_drive_zip(
         # Extraction is blocking disk work: keep it off the event loop.
         extracted = await asyncio.to_thread(extract_archive, file.file, file.filename or "", drive_path)
     except ArchiveToolMissing as exc:
-        raise HTTPException(500, str(exc))
+        raise HTTPException(500, str(exc)) from exc
     except ArchiveError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, str(exc)) from exc
 
     return {
         "ok": True,
@@ -322,7 +322,7 @@ async def process_non_pdf_decisions(
             try:
                 await loop.run_in_executor(None, convert_image_to_pdf, abs_path)
                 converted += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - one bad image must not abort the batch
                 errors.append(f"Error convirtiendo {abs_path.name}: {exc}")
 
     return {"ok": True, "deleted": deleted, "converted": converted, "errors": errors}
@@ -396,8 +396,8 @@ async def file_preview(
     try:
         abs_path = (stage_path / rel_path).resolve()
         abs_path.relative_to(stage_path.resolve())
-    except (ValueError, OSError):
-        raise HTTPException(400, "Ruta inválida")
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, "Ruta inválida") from exc
 
     if not abs_path.exists() or not abs_path.is_file():
         raise HTTPException(404, "Archivo no encontrado")

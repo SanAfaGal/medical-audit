@@ -108,7 +108,7 @@ async def health_db() -> JSONResponse:
         async with AsyncSessionLocal() as session:
             await session.execute(text("SELECT 1"))
         return JSONResponse({"status": "ok", "db": "ok"})
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - health check must report any DB failure as 503
         logger.warning("health_db_failed", error=str(exc))
         return JSONResponse({"status": "degraded", "db": "unavailable"}, status_code=503)
 

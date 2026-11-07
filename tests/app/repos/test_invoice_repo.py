@@ -292,3 +292,16 @@ class TestFolderStatusIdHasNoImplicitDefault:
         seeded.add(inv)
         with pytest.raises(Exception):  # IntegrityError: NOT NULL violation, no implicit default
             await seeded.flush()
+
+
+class TestGetOrCreateFolderStatus:
+    async def test_creates_once_then_reuses(self, seeded: AsyncSession):
+        repo = InvoiceRepo(seeded)
+        first = await repo.get_or_create_folder_status("ESTADO_NUEVO_TEST")
+        second = await repo.get_or_create_folder_status("ESTADO_NUEVO_TEST")
+        assert first.id == second.id
+
+    async def test_returns_existing_seeded_status(self, seeded: AsyncSession):
+        repo = InvoiceRepo(seeded)
+        existing = (await seeded.execute(select(FolderStatus).limit(1))).scalar_one()
+        assert (await repo.get_or_create_folder_status(existing.status)).id == existing.id

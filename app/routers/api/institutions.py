@@ -4,16 +4,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 _ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp", "image/avif", "image/gif"}
 _MAX_LOGO_SIZE = 5 * 1024 * 1024  # 5 MB
 
 from app import crypto  # noqa: E402
 from app.database import get_db  # noqa: E402
-from app.models.institution import Administrator, Agreement, Contract, Institution, Service  # noqa: E402
 from app.repositories.institution_repo import InstitutionRepo  # noqa: E402
 from app.schemas.institution import (  # noqa: E402
     AdministratorCreate,
@@ -77,15 +74,13 @@ async def list_institutions(db: AsyncSession = Depends(get_db)):
 
 @router.get("/{institution_id}/logo")
 async def serve_logo(institution_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Institution.logo_bytes, Institution.logo_content_type).where(Institution.id == institution_id)
-    )
-    row = result.first()
-    if not row or not row.logo_bytes:
+    logo = await InstitutionRepo(db).get_logo(institution_id)
+    if logo is None:
         raise HTTPException(status_code=404, detail="Sin logo")
+    content, content_type = logo
     return Response(
-        content=row.logo_bytes,
-        media_type=row.logo_content_type,
+        content=content,
+        media_type=content_type,
         headers={"Cache-Control": "public, max-age=86400"},
     )
 
@@ -99,7 +94,7 @@ async def upload_drive_credentials(
     """Upload a Google Drive service-account JSON file and store it encrypted."""
     import json as _json
 
-    institution = await db.get(Institution, institution_id)
+    institution = await InstitutionRepo(db).get_by_id(institution_id)
     if institution is None:
         raise HTTPException(status_code=404, detail="Institución no encontrada")
 
@@ -109,8 +104,8 @@ async def upload_drive_credentials(
         raise HTTPException(status_code=413, detail="Archivo demasiado grande (máx 64 KB)")
     try:
         data = _json.loads(raw)
-    except _json.JSONDecodeError:
-        raise HTTPException(status_code=422, detail="El archivo no es JSON válido")
+    except _json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail="El archivo no es JSON válido") from exc
     if not {"type", "project_id", "private_key", "client_email"}.issubset(data):
         raise HTTPException(status_code=422, detail="No es un service account de Google válido")
 
@@ -125,7 +120,7 @@ async def upload_logo(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    institution = await db.get(Institution, institution_id)
+    institution = await InstitutionRepo(db).get_by_id(institution_id)
     if institution is None:
         raise HTTPException(status_code=404, detail="Institution not found")
 
@@ -217,7 +212,7 @@ async def update_administrator(administrator_id: int, data: AdministratorUpdate,
     repo = InstitutionRepo(db)
     await repo.set_administrator_canonical(administrator_id, data.canonical_name)
     await db.commit()
-    admin = await db.get(Administrator, administrator_id)
+    admin = await repo.get_administrator(administrator_id)
     if not admin:
         raise HTTPException(404, "Administradora no encontrada")
     return admin
@@ -258,7 +253,7 @@ async def update_contract(contract_id: int, data: ContractUpdate, db: AsyncSessi
     repo = InstitutionRepo(db)
     await repo.set_contract_canonical(contract_id, data.canonical_name)
     await db.commit()
-    contract = await db.get(Contract, contract_id)
+    contract = await repo.get_contract(contract_id)
     if not contract:
         raise HTTPException(404, "Contrato no encontrado")
     return contract
@@ -309,16 +304,7 @@ async def update_agreement(agreement_id: int, data: AgreementUpdate, db: AsyncSe
     repo = InstitutionRepo(db)
     await repo.set_agreement_contract_type(agreement_id, data.contract_type_id)
     await db.commit()
-    result = await db.execute(
-        select(Agreement)
-        .where(Agreement.id == agreement_id)
-        .options(
-            selectinload(Agreement.administrator),
-            selectinload(Agreement.contract),
-            selectinload(Agreement.contract_type),
-        )
-    )
-    ag = result.scalar_one_or_none()
+    ag = await repo.get_agreement(agreement_id)
     if not ag:
         raise HTTPException(404, "Acuerdo no encontrado")
     return ag
@@ -352,7 +338,7 @@ async def update_service(service_id: int, data: ServiceUpdate, db: AsyncSession 
     repo = InstitutionRepo(db)
     await repo.set_service_type(service_id, data.service_type_id)
     await db.commit()
-    service = await db.get(Service, service_id)
+    service = await repo.get_service(service_id)
     if not service:
         raise HTTPException(404, "Servicio no encontrado")
     return service

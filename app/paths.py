@@ -18,19 +18,18 @@ def to_container_path(path_str: str) -> Path:
 audit_data_root: Path = Path(settings.audit_data_root)
 
 
-def safe_resolve(path: Path, base: Path) -> Path:
-    """Resolve *path* and verify it lies within *base*.
+def safe_resolve(base: Path, target: str | Path) -> Path:
+    """Resolve *target* against *base* and verify the result lies within *base*.
+
+    Single contract for every client-supplied path: ``target`` may be relative (joined onto
+    *base*) or absolute (kept as is). In both cases the fully resolved path - symlinks and
+    ``..`` included - must be *base* itself or a descendant of it.
 
     Raises:
-        ValueError: if the resolved path is not *base* itself or a descendant of it.
+        ValueError: if the resolved path escapes *base*.
     """
-    resolved = path.resolve()
     base_resolved = base.resolve()
+    resolved = (base_resolved / target).resolve()
     if resolved != base_resolved and base_resolved not in resolved.parents:
-        raise ValueError(f"Path escapes base directory: {path}")
+        raise ValueError(f"Path escapes base directory: {target}")
     return resolved
-
-
-def safe_join(base: Path, rel: str) -> Path:
-    """Join *rel* onto *base* and verify the result lies within *base*."""
-    return safe_resolve(base / rel, base)

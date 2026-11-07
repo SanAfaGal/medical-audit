@@ -182,6 +182,16 @@ class InvoiceRepo:
         result = await self.db.execute(q)
         return list(result.scalars().all()), total
 
+    async def get_or_create_folder_status(self, status_code: str) -> FolderStatus:
+        """Return the FolderStatus with this code, creating (and flushing) it when missing."""
+        result = await self.db.execute(select(FolderStatus).where(FolderStatus.status == status_code))
+        folder_status = result.scalar_one_or_none()
+        if folder_status is None:
+            folder_status = FolderStatus(status=status_code)
+            self.db.add(folder_status)
+            await self.db.flush()
+        return folder_status
+
     async def update_folder_status(self, invoice_id: int, folder_status_id: int) -> None:
         result = await self.db.execute(
             update(Invoice)

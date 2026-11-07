@@ -139,8 +139,8 @@ jobs:
       - name: Apply migrations
         run: alembic upgrade head
 
-      - name: Run DB tests with coverage
-        run: pytest -m db -ra --tb=short --cov=app --cov-report=term-missing --cov-fail-under=60
+      - name: Run all tests with coverage (DB + unit)
+        run: pytest -m "not pdf" -ra --tb=short --cov=app --cov-report=term-missing --cov-fail-under=60
 
   build:
     name: Docker Build

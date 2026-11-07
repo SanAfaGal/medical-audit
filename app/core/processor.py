@@ -35,7 +35,7 @@ class DocumentProcessor:
             with fitz.open(file_path) as doc:
                 producer = (doc.metadata.get("producer") or "").lower()
             return "ghostscript" in producer
-        except Exception:
+        except Exception:  # noqa: BLE001 - best-effort metadata probe; unreadable means "not compressed"
             return False
 
     @staticmethod

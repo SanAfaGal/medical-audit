@@ -7,7 +7,7 @@ There are **no size limits by default** - the app runs locally and audits can be
 who want a safety net can set ``MAX_ARCHIVE_BYTES`` / ``MAX_UNCOMPRESSED_BYTES`` /
 ``MAX_ARCHIVE_MEMBERS`` (0 = unlimited). Protections that cost nothing in size are always on:
 
-* path traversal ("zip slip") - every member is resolved with ``safe_join``;
+* path traversal ("zip slip") - every member is resolved with ``safe_resolve``;
 * symbolic links inside 7z/RAR archives are rejected, so extracted content can't point at (and be
   used to read) files outside the destination.
 """
@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from app.config import settings
-from app.paths import safe_join
+from app.paths import safe_resolve
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def _extract_zip(fileobj: BinaryIO, dest: Path) -> list[str]:
             parts = Path(member.filename).parts
             rel = Path(*parts[1:]) if has_single_wrapper and len(parts) > 1 else Path(*parts)
             try:
-                target = safe_join(dest, str(rel))
+                target = safe_resolve(dest, str(rel))
             except ValueError as exc:
                 raise ArchiveError(f"Ruta insegura en ZIP: {member.filename}") from exc
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -192,7 +192,7 @@ def _extract_rar(fileobj: BinaryIO, dest: Path) -> list[str]:
                     if info.is_symlink():
                         raise ArchiveError(f"El archivo contiene un enlace simbólico no permitido: {info.filename}")
                     try:
-                        target = safe_join(out_dir, info.filename.replace("\\", "/"))
+                        target = safe_resolve(out_dir, info.filename.replace("\\", "/"))
                     except ValueError as exc:
                         raise ArchiveError(f"Ruta insegura en RAR: {info.filename}") from exc
                     target.parent.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-"""Tests for explorer.py's sandbox path helper (now delegating to app.paths.safe_join)."""
+"""Tests for explorer.py's sandbox path helper (now delegating to app.paths.safe_resolve)."""
 
 from __future__ import annotations
 

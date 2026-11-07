@@ -184,7 +184,7 @@ class PipelineTaskManager:
                 run.status = "cancelled"
                 run.finished_at = datetime.utcnow()
                 run._condition.notify_all()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - task boundary: any stage failure becomes an error status
             async with run._condition:
                 run.logs.append(f"[ERROR] Error inesperado: {type(exc).__name__}: {exc}")
                 run.status = "error"

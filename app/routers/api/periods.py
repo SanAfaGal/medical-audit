@@ -11,8 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.institution import Institution
-from app.models.period import AuditPeriod
 from app.paths import audit_data_root
 from app.repositories.institution_repo import InstitutionRepo
 from app.repositories.invoice_repo import InvoiceRepo
@@ -80,10 +78,10 @@ async def create_period(institution_id: int, data: PeriodCreate, db: AsyncSessio
 @router.get("/periods/{period_id}/disk-usage")
 async def get_period_disk_usage(period_id: int, db: AsyncSession = Depends(get_db)):
     """Calcula el uso de disco de un período (DRIVE + STAGE + AUDIT)."""
-    period = await db.get(AuditPeriod, period_id)
+    period = await InvoiceRepo(db).get_period_by_id(period_id)
     if not period:
         raise HTTPException(404, "Período no encontrado")
-    institution = await db.get(Institution, period.institution_id)
+    institution = await InstitutionRepo(db).get_by_id(period.institution_id)
     if not institution:
         raise HTTPException(404, "Institución no encontrada")
 
@@ -101,10 +99,10 @@ async def get_period_disk_usage(period_id: int, db: AsyncSession = Depends(get_d
 @router.post("/periods/{period_id}/purge-disk", status_code=200)
 async def purge_period_disk(period_id: int, db: AsyncSession = Depends(get_db)):
     """Elimina las carpetas de disco del período; mantiene el período y sus datos en BD."""
-    period = await db.get(AuditPeriod, period_id)
+    period = await InvoiceRepo(db).get_period_by_id(period_id)
     if not period:
         raise HTTPException(404, "Período no encontrado")
-    institution = await db.get(Institution, period.institution_id)
+    institution = await InstitutionRepo(db).get_by_id(period.institution_id)
     if not institution:
         raise HTTPException(404, "Institución no encontrada")
 
@@ -119,16 +117,16 @@ async def purge_period_disk(period_id: int, db: AsyncSession = Depends(get_db)):
 @router.delete("/periods/{period_id}", status_code=204)
 async def delete_period(period_id: int, db: AsyncSession = Depends(get_db)):
     """Elimina el período de BD (cascade: facturas + hallazgos) y sus carpetas en disco."""
-    period = await db.get(AuditPeriod, period_id)
+    period = await InvoiceRepo(db).get_period_by_id(period_id)
     if not period:
         return
 
-    institution = await db.get(Institution, period.institution_id)
+    institution = await InstitutionRepo(db).get_by_id(period.institution_id)
     # Guardar antes del delete (el objeto expira tras el flush)
     inst_name = institution.name if institution else None
     period_label = period.period_label
 
-    await db.delete(period)
+    await InvoiceRepo(db).delete_period(period_id)
     await db.commit()
 
     if inst_name:

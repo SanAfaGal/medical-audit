@@ -33,6 +33,16 @@ class InstitutionRepo:
     async def get_by_id(self, institution_id: int) -> Institution | None:
         return await self.db.get(Institution, institution_id)
 
+    async def get_logo(self, institution_id: int) -> tuple[bytes, str | None] | None:
+        """Return ``(bytes, content_type)`` of the institution's logo, or None when it has none."""
+        result = await self.db.execute(
+            select(Institution.logo_bytes, Institution.logo_content_type).where(Institution.id == institution_id)
+        )
+        row = result.first()
+        if not row or not row.logo_bytes:
+            return None
+        return row.logo_bytes, row.logo_content_type
+
     async def get_by_name(self, name: str) -> Institution | None:
         result = await self.db.execute(select(Institution).where(Institution.name == name))
         return result.scalar_one_or_none()
@@ -75,6 +85,9 @@ class InstitutionRepo:
     async def get_all_administrators(self) -> list[Administrator]:
         result = await self.db.execute(select(Administrator).order_by(Administrator.raw_name))
         return list(result.scalars().all())
+
+    async def get_administrator(self, administrator_id: int) -> Administrator | None:
+        return await self.db.get(Administrator, administrator_id)
 
     async def get_pending_administrators(self) -> list[Administrator]:
         """Return administrators whose canonical_name is NULL (not yet mapped by user)."""
@@ -126,6 +139,9 @@ class InstitutionRepo:
     async def get_all_contracts(self) -> list[Contract]:
         result = await self.db.execute(select(Contract).order_by(Contract.raw_name))
         return list(result.scalars().all())
+
+    async def get_contract(self, contract_id: int) -> Contract | None:
+        return await self.db.get(Contract, contract_id)
 
     async def get_pending_contracts(self) -> list[Contract]:
         """Return contracts with NULL canonical_name."""
@@ -220,6 +236,18 @@ class InstitutionRepo:
         )
         return list(result.scalars().all())
 
+    async def get_agreement(self, agreement_id: int) -> Agreement | None:
+        result = await self.db.execute(
+            select(Agreement)
+            .where(Agreement.id == agreement_id)
+            .options(
+                selectinload(Agreement.administrator),
+                selectinload(Agreement.contract),
+                selectinload(Agreement.contract_type),
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_pending_agreements(self) -> list[Agreement]:
         """Return agreements where contract_type_id is NULL."""
         result = await self.db.execute(
@@ -301,6 +329,9 @@ class InstitutionRepo:
             select(Service).where(Service.institution_id == institution_id).order_by(Service.raw_service)
         )
         return list(result.scalars().all())
+
+    async def get_service(self, service_id: int) -> Service | None:
+        return await self.db.get(Service, service_id)
 
     async def get_pending_services(self, institution_id: int) -> list[Service]:
         result = await self.db.execute(

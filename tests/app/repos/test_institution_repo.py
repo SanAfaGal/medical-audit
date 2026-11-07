@@ -100,3 +100,28 @@ class TestConsolidateAgreements:
         repo = InstitutionRepo(seeded)
         result = await repo.consolidate_agreements()
         assert result == {"agreements_deleted": 0, "invoices_redirected": 0}
+
+
+class TestGetters:
+    async def test_get_logo_none_without_logo_then_returns_bytes(self, seeded: AsyncSession):
+        repo = InstitutionRepo(seeded)
+        inst = await repo.create({"name": "LOGO_HOSP", "display_name": "Logo Hosp", "nit": "777777777"})
+        assert await repo.get_logo(inst.id) is None
+
+        inst.logo_bytes = b"\x89PNG"
+        inst.logo_content_type = "image/png"
+        await seeded.flush()
+        assert await repo.get_logo(inst.id) == (b"\x89PNG", "image/png")
+
+    async def test_getters_return_none_when_missing(self, seeded: AsyncSession):
+        repo = InstitutionRepo(seeded)
+        assert await repo.get_administrator(999999) is None
+        assert await repo.get_contract(999999) is None
+        assert await repo.get_agreement(999999) is None
+        assert await repo.get_service(999999) is None
+
+    async def test_get_administrator_roundtrip(self, seeded: AsyncSession):
+        repo = InstitutionRepo(seeded)
+        admin = await repo.create_administrator("GETTER ADMIN", None)
+        fetched = await repo.get_administrator(admin.id)
+        assert fetched is not None and fetched.raw_name == "GETTER ADMIN"

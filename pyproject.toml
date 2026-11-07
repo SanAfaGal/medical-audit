@@ -70,7 +70,7 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-extend-select = ["TID251"]
+extend-select = ["TID251", "B904", "B905", "BLE001", "PLW2901"]
 
 # app/core es lógica de dominio pura: no puede depender del resto de app/.
 # El ban aplica a todo el repo; las capas que sí pueden importarlos se excluyen abajo.

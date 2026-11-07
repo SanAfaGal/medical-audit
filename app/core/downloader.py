@@ -195,7 +195,8 @@ class SihosDownloader:
     ) -> None:
         """Async implementation of the browser-based invoice download."""
         total = len(invoice_list)
-        async with self._browser_session(event_fn) as page:
+        async with self._browser_session(event_fn) as session_page:
+            page = session_page  # _recover_page may swap it for a fresh one
             for i, invoice_number in enumerate(invoice_list, 1):
                 if cancel_event is not None and cancel_event.is_set():
                     _emit(event_fn, "cancelled", i, total)
@@ -233,7 +234,8 @@ class SihosDownloader:
     ) -> None:
         """Async implementation of medication sheet download."""
         total = len(targets)
-        async with self._browser_session(event_fn) as page:
+        async with self._browser_session(event_fn) as session_page:
+            page = session_page  # _recover_page may swap it for a fresh one
             for i, (invoice_number, admission, id_type, id_number) in enumerate(targets, 1):
                 if cancel_event is not None and cancel_event.is_set():
                     _emit(event_fn, "cancelled", i, total)

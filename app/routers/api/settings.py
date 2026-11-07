@@ -106,8 +106,8 @@ async def delete_service_type(service_type_id: int, db: AsyncSession = Depends(g
         await db.commit()
     except HTTPException:
         raise
-    except ForeignKeyViolationError:
-        raise HTTPException(409, "No se puede eliminar: hay facturas o servicios que usan este tipo")
+    except ForeignKeyViolationError as exc:
+        raise HTTPException(409, "No se puede eliminar: hay facturas o servicios que usan este tipo") from exc
 
 
 # ------------------------------------------------------------------
@@ -124,8 +124,8 @@ async def delete_doc_type(doc_type_id: int, db: AsyncSession = Depends(get_db)):
         await db.commit()
     except HTTPException:
         raise
-    except ForeignKeyViolationError:
-        raise HTTPException(409, "No se puede eliminar: hay hallazgos que usan este tipo")
+    except ForeignKeyViolationError as exc:
+        raise HTTPException(409, "No se puede eliminar: hay hallazgos que usan este tipo") from exc
 
 
 # ------------------------------------------------------------------
@@ -158,8 +158,8 @@ async def delete_folder_status(fs_id: int, db: AsyncSession = Depends(get_db)):
         await db.commit()
     except HTTPException:
         raise
-    except ForeignKeyViolationError:
-        raise HTTPException(409, "No se puede eliminar: hay facturas que usan este estado")
+    except ForeignKeyViolationError as exc:
+        raise HTTPException(409, "No se puede eliminar: hay facturas que usan este estado") from exc
 
 
 # ------------------------------------------------------------------
