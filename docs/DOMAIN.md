@@ -33,6 +33,14 @@ El pipeline está compuesto por etapas secuenciales. Cada etapa se activa indivi
 | 21 | `DOWNLOAD_MISSING_DOCS` | Descargar documentos faltantes específicos desde Drive para facturas con hallazgos abiertos. |
 | 22 | `COMPRESS_AUDIT` | Comprimir el directorio de auditoría en un archivo ZIP. |
 
+### Cómo reportan progreso las etapas
+
+Todas las etapas deben verse igual para el usuario, así que el reporte está centralizado en `app/services/stage_events.py`:
+
+- **Liveness automática (cualquier etapa).** El servidor envía un evento SSE `heartbeat` (`idle`, `elapsed`) cada 15 s sin novedades; la UI lo usa para el aviso "sin líneas nuevas… el servidor sigue ejecutando". No requiere código por etapa.
+- **Trabajo bloqueante en hilo** (navegador, Drive, etc.): la librería de `app/core` recibe `event_fn(kind, i, total, item, detail)` y `cancel_event` (contrato en `app/core/helpers.py::emit_event`; `kind` ∈ `status`, `warning`, `item_start`, `item_ok`, `item_error`, `cancelled`). La etapa lo envuelve con `run_with_events(..., noun=, verb=, label=)`, que genera las líneas de log, la barra de progreso y detiene el hilo al cancelar. Un elemento fallido es `[WARN]`, nunca `[ERROR]` (un `[ERROR]` marca toda la etapa como fallida).
+- **Bucles en el event loop**: emitir `progress_line(i, total, item, label)` junto a cada línea `[i/N]`.
+
 ---
 
 ## Modelo de dominio

@@ -1,0 +1,140 @@
+"""Central reporting for pipeline stages: one way to show progress, liveness and cancellation.
+
+Every long-running stage should look the same to the user, so the pieces live here instead of
+being re-implemented per stage:
+
+* ``progress_line`` / ``event_lines``  - the log lines and ``[DATA]`` progress payload for the
+  event contract that blocking jobs in ``app/core`` emit (see ``app.core.helpers.emit_event``).
+* ``run_with_events``  - runs a blocking job in a worker thread and streams its events as log
+  lines, wiring task cancellation to the thread.
+* ``with_heartbeat`` / ``heartbeat_event``  - server-side liveness signal that works for *any*
+  stage, including ones that never emit a line.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+from typing import AsyncGenerator, AsyncIterator, Callable, TypeVar
+
+T = TypeVar("T")
+
+
+def _fmt(level: str, msg: str) -> str:
+    return f"[{level}] {msg}"
+
+
+def progress_line(current: int, total: int, item: str = "", label: str = "Elementos") -> str:
+    """Machine-readable progress payload consumed by the pipeline UI progress bar."""
+    return "[DATA] " + json.dumps(
+        {"type": "progress", "current": current, "total": total, "item": item, "label": label},
+        ensure_ascii=False,
+    )
+
+
+def event_lines(
+    kind: str,
+    i: int,
+    total: int,
+    item: str,
+    detail: str,
+    *,
+    noun: str = "elemento",
+    verb: str = "Procesando",
+    label: str = "Elementos",
+) -> list[str]:
+    """Translate one ``event_fn`` event into human log lines (plus [DATA] progress payloads).
+
+    ``noun``/``verb``/``label`` customise the wording per stage ("factura"/"Descargando"/"Facturas").
+    One bad item is a WARN, never an ERROR: an ``[ERROR]`` line marks the whole stage as failed.
+    """
+    cap = noun.capitalize()
+    if kind == "status":
+        return [_fmt("INFO", detail)]
+    if kind == "warning":
+        return [_fmt("WARN", detail)]
+    if kind == "item_start":
+        return [_fmt("INFO", f"[{i}/{total}] {verb} {noun} {item}..."), progress_line(i - 1, total, item, label)]
+    if kind == "item_ok":
+        suffix = f" {detail}" if detail else " listo"
+        return [_fmt("INFO", f"[{i}/{total}] {cap} {item}{suffix}"), progress_line(i, total, item, label)]
+    if kind == "item_error":
+        return [
+            _fmt("WARN", f"[{i}/{total}] {cap} {item} no se pudo procesar: {detail}"),
+            progress_line(i, total, item, label),
+        ]
+    if kind == "cancelled":
+        return [_fmt("WARN", f"Proceso detenido antes del {noun} {i}/{total}")]
+    return []
+
+
+async def run_with_events(
+    run_blocking: Callable[[Callable[[str, int, int, str, str], None], object], object],
+    ctx: dict,
+    *,
+    noun: str = "elemento",
+    verb: str = "Procesando",
+    label: str = "Elementos",
+) -> AsyncGenerator[str, None]:
+    """Run a blocking job in a thread, streaming its events as log lines.
+
+    ``run_blocking(event_fn, cancel_event)`` performs the work. Cancelling the task also sets
+    ``ctx['cancel_event']`` so the worker thread stops after the current item instead of
+    carrying on in the background.
+    """
+    loop = asyncio.get_running_loop()
+    q: asyncio.Queue[str] = asyncio.Queue()
+
+    def _on_event(kind: str, i: int, total: int, item: str, detail: str) -> None:
+        for line in event_lines(kind, i, total, item, detail, noun=noun, verb=verb, label=label):
+            loop.call_soon_threadsafe(q.put_nowait, line)
+
+    cancel_event = ctx.get("cancel_event")
+    task = asyncio.ensure_future(loop.run_in_executor(None, lambda: run_blocking(_on_event, cancel_event)))
+    try:
+        while not task.done():
+            try:
+                yield q.get_nowait()
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0.3)
+        while not q.empty():
+            yield q.get_nowait()
+        await task  # propagate exceptions
+    except asyncio.CancelledError:
+        if cancel_event is not None:
+            cancel_event.set()  # stop the worker thread after the current item
+        raise
+
+
+def heartbeat_event(idle: float, elapsed: float) -> str:
+    """SSE frame telling the browser the server is alive and how long the stage has been quiet."""
+    payload = json.dumps({"idle": round(idle), "elapsed": round(elapsed)})
+    return f"event: heartbeat\ndata: {payload}\n\n"
+
+
+async def with_heartbeat(source: AsyncIterator[T], interval: float) -> AsyncGenerator[T | None, None]:
+    """Yield items from ``source``; yield ``None`` whenever ``interval`` seconds pass without one.
+
+    The pending ``__anext__`` is awaited with ``asyncio.wait`` (not ``wait_for``) so a quiet
+    period never cancels the source generator.
+    """
+    it = source.__aiter__()
+    pending: asyncio.Future = asyncio.ensure_future(it.__anext__())
+    try:
+        while True:
+            done, _ = await asyncio.wait({pending}, timeout=interval)
+            if not done:
+                yield None
+                continue
+            try:
+                item = pending.result()
+            except StopAsyncIteration:
+                return
+            pending = asyncio.ensure_future(it.__anext__())  # keep working while the client reads
+            yield item
+    finally:
+        if not pending.done():
+            pending.cancel()
+        with contextlib.suppress(BaseException):
+            await pending

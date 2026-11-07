@@ -11,6 +11,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
+from app.core.helpers import emit_event as _emit
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -107,21 +109,29 @@ class DriveSync:
         )
         return self._execute_with_retry(request)
 
-    def _process_drive_item(self, item: dict, local_path: Path, depth: int) -> None:
-        """Route a single Drive item to download or recurse into a sub-folder."""
-        if item["mimeType"] == _DRIVE_FOLDER_MIME:
-            self._sync_folder_tree(item["id"], local_path / item["name"], depth + 1)
-        elif "google-apps" not in item["mimeType"]:
-            self.download_file(item["id"], item["name"], local_path)
-        else:
-            logger.info("Skipping Google native file: %s", item["name"])
+    def _process_drive_item(self, item: dict, local_path: Path, depth: int, cancel_event=None) -> int:
+        """Route a single Drive item to download or recurse into a sub-folder.
 
-    def _sync_folder_tree(self, folder_id: str, local_path: Path, depth: int = 0) -> None:
-        """Recursively download the contents of a Drive folder."""
+        Returns the number of files handled (downloaded or already present).
+        """
+        if item["mimeType"] == _DRIVE_FOLDER_MIME:
+            return self._sync_folder_tree(item["id"], local_path / item["name"], depth + 1, cancel_event)
+        if "google-apps" not in item["mimeType"]:
+            self.download_file(item["id"], item["name"], local_path)
+            return 1
+        logger.info("Skipping Google native file: %s", item["name"])
+        return 0
+
+    def _sync_folder_tree(self, folder_id: str, local_path: Path, depth: int = 0, cancel_event=None) -> int:
+        """Recursively download the contents of a Drive folder; returns the files handled.
+
+        Stops early (between files) when ``cancel_event`` is set.
+        """
         logger.info("Processing folder %s (depth %d)", local_path.name, depth)
 
         page_token: str | None = None
         has_items = False
+        handled = 0
 
         while True:
             results = self._list_folder_contents(folder_id, page_token)
@@ -131,7 +141,9 @@ class DriveSync:
                 has_items = True
 
             for item in items:
-                self._process_drive_item(item, local_path, depth)
+                if cancel_event is not None and cancel_event.is_set():
+                    return handled
+                handled += self._process_drive_item(item, local_path, depth, cancel_event)
 
             page_token = results.get("nextPageToken")
             if not page_token:
@@ -139,6 +151,7 @@ class DriveSync:
 
         if not has_items and depth == 0:
             logger.warning("Folder appears to be empty in Drive: %s", local_path.name)
+        return handled
 
     def _batch_search_folders(self, invoice_numbers: list[str]) -> tuple[set[str], list[dict]]:
         """Search Drive for folders containing any of the given invoice numbers.
@@ -186,7 +199,9 @@ class DriveSync:
 
         return found_numbers, list(folders_by_id.values())
 
-    def download_missing_dirs(self, invoice_numbers: list[str], local_root: Path) -> list[str]:
+    def download_missing_dirs(
+        self, invoice_numbers: list[str], local_root: Path, event_fn=None, cancel_event=None
+    ) -> list[str]:
         """Search Drive for folders containing the given invoice numbers and
         download each one found.
 
@@ -198,6 +213,9 @@ class DriveSync:
         Args:
             invoice_numbers: Plain invoice numbers to look up (no prefix).
             local_root: Directory where found folders are downloaded.
+            event_fn: Optional ``(kind, i, total, item, detail)`` progress callback (see the
+                event contract in ``app.core.helpers``); one item is one Drive folder.
+            cancel_event: Optional ``threading.Event``; when set, stops before the next folder.
 
         Returns:
             Subset of *invoice_numbers* whose folder was found and downloaded.
@@ -206,14 +224,31 @@ class DriveSync:
             return []
 
         logger.info("Searching Drive for %d invoice folder(s)", len(invoice_numbers))
+        _emit(event_fn, "status", detail=f"Buscando {len(invoice_numbers)} factura(s) en Drive...")
         found_numbers, unique_folders = self._batch_search_folders(invoice_numbers)
-
-        for folder in unique_folders:
-            self._sync_folder_tree(folder["id"], local_root / folder["name"])
+        _emit(
+            event_fn,
+            "status",
+            detail=f"Drive: {len(found_numbers)}/{len(invoice_numbers)} factura(s) encontradas en "
+            f"{len(unique_folders)} carpeta(s)",
+        )
 
         not_found = set(invoice_numbers) - found_numbers
         for num in sorted(not_found):
             logger.warning("No folder found in Drive for invoice: %s", num)
+            _emit(event_fn, "warning", detail=f"No se encontró carpeta en Drive para la factura {num}")
+
+        total = len(unique_folders)
+        for i, folder in enumerate(unique_folders, 1):
+            if cancel_event is not None and cancel_event.is_set():
+                _emit(event_fn, "cancelled", i, total)
+                break
+            _emit(event_fn, "item_start", i, total, folder["name"])
+            handled = self._sync_folder_tree(folder["id"], local_root / folder["name"], cancel_event=cancel_event)
+            if cancel_event is not None and cancel_event.is_set():
+                _emit(event_fn, "cancelled", i, total)
+                break
+            _emit(event_fn, "item_ok", i, total, folder["name"], f"descargada ({handled} archivo(s))")
 
         logger.info(
             "Drive download complete: %d/%d invoices found",

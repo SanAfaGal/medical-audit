@@ -83,6 +83,17 @@ Registros de documentos requeridos faltantes por factura.
 | `POST` | `/api/pipeline/run/{stage}` | Iniciar etapa en background (retorna `task_id`) |
 | `GET` | `/api/pipeline/task/{task_id}` | Consultar estado de tarea en background |
 | `GET` | `/api/pipeline/stream/{task_id}` | Stream de logs de tarea en background (SSE) |
+| `GET` | `/api/pipeline/status/{task_id}` | Estado de una tarea (`running`/`done`/`error`/`cancelled`, `last_activity`); 404 si el servidor ya no la conoce |
+| `GET` | `/api/pipeline/active` | Tareas en ejecución; filtros opcionales `institution_id` y `period_id` (sirve para re-enganchar una tarea tras cerrar la pestaña) |
+| `DELETE` | `/api/pipeline/{task_id}` | Cancelar una tarea (también detiene el hilo de trabajo entre elementos) |
+
+**Contrato de streams (SSE).** Tanto `GET /run/{stage}` como `GET /stream/{task_id}` emiten:
+
+- `data: {"msg": "<línea de log>"}` — líneas `[INFO]`/`[WARN]`/`[ERROR]` y `[DATA] {json}`.
+- `[DATA] {"type":"progress","current":N,"total":T,"item":"...","label":"Facturas"}` — progreso; la UI lo muestra como barra y no lo imprime en el log.
+- `event: heartbeat` con `data: {"idle": s, "elapsed": s}` cada 15 s **sin líneas nuevas**, en cualquier etapa: `idle` = segundos desde la última línea, `elapsed` = segundos desde que empezó.
+
+El estado de las tareas vive en memoria del proceso, por eso el backend corre con **un solo worker** de uvicorn.
 
 Ver [docs/DOMAIN.md](DOMAIN.md#pipeline-de-auditoría) para el detalle de las 22 etapas del pipeline.
 

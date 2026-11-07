@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.institution import Institution
 from app.models.period import AuditPeriod
 from app.paths import audit_data_root
+from app.services.stage_events import progress_line, run_with_events
 
 logger = logging.getLogger(__name__)
 
@@ -680,23 +681,17 @@ async def _download_invoices_from_sihos(ctx: dict) -> AsyncGenerator[str, None]:
         output_dir=stage_path,
     )
 
-    loop = asyncio.get_event_loop()
-    progress_q: asyncio.Queue[str] = asyncio.Queue()
-
-    def _on_progress(i: int, total: int, inv: str) -> None:
-        loop.call_soon_threadsafe(progress_q.put_nowait, plog("INFO", f"[{i}/{total}] Factura {inv}"))
-
-    task = asyncio.ensure_future(
-        loop.run_in_executor(None, lambda: downloader.run_from_list(invoice_numbers, _on_progress))
-    )
-    while not task.done():
-        try:
-            yield progress_q.get_nowait()
-        except asyncio.QueueEmpty:
-            await asyncio.sleep(0.3)
-    while not progress_q.empty():
-        yield progress_q.get_nowait()
-    await task  # propaga excepciones
+    yield progress_line(0, len(invoice_numbers), label="Facturas")
+    async for line in run_with_events(
+        lambda event_fn, cancel_event: downloader.run_from_list(
+            invoice_numbers, event_fn=event_fn, cancel_event=cancel_event
+        ),
+        ctx,
+        noun="factura",
+        verb="Descargando",
+        label="Facturas",
+    ):
+        yield line
     yield plog("INFO", "Descarga SIHOS completada.")
 
 
@@ -771,23 +766,17 @@ async def _download_medication_sheets(ctx: dict) -> AsyncGenerator[str, None]:
     )
 
     file_prefix = doc_type.prefix or doc_type.code
-    loop = asyncio.get_event_loop()
-    progress_q: asyncio.Queue[str] = asyncio.Queue()
-
-    def _on_progress(i: int, total: int, inv: str) -> None:
-        loop.call_soon_threadsafe(progress_q.put_nowait, plog("INFO", f"[{i}/{total}] Factura {inv}"))
-
-    task = asyncio.ensure_future(
-        loop.run_in_executor(None, lambda: downloader.run_medication_sheets(targets, file_prefix, _on_progress))
-    )
-    while not task.done():
-        try:
-            yield progress_q.get_nowait()
-        except asyncio.QueueEmpty:
-            await asyncio.sleep(0.3)
-    while not progress_q.empty():
-        yield progress_q.get_nowait()
-    await task  # propaga excepciones
+    yield progress_line(0, len(targets), label="Facturas")
+    async for line in run_with_events(
+        lambda event_fn, cancel_event: downloader.run_medication_sheets(
+            targets, file_prefix, event_fn=event_fn, cancel_event=cancel_event
+        ),
+        ctx,
+        noun="factura",
+        verb="Descargando",
+        label="Facturas",
+    ):
+        yield line
     yield plog("INFO", "Descarga completada.")
 
 
@@ -1461,7 +1450,6 @@ async def _download_drive(ctx: dict) -> AsyncGenerator[str, None]:
     from app.crypto import decrypt
     from app.repositories.invoice_repo import InvoiceRepo
 
-    executor = _get_executor()
     stage_path: Path = ctx["stage_path"]
     institution = ctx["institution"]
     period = ctx["period"]
@@ -1488,21 +1476,20 @@ async def _download_drive(ctx: dict) -> AsyncGenerator[str, None]:
     creds = json.loads(decrypt(institution.drive_credentials_enc))
     drive = DriveSync(credentials_dict=creds)
 
-    id_prefix = institution.invoice_id_prefix or ""
-
     stage_path.mkdir(parents=True, exist_ok=True)
-    yield plog("INFO", f"Buscando {len(missing)} carpeta(s) en Drive...")
     # Search by bare invoice number so folders with separators or extra text
     # (e.g. "FE-12345", "FE12345 YA") are matched. download_missing_dirs batches
-    # the search internally (see core/drive.py::_batch_search_folders) — call it
-    # once with the full list instead of once per invoice number.
-    found = await executor(drive.download_missing_dirs, missing, stage_path)
-    downloaded = list(found)
-    found_set = set(downloaded)
-    for i, num in enumerate(missing, 1):
-        status = "✓" if num in found_set else "✗ no encontrada"
-        yield plog("INFO", f"[{i}/{len(missing)}] {id_prefix}{num} — {status}")
-    yield plog("INFO", f"Carpetas descargadas de Drive: {len(downloaded)}/{len(missing)}")
+    # the search internally (see core/drive.py::_batch_search_folders) and reports
+    # progress per Drive folder through the shared event contract.
+    result: dict[str, list[str]] = {}
+
+    def _sync(event_fn, cancel_event) -> None:
+        result["found"] = drive.download_missing_dirs(missing, stage_path, event_fn=event_fn, cancel_event=cancel_event)
+
+    async for line in run_with_events(_sync, ctx, noun="carpeta", verb="Descargando", label="Carpetas"):
+        yield line
+    downloaded = result.get("found", [])
+    yield plog("INFO", f"Facturas encontradas en Drive: {len(downloaded)}/{len(missing)}")
 
     if manual_list is None and downloaded:
         assert inv_repo is not None  # manual_list is None → the else branch above set it
@@ -1563,12 +1550,14 @@ async def _download_missing_docs(ctx: dict) -> AsyncGenerator[str, None]:
     yield plog("INFO", f"Buscando {len(download_requests)} documento(s) en Drive...")
     found = not_found = 0
     total_docs = len(download_requests)
+    yield progress_line(0, total_docs, label="Documentos")
     for i, request in enumerate(download_requests, 1):
         f, nf = await executor(drive.download_specific_files, [request])
         found += f
         not_found += nf
         status = "✓" if f else "✗ no encontrado"
         yield plog("INFO", f"[{i}/{total_docs}] {request[0]} — {status}")
+        yield progress_line(i, total_docs, request[0], "Documentos")
     yield plog("INFO", f"Encontrados: {found}, no encontrados: {not_found}")
 
 
@@ -1613,6 +1602,7 @@ async def _compress_audit(ctx: dict) -> AsyncGenerator[str, None]:
 
     totals: dict[str, int] = {"success": 0, "failed": 0, "bytes_before": 0, "bytes_after": 0}
     chunks = [pdfs[i : i + _COMPRESS_CHUNK] for i in range(0, total, _COMPRESS_CHUNK)]
+    yield progress_line(0, total, label="PDFs")
 
     for i, chunk in enumerate(chunks, 1):
         _chunk = chunk
@@ -1627,6 +1617,7 @@ async def _compress_audit(ctx: dict) -> AsyncGenerator[str, None]:
             "INFO",
             f"Progreso: {processed}/{total} ({processed / total * 100:.0f}%) — éxitos: {totals['success']}, fallos: {totals['failed']}",
         )
+        yield progress_line(processed, total, label="PDFs")
 
     yield plog("INFO", f"Compresión completada — exitosos: {totals['success']}, fallidos: {totals['failed']}")
 

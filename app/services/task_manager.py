@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -10,6 +11,7 @@ from typing import AsyncGenerator, Literal
 
 MAX_LOG_LINES = 5_000
 MAX_COMPLETED_RUNS = 10
+HEARTBEAT_SECONDS = 15  # stream_from emits a heartbeat (None) after this long without new lines
 
 
 class TaskAlreadyRunningError(Exception):
@@ -31,6 +33,9 @@ class PipelineRun:
     log_offset: int = 0
     created_at: datetime = field(default_factory=datetime.utcnow)
     finished_at: datetime | None = None
+    last_activity: datetime = field(default_factory=datetime.utcnow)
+    # Set on cancel so blocking worker threads (Playwright downloads) can stop between items.
+    cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     _task: asyncio.Task | None = field(default=None, repr=False)
     _condition: asyncio.Condition = field(default_factory=asyncio.Condition, repr=False)
 
@@ -78,11 +83,16 @@ class PipelineTaskManager:
         run = self._runs.get(task_id)
         if not run or run._task is None or run._task.done():
             return False
+        run.cancel_event.set()
         run._task.cancel()
         return True
 
-    async def stream_from(self, task_id: str, from_index: int) -> AsyncGenerator[tuple[int, str], None]:
-        """Yield (index, line) from from_index onwards; blocks until done."""
+    async def stream_from(self, task_id: str, from_index: int) -> AsyncGenerator[tuple[int, str | None], None]:
+        """Yield (index, line) from from_index onwards; blocks until done.
+
+        While the task is quiet it yields ``(cursor, None)`` every HEARTBEAT_SECONDS so the
+        caller can keep the SSE connection alive.
+        """
         run = self._runs.get(task_id)
         if not run:
             return
@@ -100,7 +110,10 @@ class PipelineTaskManager:
                     list_idx += 1
                 if run.status != "running" and list_idx >= len(run.logs):
                     return
-                await run._condition.wait()
+                try:
+                    await asyncio.wait_for(run._condition.wait(), timeout=HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield cursor, None
 
     async def _run_stage(
         self,
@@ -115,6 +128,7 @@ class PipelineTaskManager:
         from app.repositories.invoice_repo import InvoiceRepo
         from app.services import pipeline_runner
 
+        extra = {**extra, "cancel_event": run.cancel_event}
         try:
             async with AsyncSessionLocal() as db:
                 institution = await InstitutionRepo(db).get_by_id(institution_id)
@@ -124,6 +138,7 @@ class PipelineTaskManager:
                 async for line in pipeline_runner.execute(stage, institution, period, db, extra):
                     async with run._condition:
                         run.logs.append(line)
+                        run.last_activity = datetime.utcnow()
                         if len(run.logs) > MAX_LOG_LINES:
                             evicted = len(run.logs) - MAX_LOG_LINES
                             run.logs = run.logs[-MAX_LOG_LINES:]

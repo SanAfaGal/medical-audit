@@ -47,7 +47,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# 1 solo worker: PipelineTaskManager guarda las tareas en memoria del proceso; con más workers
+# el stream/cancelar de una tarea puede caer en otro proceso y dar 404. Las descargas corren
+# en hilos, así que un worker atiende varios hospitales en paralelo.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
 
 # ── Stage 3a: pw-browser — descarga Chromium headless shell (en paralelo con apt) ─
 # Reutiliza el venv del builder (trae el paquete playwright) y baja solo el shell
@@ -93,4 +96,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# 1 solo worker: PipelineTaskManager guarda las tareas en memoria del proceso; con más workers
+# el stream/cancelar de una tarea puede caer en otro proceso y dar 404. Las descargas corren
+# en hilos, así que un worker atiende varios hospitales en paralelo.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -386,6 +386,42 @@
               x-show="logLines.length>0" x-text="logLines.length + ' líneas'"></span>
       </div>
 
+      <!-- Progreso de descarga N/total -->
+      <div x-show="running && $store.pipeline.progress && $store.pipeline.progress.total > 0"
+           class="shrink-0 px-4 py-2" style="background:#161b22; border-bottom:1px solid rgba(255,255,255,0.07)">
+        <div class="flex items-center justify-between gap-3 font-mono text-[10px]" style="color:#94a3b8">
+          <span>
+            <span x-text="$store.pipeline.institutionName ? $store.pipeline.institutionName + ' · ' : ''"></span>
+            <span x-text="$store.pipeline.progress?.label || 'Elementos'"></span>
+            <b style="color:#e2e8f0" x-text="$store.pipeline.progress?.current"></b>/<span x-text="$store.pipeline.progress?.total"></span>
+          </span>
+          <span class="truncate" x-text="$store.pipeline.progress?.item ? 'Actual: ' + $store.pipeline.progress.item : ''"></span>
+        </div>
+        <div class="mt-1 h-1.5 rounded-full overflow-hidden" style="background:rgba(255,255,255,0.08)">
+          <div class="h-full rounded-full transition-all duration-300" style="background:#38bdf8"
+               :style="`width:${$store.pipeline.progress && $store.pipeline.progress.total ? Math.round($store.pipeline.progress.current / $store.pipeline.progress.total * 100) : 0}%`"></div>
+        </div>
+      </div>
+
+      <!-- Tarea de otro hospital en esta pestaña -->
+      <div x-show="taskContextMismatch" class="shrink-0 px-4 py-2 font-mono text-[10.5px]"
+           style="background:rgba(56,189,248,0.08); border-bottom:1px solid rgba(56,189,248,0.2); color:#7dd3fc">
+        <i class="fa-solid fa-circle-info mr-1.5"></i>
+        Esta pestaña ejecuta una tarea de <b x-text="$store.pipeline.institutionName || 'otro hospital'"></b>.
+        Para trabajar con otro hospital al mismo tiempo, abre otra pestaña del navegador.
+      </div>
+
+      <!-- Sin actividad -->
+      <div x-show="running && streamActive && idleSeconds >= idleWarnSeconds" class="shrink-0 px-4 py-2 font-mono text-[10.5px]"
+           style="background:rgba(234,179,8,0.08); border-bottom:1px solid rgba(234,179,8,0.25); color:#fbbf24">
+        <i class="fa-solid fa-hourglass-half mr-1.5"></i>
+        Sin líneas nuevas hace <b x-text="idleSeconds >= 120 ? Math.floor(idleSeconds / 60) + ' min' : idleSeconds + ' s'"></b>.
+        <span x-show="beatFresh">El servidor confirma que la etapa sigue en ejecución
+          (lleva <b x-text="_fmtDuration(beat?.elapsed)"></b>); algunas operaciones tardan en dar novedades.</span>
+        <span x-show="!beatFresh" style="color:#f87171">Sin señal del servidor: la conexión puede haberse caído.
+          Si no se recupera sola, revisa el servidor.</span>
+      </div>
+
       <!-- Log output -->
       <div class="flex-1 min-h-0 overflow-y-auto px-5 py-4 font-mono log-scroll"
            style="font-size:12px; line-height:1.75" x-ref="logContainer">
@@ -1045,6 +1081,21 @@ function pipeline() {
     hoveredStage: null,
     taskId: null,
     _evtSource: null,
+    // Inactividad: segundos desde la última línea de log (los latidos SSE no cuentan)
+    lastLineAt: Date.now(),
+    idleSeconds: 0,
+    idleWarnSeconds: 30,  // umbral del aviso; ajustable desde la consola para pruebas
+    beat: null,        // último latido del servidor {idle, elapsed, at}; llega en CUALQUIER etapa
+    beatFresh: false,  // true si el último latido es reciente (el servidor sigue conectado y trabajando)
+    streamActive: false,  // hay un stream SSE abierto (las subidas por fetch no tienen latido ni aviso)
+    _idleTimer: null,
+
+    // La tarea de esta pestaña pertenece a otro hospital/periodo que el seleccionado ahora
+    get taskContextMismatch() {
+      const p = this.$store.pipeline, c = this.$store.ctx;
+      return this.running && p.institutionId != null
+        && (p.institutionId != c.institutionId || p.periodId != c.periodId);
+    },
 
     stageFlow: [
 
@@ -1223,7 +1274,10 @@ function pipeline() {
       }
       const { task_id } = await res.json();
       this.taskId = task_id;
-      this.$store.pipeline.setTask(task_id, stageId);
+      this.$store.pipeline.setTask(
+        task_id, stageId, parseInt(institutionId), parseInt(periodId),
+        this.$store.ctx.institution?.display_name || '',
+      );
 
       await new Promise((resolve) => {
         this._subscribeToTask(task_id, stageId, 0, resolve);
@@ -1234,6 +1288,8 @@ function pipeline() {
       if (this._evtSource) { this._evtSource.close(); this._evtSource = null; }
       const evtSource = new EventSource(`/api/pipeline/stream/${taskId}?from=${fromCursor}`);
       this._evtSource = evtSource;
+      this.streamActive = true;
+      this._attachHeartbeat(evtSource);
       let cursor = fromCursor;
 
       evtSource.onmessage = (event) => {
@@ -1241,9 +1297,10 @@ function pipeline() {
         try { parsed = JSON.parse(event.data); } catch { return; }
         const line = parsed.msg;
         cursor = (parsed.idx != null ? parsed.idx : cursor - 1) + 1;
+        this._noteActivity();
 
         if (line === '[DONE]') {
-          evtSource.close(); this._evtSource = null;
+          evtSource.close(); this._evtSource = null; this.streamActive = false;
           const finalStatus = parsed.status || 'done';
           if (this.stageStatuses[stageId] === 'running')
             this.stageStatuses[stageId] = finalStatus === 'cancelled' ? 'error' : 'done';
@@ -1256,6 +1313,8 @@ function pipeline() {
         }
 
         this.$store.pipeline.update('running', cursor);
+
+        if (this._consumeProgress(line)) return;
 
         // Handle [DATA] signals — do not push to log
         if (line.startsWith('[DATA] export_ready:')) {
@@ -1270,7 +1329,7 @@ function pipeline() {
       };
 
       evtSource.onerror = () => {
-        evtSource.close(); this._evtSource = null;
+        evtSource.close(); this._evtSource = null; this.streamActive = false;
         this.logLines.push('[WARN] Conexión interrumpida. Verificando estado de la tarea…');
         this.$nextTick(() => this.scrollLog());
         setTimeout(async () => {
@@ -1280,7 +1339,7 @@ function pipeline() {
           }
           // Verify the task still exists on the server before reconnecting
           try {
-            const res = await fetch(`/api/pipeline/stream/${taskId}?from=0`, { method: 'HEAD' });
+            const res = await fetch(`/api/pipeline/status/${taskId}`);
             if (res.status === 404) {
               this.logLines.push('[WARN] La tarea ya no existe en el servidor (reinicio detectado). Estado limpiado.');
               this.$nextTick(() => this.scrollLog());
@@ -1296,7 +1355,104 @@ function pipeline() {
       };
     },
 
+    // ── Manejo central de streams ────────────────────────────────────────────────────────────
+    // Todas las etapas (SSE directo o tarea en segundo plano) pasan por estas funciones, así
+    // el log, la barra de progreso y el aviso de inactividad se comportan igual en todas.
+
+    // Llegó algo del servidor: reinicia el contador de inactividad
+    _noteActivity() {
+      this.lastLineAt = Date.now(); this.idleSeconds = 0;
+    },
+
+    // Líneas '[DATA] {"type":"progress",...}' alimentan la barra N/total y no van al log.
+    // Devuelve true si la línea fue consumida.
+    _consumeProgress(line) {
+      if (!line.startsWith('[DATA] {')) return false;
+      try {
+        const d = JSON.parse(line.slice(7));
+        if (d.type !== 'progress') return false;
+        this.$store.pipeline.setProgress({
+          current: d.current, total: d.total, item: d.item || '', label: d.label || 'Elementos',
+        });
+        return true;
+      } catch { return false; }
+    },
+
+    // Latido del servidor (evento SSE 'heartbeat'): confirma que la etapa sigue ejecutándose
+    _attachHeartbeat(evtSource) {
+      evtSource.addEventListener('heartbeat', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          this.beat = { idle: d.idle, elapsed: d.elapsed, at: Date.now() };
+          this.beatFresh = true;
+        } catch {}
+      });
+    },
+
+    _fmtDuration(sec) {
+      sec = Math.max(0, Math.round(sec || 0));
+      const m = Math.floor(sec / 60), s = sec % 60;
+      return m > 0 ? `${m} min ${s} s` : `${s} s`;
+    },
+
+    // Etapa interactiva por SSE directo (GET /run/{stage}). onData recibe el JSON de las líneas [DATA].
+    _runSyncStage(stageId, institutionId, periodId, label, onData) {
+      const url = `/api/pipeline/run/${stageId}?institution_id=${encodeURIComponent(institutionId)}&period_id=${encodeURIComponent(periodId)}`;
+      const evtSource = new EventSource(url);
+      this.streamActive = true;
+      this.$store.pipeline.progress = null;
+      this.beat = null;
+      this._noteActivity();
+      this._attachHeartbeat(evtSource);
+
+      return new Promise((resolve) => {
+        evtSource.onmessage = (event) => {
+          let line = event.data;
+          try { const p = JSON.parse(event.data); line = p.msg || event.data; } catch {}
+          if (line === '[DONE]') { evtSource.close(); this.streamActive = false; resolve(); return; }
+          this._noteActivity();
+          if (this._consumeProgress(line)) return;
+          if (line.startsWith('[DATA] ')) {
+            try { onData && onData(JSON.parse(line.slice(7))); } catch (e) {}
+            return;
+          }
+          this._markLine(stageId, line);
+          this._updateStageResult(stageId, line);
+          this.logLines.push(line);
+          this.$nextTick(() => this.scrollLog());
+        };
+        evtSource.onerror = () => {
+          evtSource.close();
+          this.streamActive = false;
+          const msg = `[ERROR] Conexión interrumpida en etapa ${label || stageId}`;
+          this.logLines.push(msg); this._markLine(stageId, msg); resolve();
+        };
+      });
+    },
+
+    // Re-engancha una tarea en curso del hospital/periodo seleccionado (p. ej. tras cerrar la pestaña)
+    async _reattachActiveTask() {
+      const ctx = this.$store.ctx;
+      if (!ctx.institutionId || !ctx.periodId || this.running) return;
+      try {
+        const res = await fetch(`/api/pipeline/active?institution_id=${ctx.institutionId}&period_id=${ctx.periodId}`);
+        if (!res.ok) return;
+        const [run] = await res.json();
+        if (!run || this.running) return;
+        this.$store.pipeline.setTask(run.task_id, run.stage, run.institution_id, run.period_id,
+                                     ctx.institution?.display_name || '');
+        this.taskId = run.task_id;
+        this.running = true;
+        this.currentStageLabel = this.stageById(run.stage)?.label || run.stage;
+        this.stageStatuses[run.stage] = 'running';
+        this.lastLineAt = Date.now();
+        this.logLines = ['─── Reconectado a una tarea en curso para este hospital ───'];
+        this._subscribeToTask(run.task_id, run.stage, 0, null);
+      } catch { /* sin conexión: se reintenta al cambiar de periodo */ }
+    },
+
     async cancelPipeline() {
+      this.streamActive = false;
       const taskId = this.taskId || this.$store.pipeline.taskId;
       if (this._evtSource) { this._evtSource.close(); this._evtSource = null; }
       if (taskId) {
@@ -1329,7 +1485,19 @@ function pipeline() {
       this.$watch('stageResults',      v => sessionStorage.setItem('pipeline_stageResults',      JSON.stringify(v)));
       fetch('/api/settings/doc-types').then(r => r.json()).then(d => { this.docTypes = d; });
 
+      // Detección de inactividad: avisa si no llegan líneas nuevas y consulta al servidor
+      this._idleTimer = setInterval(() => {
+        this.idleSeconds = this.running && this.streamActive ? Math.floor((Date.now() - this.lastLineAt) / 1000) : 0;
+        this.beatFresh = !!this.beat && Date.now() - this.beat.at < 45000;
+      }, 5000);
+
+      // Si cambia de hospital/periodo y no hay tarea local, buscar una activa en el servidor
+      this.$watch('$store.ctx.periodId', () => { if (!this.running) this._reattachActiveTask(); });
+
       // Reconectar si hay una tarea activa al volver a la página
+      if (!(this.$store.pipeline.isRunning && this.$store.pipeline.taskId)) {
+        this._reattachActiveTask();
+      }
       if (this.$store.pipeline.isRunning && this.$store.pipeline.taskId) {
         const { taskId, stage, cursor } = this.$store.pipeline;
         this.running = true;
@@ -1464,108 +1632,31 @@ function pipeline() {
 
           } else if (stageId === 'CHECK_FOLDERS_WITH_EXTRA_TEXT') {
             // Sync SSE — sends folder list, auditor decides per-folder action
-            let url = `/api/pipeline/run/${stageId}?institution_id=${encodeURIComponent(institutionId)}&period_id=${encodeURIComponent(periodId)}`;
-            const evtSource = new EventSource(url);
-
-            await new Promise((resolve) => {
-              evtSource.onmessage = (event) => {
-                let line = event.data;
-                try { const p = JSON.parse(event.data); line = p.msg || event.data; } catch {}
-                if (line === '[DONE]') { evtSource.close(); resolve(); return; }
-                if (line.startsWith('[DATA] ')) {
-                  try {
-                    this.annulData = JSON.parse(line.slice(7)).map(folder => ({
-                      ...folder,
-                      action: folder.action || 'skip',
-                    }));
-                  } catch(e) {}
-                  return;
-                }
-                this._markLine(stageId, line);
-                this._updateStageResult(stageId, line);
-                this.logLines.push(line);
-                this.$nextTick(() => this.scrollLog());
-              };
-              evtSource.onerror = () => {
-                evtSource.close();
-                const msg = `[ERROR] Conexión interrumpida en etapa ${stageId}`;
-                this.logLines.push(msg); this._markLine(stageId, msg); resolve();
-              };
+            await this._runSyncStage(stageId, institutionId, periodId, stageId, (folders) => {
+              this.annulData = folders.map(folder => ({ ...folder, action: folder.action || 'skip' }));
             });
 
           } else if (stageId === 'REVISAR_SOBRANTES') {
             // Sync SSE — blocks waiting for user interaction via [DATA] events
-            let url = `/api/pipeline/run/${stageId}?institution_id=${encodeURIComponent(institutionId)}&period_id=${encodeURIComponent(periodId)}`;
-            const evtSource = new EventSource(url);
-
-            await new Promise((resolve) => {
-              evtSource.onmessage = (event) => {
-                let line = event.data;
-                try { const p = JSON.parse(event.data); line = p.msg || event.data; } catch {}
-                if (line === '[DONE]') { evtSource.close(); resolve(); return; }
-                if (line.startsWith('[DATA] ')) {
-                  try {
-                    this.surplusData = JSON.parse(line.slice(7)).map(inv => ({
-                      ...inv,
-                      sobrantes: inv.sobrantes.map(s => ({
-                        ...s,
-                        selected_doc_type_id: s.suggested_doc_type_id || '',
-                        _done: false,
-                        _new_filename: null,
-                        _deleted: false,
-                      }))
-                    }));
-                  } catch(e) {}
-                  return;
-                }
-                this._markLine(stageId, line);
-                this._updateStageResult(stageId, line);
-                this.logLines.push(line);
-                this.$nextTick(() => this.scrollLog());
-              };
-              evtSource.onerror = () => {
-                evtSource.close();
-                const msg = `[ERROR] Conexión interrumpida en etapa ${stageInfo?.label || stageId}`;
-                this.logLines.push(msg); this._markLine(stageId, msg); resolve();
-              };
+            await this._runSyncStage(stageId, institutionId, periodId, stageInfo?.label || stageId, (invoices) => {
+              this.surplusData = invoices.map(inv => ({
+                ...inv,
+                sobrantes: inv.sobrantes.map(s => ({
+                  ...s,
+                  selected_doc_type_id: s.suggested_doc_type_id || '',
+                  _done: false,
+                  _new_filename: null,
+                  _deleted: false,
+                })),
+              }));
             });
-          } else if (stageId === 'REMOVE_NON_PDF') {
-            const url = `/api/pipeline/run/${stageId}?institution_id=${encodeURIComponent(institutionId)}&period_id=${encodeURIComponent(periodId)}`;
-            const evtSource = new EventSource(url);
 
-            await new Promise((resolve) => {
-              evtSource.onmessage = (event) => {
-                let line = event.data;
-                try { const p = JSON.parse(event.data); line = p.msg || event.data; } catch {}
-                if (line === '[DONE]') { evtSource.close(); resolve(); return; }
-                if (line.startsWith('[DATA] ')) {
-                  try {
-                    const payload = JSON.parse(line.slice(7));
-                    this.nonPdfData = {
-                      ...payload,
-                      non_pdf: payload.non_pdf.map(f => ({
-                        ...f,
-                        action: f.is_image ? 'convert' : 'delete',
-                        _done: false,
-                      })),
-                      corrupt_pdfs: payload.corrupt_pdfs.map(f => ({
-                        ...f,
-                        action: 'delete',
-                        _done: false,
-                      })),
-                    };
-                  } catch(e) {}
-                  return;
-                }
-                this._markLine(stageId, line);
-                this._updateStageResult(stageId, line);
-                this.logLines.push(line);
-                this.$nextTick(() => this.scrollLog());
-              };
-              evtSource.onerror = () => {
-                evtSource.close();
-                const msg = `[ERROR] Conexión interrumpida en etapa ${stageId}`;
-                this.logLines.push(msg); this._markLine(stageId, msg); resolve();
+          } else if (stageId === 'REMOVE_NON_PDF') {
+            await this._runSyncStage(stageId, institutionId, periodId, stageId, (payload) => {
+              this.nonPdfData = {
+                ...payload,
+                non_pdf: payload.non_pdf.map(f => ({ ...f, action: f.is_image ? 'convert' : 'delete', _done: false })),
+                corrupt_pdfs: payload.corrupt_pdfs.map(f => ({ ...f, action: 'delete', _done: false })),
               };
             });
 

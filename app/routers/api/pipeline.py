@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import time
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -21,7 +23,8 @@ from app.repositories.institution_repo import InstitutionRepo
 from app.repositories.invoice_repo import InvoiceRepo
 
 from app.services import pipeline_runner
-from app.services.task_manager import PipelineTaskManager, TaskAlreadyRunningError
+from app.services.stage_events import heartbeat_event, with_heartbeat
+from app.services.task_manager import HEARTBEAT_SECONDS, PipelineTaskManager, TaskAlreadyRunningError
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
@@ -62,7 +65,14 @@ async def run_stage(
         extra["doc_type_id"] = doc_type_id
 
     async def event_gen():
-        async for line in pipeline_runner.execute(stage, institution, period, db, extra):
+        started = last_line = time.monotonic()
+        stream = pipeline_runner.execute(stage, institution, period, db, extra)
+        async for line in with_heartbeat(stream, HEARTBEAT_SECONDS):
+            if line is None:  # quiet period: tell the browser the server is still working
+                now = time.monotonic()
+                yield heartbeat_event(idle=now - last_line, elapsed=now - started)
+                continue
+            last_line = time.monotonic()
             payload = json.dumps({"msg": line})
             yield f"data: {payload}\n\n"
         yield 'data: {"msg": "[DONE]"}\n\n'
@@ -121,6 +131,13 @@ async def stream_task_logs(
 
     async def event_gen():
         async for idx, line in tm.stream_from(task_id, from_):
+            if line is None:  # quiet period: named event so the UI can show server-side liveness
+                now = datetime.utcnow()
+                yield heartbeat_event(
+                    idle=(now - run.last_activity).total_seconds(),
+                    elapsed=(now - run.created_at).total_seconds(),
+                )
+                continue
             payload = json.dumps({"msg": line, "idx": idx})
             yield f"data: {payload}\n\n"
         run_final = tm.get_run(task_id)
@@ -134,21 +151,41 @@ async def stream_task_logs(
     )
 
 
+def _run_summary(r) -> dict:
+    return {
+        "task_id": r.task_id,
+        "stage": r.stage,
+        "institution_id": r.institution_id,
+        "period_id": r.period_id,
+        "status": r.status,
+        "log_count": len(r.logs) + r.log_offset,
+        "created_at": r.created_at.isoformat(),
+        "last_activity": r.last_activity.isoformat(),
+    }
+
+
 @router.get("/active")
-async def list_active(tm: PipelineTaskManager = Depends(get_task_manager)):
-    """List all currently running pipeline tasks."""
+async def list_active(
+    institution_id: int | None = None,
+    period_id: int | None = None,
+    tm: PipelineTaskManager = Depends(get_task_manager),
+):
+    """List running pipeline tasks, optionally filtered by institution and/or period."""
     return [
-        {
-            "task_id": r.task_id,
-            "stage": r.stage,
-            "institution_id": r.institution_id,
-            "period_id": r.period_id,
-            "status": r.status,
-            "log_count": len(r.logs),
-            "created_at": r.created_at.isoformat(),
-        }
+        _run_summary(r)
         for r in tm.get_all_active()
+        if (institution_id is None or r.institution_id == institution_id)
+        and (period_id is None or r.period_id == period_id)
     ]
+
+
+@router.get("/status/{task_id}")
+async def task_status(task_id: str, tm: PipelineTaskManager = Depends(get_task_manager)):
+    """Lightweight status probe (running or finished). 404 if the server no longer knows the task."""
+    run = tm.get_run(task_id)
+    if not run:
+        raise HTTPException(404, "Tarea no encontrada")
+    return _run_summary(run)
 
 
 @router.delete("/{task_id}", status_code=200)

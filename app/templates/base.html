@@ -96,34 +96,54 @@
         stage: null,
         status: null,   // "running" | "done" | "error" | "cancelled" | null
         cursor: 0,      // último idx recibido (para reconexión)
+        institutionId: null,   // hospital/periodo al que pertenece la tarea de ESTA pestaña
+        periodId: null,
+        institutionName: '',
+        progress: null, // {current, total, invoice} de la descarga en curso
 
+        // sessionStorage: cada pestaña tiene su propia tarea, así se puede trabajar
+        // en varios hospitales a la vez abriendo varias pestañas.
         init() {
           try {
-            const s = JSON.parse(localStorage.getItem('pipeline_task') || 'null');
+            const s = JSON.parse(sessionStorage.getItem('pipeline_task') || 'null');
             if (s) {
               this.taskId = s.taskId;
               this.stage  = s.stage;
               this.status = s.status;
               this.cursor = s.cursor || 0;
+              this.institutionId   = s.institutionId ?? null;
+              this.periodId        = s.periodId ?? null;
+              this.institutionName = s.institutionName || '';
+              this.progress        = s.progress || null;
             }
           } catch {}
         },
-        setTask(taskId, stage) {
+        setTask(taskId, stage, institutionId = null, periodId = null, institutionName = '') {
           this.taskId = taskId; this.stage = stage; this.status = 'running'; this.cursor = 0;
+          this.institutionId = institutionId; this.periodId = periodId;
+          this.institutionName = institutionName; this.progress = null;
           this._save();
+        },
+        setProgress(progress) {
+          this.progress = progress; this._save();
         },
         update(status, cursor) {
           this.status = status; this.cursor = cursor; this._save();
         },
         clear() {
           this.taskId = null; this.stage = null; this.status = null; this.cursor = 0;
-          localStorage.removeItem('pipeline_task');
+          this.institutionId = null; this.periodId = null; this.institutionName = ''; this.progress = null;
+          try { sessionStorage.removeItem('pipeline_task'); } catch {}
         },
         get isRunning() { return this.status === 'running'; },
         _save() {
-          localStorage.setItem('pipeline_task', JSON.stringify({
-            taskId: this.taskId, stage: this.stage, status: this.status, cursor: this.cursor,
-          }));
+          try {
+            sessionStorage.setItem('pipeline_task', JSON.stringify({
+              taskId: this.taskId, stage: this.stage, status: this.status, cursor: this.cursor,
+              institutionId: this.institutionId, periodId: this.periodId,
+              institutionName: this.institutionName, progress: this.progress,
+            }));
+          } catch {}
         },
       });
     });
@@ -960,7 +980,9 @@
 
         init() {
           try {
-            const s = JSON.parse(localStorage.getItem('audit_ctx') || '{}');
+            // Per tab (sessionStorage); una pestaña nueva arranca con el último contexto usado (localStorage).
+            const raw = sessionStorage.getItem('audit_ctx') || localStorage.getItem('audit_ctx') || '{}';
+            const s = JSON.parse(raw);
             this.institutionId = s.institutionId || null;
             this.institution   = s.institution   || null;
             this.periodId      = s.periodId      || null;
@@ -1014,10 +1036,12 @@
         },
 
         _save() {
-          localStorage.setItem('audit_ctx', JSON.stringify({
+          const payload = JSON.stringify({
             institutionId: this.institutionId, institution: this.institution,
             periodId:      this.periodId,      period:      this.period,
-          }));
+          });
+          try { sessionStorage.setItem('audit_ctx', payload); } catch {}
+          try { localStorage.setItem('audit_ctx', payload); } catch {}  // solo para pestañas nuevas
         }
       });
     });
@@ -1147,7 +1171,9 @@
         <template x-if="$store.pipeline.isRunning && $store.ui.sidebarOpen">
           <span class="ml-auto text-[9px] font-semibold px-1.5 py-0.5 rounded-full
                        bg-sky-500/15 text-sky-400 border border-sky-500/25">
-            ejecutando
+            <span x-text="$store.pipeline.progress && $store.pipeline.progress.total
+                            ? $store.pipeline.progress.current + '/' + $store.pipeline.progress.total
+                            : 'ejecutando'"></span>
           </span>
         </template>
       </a>

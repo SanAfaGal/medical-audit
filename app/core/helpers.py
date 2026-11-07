@@ -84,3 +84,35 @@ def flatten_prefixes(prefixes_dict: dict[str, str | list[str]]) -> list[str]:
         else:
             flat.append(str(value))
     return list(set(flat))
+
+
+# ---------------------------------------------------------------------------
+# Stage progress events (shared contract for long-running, blocking work)
+# ---------------------------------------------------------------------------
+#
+# Blocking jobs that run in a worker thread (browser downloads, Drive sync, ...) report
+# what they are doing through one optional callback::
+#
+#     event_fn(kind, i, total, item, detail)
+#
+# ``kind`` is one of:
+#     "status"      free-form step message in ``detail`` ("Iniciando navegador...")
+#     "warning"     something notable that is not a failure, message in ``detail``
+#     "item_start"  starting item ``i`` of ``total`` (``item`` is its label)
+#     "item_ok"     item finished; optional extra text in ``detail``
+#     "item_error"  item failed; reason in ``detail`` (the batch keeps going)
+#     "cancelled"   stopped early because the cancel event was set
+#
+# ``app.services.stage_events`` turns these into the log lines and progress payloads the UI
+# understands, so every stage looks the same to the user. This module must stay framework
+# free, which is why the contract is plain strings rather than an imported enum.
+
+
+def emit_event(event_fn, kind: str, i: int = 0, total: int = 0, item: str = "", detail: str = "") -> None:
+    """Call the optional event callback; a failing callback must never abort the job."""
+    if event_fn is None:
+        return
+    try:
+        event_fn(kind, i, total, item, detail)
+    except Exception:  # noqa: BLE001 - progress reporting is best-effort
+        logger.exception("event_fn raised for event %s", kind)
