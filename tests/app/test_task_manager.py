@@ -97,7 +97,7 @@ class TestHeartbeatAndCancel:
         assert run.cancel_event.is_set()
 
     async def test_run_stage_updates_last_activity_and_passes_cancel_event(self, monkeypatch):
-        import app.services.pipeline_runner as pipeline_runner
+        import app.services.pipeline as pipeline_runner
         from app import database
         from app.repositories.institution_repo import InstitutionRepo
         from app.repositories.invoice_repo import InvoiceRepo

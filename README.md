@@ -96,7 +96,9 @@ medical-audit-v2/
 │   │       └── explorer.py        # /api/explorer (explorador de archivos)
 │   ├── services/
 │   │   ├── billing.py             # Ingesta de Excel SIHOS + normalización
-│   │   ├── pipeline_runner.py     # Pipeline de 22 etapas (async generator)
+│   │   ├── pipeline/              # Pipeline de 24 etapas: registry, context, runner y stages/ por fase
+│   │   ├── stage_events.py        # Progreso, latido y cancelación centralizados para las etapas
+│   │   ├── archive.py             # Extracción segura de ZIP/7z/RAR y empaquetado por streaming
 │   │   └── task_manager.py        # Gestión de tareas pipeline en background
 │   ├── core/                      # Lógica de dominio y procesamiento de documentos (sin dependencias de app/)
 │   │   ├── scanner.py                 # Descubrimiento de archivos (glob/regex)

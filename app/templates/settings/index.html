@@ -103,15 +103,6 @@
 
 <div x-data="settingsApp()" class="flex gap-5 items-start">
 
-  <!-- ─── Toast ────────────────────────────────────────────── -->
-  <div x-show="$store.toast.msg" x-transition.opacity
-       class="fixed top-4 right-4 z-50 px-5 py-3 rounded-xl text-white text-sm font-semibold shadow-xl flex items-center gap-2"
-       :style="$store.toast.type === 'error' ? 'background:var(--red)' : 'background:var(--emerald)'"
-       @click="$store.toast.msg = ''" style="display:none">
-    <i :class="$store.toast.type === 'error' ? 'fa-solid fa-circle-xmark' : 'fa-solid fa-circle-check'"></i>
-    <span x-text="$store.toast.msg"></span>
-  </div>
-
   <!-- ─── Sidebar nav ──────────────────────────────────────── -->
   <nav class="w-52 shrink-0 rounded-xl sticky top-6 overflow-hidden"
        style="border:1px solid var(--border);background:var(--bg-surface)">
@@ -1585,27 +1576,6 @@
 
 {% block extra_scripts %}
 <script>
-// ── Global toast store ─────────────────────────────────────────────────────
-document.addEventListener('alpine:init', () => {
-  Alpine.store('toast', {
-    msg: '', type: 'success', _t: null,
-    show(msg, type = 'success') {
-      clearTimeout(this._t);
-      // FastAPI 422 devuelve detail como lista [{loc, msg}, ...]
-      if (Array.isArray(msg)) {
-        msg = msg.map(e => {
-          const field = Array.isArray(e.loc) ? e.loc.filter(p => p !== 'body').join('.') : '';
-          return field ? `${field}: ${e.msg}` : e.msg;
-        }).join(' · ');
-      } else if (msg && typeof msg === 'object') {
-        msg = msg.msg || JSON.stringify(msg);
-      }
-      this.msg = msg; this.type = type;
-      this._t = setTimeout(() => { this.msg = ''; }, type === 'error' ? 8000 : 3500);
-    },
-  });
-});
-
 // ── Reusable CRUD panel factory ────────────────────────────────────────────
 function crudPanel({ apiBase, label, icon }) {
   return {
@@ -1659,7 +1629,7 @@ function crudPanel({ apiBase, label, icon }) {
           this.$store.toast.show(this.modalMode === 'create' ? `${label} agregado/a.` : 'Actualizado.');
         } else {
           const err = await res.json().catch(() => ({}));
-          this.$store.toast.show(err.detail || 'Error al guardar.', 'error');
+          this.$store.toast.show(apiErrorMessage(err.detail, 'Error al guardar.'), 'error');
         }
       } finally { this.saving = false; }
     },
@@ -1857,7 +1827,7 @@ function settingsApp() {
         }
       } else {
         const err = await res.json().catch(() => ({}));
-        this.showToast(err.detail || 'Error al guardar.', 'error');
+        this.showToast(apiErrorMessage(err.detail, 'Error al guardar.'), 'error');
       }
     },
 
@@ -1870,7 +1840,7 @@ function settingsApp() {
       } else {
         const err = await res.json().catch(() => ({}));
         this.confirmDeleteInstId = null;
-        this.showToast(err.detail || 'No se pudo eliminar.', 'error');
+        this.showToast(apiErrorMessage(err.detail, 'No se pudo eliminar.'), 'error');
       }
     },
 
@@ -1886,7 +1856,7 @@ function settingsApp() {
         this.showToast('Logo actualizado', 'success');
       } else {
         const err = await res.json().catch(() => ({}));
-        this.showToast(err.detail || 'Error subiendo logo', 'error');
+        this.showToast(apiErrorMessage(err.detail, 'Error subiendo logo'), 'error');
       }
     },
 
@@ -1909,7 +1879,7 @@ function settingsApp() {
       } else {
         const err = await res.json().catch(() => ({}));
         this.driveCredsStatus = 'error';
-        this.driveCredsError = err.detail || 'Error al guardar credenciales.';
+        this.driveCredsError = apiErrorMessage(err.detail, 'Error al guardar credenciales.');
         this.showToast(this.driveCredsError, 'error');
       }
     },
@@ -2039,7 +2009,7 @@ function settingsApp() {
           this.showToast(`Copiado: ${r.services} servicios y ${r.documents} documentos.`);
         } else {
           const err = await res.json().catch(() => ({}));
-          this.showToast(err.detail || 'Error al copiar mapeos.', 'error');
+          this.showToast(apiErrorMessage(err.detail, 'Error al copiar mapeos.'), 'error');
         }
       } finally { this.copyBusy = false; }
     },
@@ -2170,7 +2140,7 @@ function settingsApp() {
     async deleteServiceType(id) {
       const res = await fetch(`/api/settings/service-types/${id}`, { method:'DELETE' });
       if (res.ok || res.status === 204) { this.serviceTypes = this.serviceTypes.filter(s => s.id !== id); this.confirmDeleteSTId = null; this.showToast('Eliminado.'); }
-      else { const err = await res.json().catch(()=>({})); this.confirmDeleteSTId = null; this.showToast(err.detail||'No se pudo eliminar.','error'); }
+      else { const err = await res.json().catch(()=>({})); this.confirmDeleteSTId = null; this.showToast(apiErrorMessage(err.detail, 'No se pudo eliminar.'),'error'); }
     },
     async addDocType() {
       if (!this.newDT.code.trim() || !this.newDT.description.trim()) return;
@@ -2183,7 +2153,7 @@ function settingsApp() {
     async deleteDocType(id) {
       const res = await fetch(`/api/settings/doc-types/${id}`, { method:'DELETE' });
       if (res.ok || res.status === 204) { this.docTypes = this.docTypes.filter(d => d.id !== id); this.confirmDeleteDTId = null; this.showToast('Eliminado.'); }
-      else { const err = await res.json().catch(()=>({})); this.confirmDeleteDTId = null; this.showToast(err.detail||'No se pudo eliminar.','error'); }
+      else { const err = await res.json().catch(()=>({})); this.confirmDeleteDTId = null; this.showToast(apiErrorMessage(err.detail, 'No se pudo eliminar.'),'error'); }
     },
     startEditFS(fs) { this.editingFSId = fs.id; this.editingFSVal = fs.status; },
     async saveFSEdit(id) {
@@ -2200,7 +2170,7 @@ function settingsApp() {
     async deleteFolderStatus(id) {
       const res = await fetch(`/api/settings/folder-statuses/${id}`, { method:'DELETE' });
       if (res.ok || res.status === 204) { this.folderStatuses = this.folderStatuses.filter(f => f.id !== id); this.confirmDeleteFSId = null; this.showToast('Eliminado.'); }
-      else { const err = await res.json().catch(()=>({})); this.confirmDeleteFSId = null; this.showToast(err.detail||'No se pudo eliminar.','error'); }
+      else { const err = await res.json().catch(()=>({})); this.confirmDeleteFSId = null; this.showToast(apiErrorMessage(err.detail, 'No se pudo eliminar.'),'error'); }
     },
 
     // ---- PREFIJOS ----
@@ -2232,7 +2202,7 @@ function settingsApp() {
         this.prefixCorrections = await fetch('/api/settings/prefix-corrections').then(r => r.json());
         this.newPC = { wrong_prefix:'', correct_prefix:'', notes:'' };
         this.showToast('Corrección agregada.');
-      } else { const err = await res.json().catch(()=>({})); this.showToast(err.detail||'Error al agregar.','error'); }
+      } else { const err = await res.json().catch(()=>({})); this.showToast(apiErrorMessage(err.detail, 'Error al agregar.'),'error'); }
     },
     async deletePrefixCorrection(id) {
       const res = await fetch(`/api/settings/prefix-corrections/${id}`, { method:'DELETE' });

@@ -1,4 +1,4 @@
-"""Tests for app/services/pipeline_runner.py — dispatch + stage error handling."""
+"""Tests for app/services/pipeline/ (dispatch + stages) — dispatch + stage error handling."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.pipeline_runner import _apply_prefix_corrections, _build_context, _STAGE_HANDLERS, execute
+from app.services.pipeline import STAGE_HANDLERS as _STAGE_HANDLERS, execute
+from app.services.pipeline.context import build_context as _build_context
+from app.services.pipeline.stages.staging import apply_prefix_corrections as _apply_prefix_corrections
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +98,7 @@ class TestExecute:
         stage_dir.mkdir(parents=True)
 
         db = AsyncMock()
-        with patch("app.services.pipeline_runner.audit_data_root", tmp_path):
+        with patch("app.services.pipeline.context.audit_data_root", tmp_path):
             lines = [line async for line in execute("REMOVE_NON_PDF", inst, period, db)]
 
         assert any("[INFO]" in line for line in lines)
@@ -151,10 +153,10 @@ class TestStageGuards:
         period = SimpleNamespace(**vars(minimal_period))
 
         handler = _STAGE_HANDLERS[stage_name]
-        from app.services.pipeline_runner import _build_context
+        from app.services.pipeline.context import build_context as _build_context
 
         # audit_data_root points to tmp_path; STAGE subdir is never created → path absent
-        with patch("app.services.pipeline_runner.audit_data_root", tmp_path):
+        with patch("app.services.pipeline.context.audit_data_root", tmp_path):
             ctx = _build_context(inst, period, db, {})
             lines = [line async for line in handler(ctx)]
         assert any("[WARN]" in line or "[ERROR]" in line for line in lines), (
@@ -169,7 +171,8 @@ class TestStageGuards:
 
 class TestRemoveNonPdfStage:
     async def test_scans_non_pdf_files(self, tmp_path: Path, minimal_institution, minimal_period):
-        from app.services.pipeline_runner import _build_context, _STAGE_HANDLERS
+        from app.services.pipeline import STAGE_HANDLERS as _STAGE_HANDLERS
+        from app.services.pipeline.context import build_context as _build_context
 
         inst = SimpleNamespace(**vars(minimal_institution))
         period = SimpleNamespace(**vars(minimal_period))
@@ -183,7 +186,7 @@ class TestRemoveNonPdfStage:
         (stage_dir / "valid.pdf").write_bytes(b"%PDF-1.4 test")  # minimal valid header
 
         db = AsyncMock()
-        with patch("app.services.pipeline_runner.audit_data_root", tmp_path):
+        with patch("app.services.pipeline.context.audit_data_root", tmp_path):
             ctx = _build_context(inst, period, db, {})
             handler = _STAGE_HANDLERS["REMOVE_NON_PDF"]
             lines = [line async for line in handler(ctx)]
@@ -210,7 +213,7 @@ class TestDeleteUnreadablePdfsStage:
         db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
 
         with (
-            patch("app.services.pipeline_runner.audit_data_root", tmp_path),
+            patch("app.services.pipeline.context.audit_data_root", tmp_path),
             patch("app.core.reader.DocumentReader.find_needing_ocr", return_value=[pdf_path]),
         ):
             lines = [line async for line in execute("DELETE_UNREADABLE_PDFS", inst, period, db)]
@@ -267,7 +270,7 @@ class TestDownloadDriveStage:
             patch("app.crypto.decrypt", return_value='{"type": "service_account"}'),
             patch("app.core.drive.DriveSync", return_value=fake_drive),
             patch("app.repositories.invoice_repo.InvoiceRepo", return_value=inv_repo_instance),
-            patch("app.services.pipeline_runner.audit_data_root", tmp_path),
+            patch("app.services.pipeline.context.audit_data_root", tmp_path),
         ):
             ctx = _build_context(institution, period, db, {})
             [line async for line in _STAGE_HANDLERS["DOWNLOAD_DRIVE"](ctx)]

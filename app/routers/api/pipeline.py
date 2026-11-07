@@ -13,16 +13,16 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from starlette.background import BackgroundTask
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
+from app.routers.responses import temp_file_response
 from app.paths import audit_data_root
 from app.repositories.institution_repo import InstitutionRepo
 from app.repositories.invoice_repo import InvoiceRepo
 
-from app.services import pipeline_runner
+from app.services import pipeline as pipeline_runner
 from app.services.archive import ArchiveError, ArchiveToolMissing, build_zip_file, extract_archive
 from app.services.stage_events import heartbeat_event, with_heartbeat
 from app.services.task_manager import HEARTBEAT_SECONDS, PipelineTaskManager, TaskAlreadyRunningError
@@ -361,12 +361,7 @@ async def stream_audit_zip(
     safe_period = re.sub(r"[^\w]", "_", period.period_label)
     filename = f"{safe_inst}_{safe_period}.zip"
 
-    return FileResponse(
-        zip_path,
-        media_type="application/zip",
-        filename=filename,
-        background=BackgroundTask(zip_path.unlink, missing_ok=True),
-    )
+    return temp_file_response(zip_path, filename, "application/zip")
 
 
 _PREVIEW_MIME: dict[str, str] = {

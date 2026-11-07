@@ -18,7 +18,8 @@ from app.core.drive import DriveSync, _q
 from app.core.urlcheck import is_blocked_url, validate_portal_url
 from app.schemas.institution import InstitutionCreate, InstitutionUpdate
 from app.services.archive import ArchiveError, extract_archive
-from app.services.pipeline_runner import _INVOICE_NUMBER_RE, _sihos_url_error
+from app.services.pipeline.helpers import INVOICE_NUMBER_RE as _INVOICE_NUMBER_RE
+from app.services.pipeline.helpers import sihos_url_error as _sihos_url_error
 
 
 class TestPortalUrl:
@@ -360,3 +361,19 @@ class TestBuildZipFile:
         with pytest.raises(FileNotFoundError):
             archive.build_zip_file([(tmp_path / "missing.pdf", "x.pdf")])
         assert set(Path(archive.tempfile.gettempdir()).glob("audit_*.zip")) == before
+
+
+class TestRequestGuardFailsClosed:
+    async def test_dns_failure_blocks_and_is_not_cached(self, monkeypatch):
+        from app.core.urlcheck import is_blocked_request
+
+        def boom(*a, **k):
+            raise socket.gaierror("temporary failure")
+
+        monkeypatch.setattr(socket, "getaddrinfo", boom)
+        cache: dict[str, bool] = {}
+        assert await is_blocked_request("http://flaky.example.com/", cache)
+        assert cache == {}  # a transient error must not become a permanent verdict
+
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("93.184.216.34", 0))])
+        assert not await is_blocked_request("http://flaky.example.com/", cache)  # recovers once DNS answers

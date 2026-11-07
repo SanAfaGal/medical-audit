@@ -15,8 +15,10 @@ who want a safety net can set ``MAX_ARCHIVE_BYTES`` / ``MAX_UNCOMPRESSED_BYTES``
 from __future__ import annotations
 
 import io
+import logging
 import shutil
 import tempfile
+import time
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -25,7 +27,10 @@ from typing import BinaryIO
 from app.config import settings
 from app.paths import safe_join
 
+logger = logging.getLogger(__name__)
+
 _COPY_CHUNK = 1024 * 1024
+_TEMP_ZIP_GLOB = "audit_*.zip"
 # PDFs are already compressed: deflating them again burns CPU for ~0 gain on multi-GB packages.
 _STORED_SUFFIXES = frozenset({".pdf", ".zip", ".7z", ".rar", ".jpg", ".jpeg", ".png"})
 
@@ -220,3 +225,18 @@ def build_zip_file(entries: Iterable[tuple[Path, str | Path]]) -> Path:
         path.unlink(missing_ok=True)
         raise
     return path
+
+
+def sweep_stale_temp_zips(max_age_seconds: float = 3600, directory: Path | None = None) -> int:
+    """Delete leftover temporary ZIPs (e.g. after a crash mid-download); returns how many were removed."""
+    root = directory or Path(tempfile.gettempdir())
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    for leftover in root.glob(_TEMP_ZIP_GLOB):
+        try:
+            if leftover.is_file() and leftover.stat().st_mtime < cutoff:
+                leftover.unlink()
+                removed += 1
+        except OSError:
+            logger.warning("Could not remove stale temp zip %s", leftover)
+    return removed

@@ -955,39 +955,6 @@
   </div>
 </template>
 
-<!-- ── Toast stack ────────────────────────────────────────────────────────── -->
-<div class="fixed bottom-5 right-5 z-50 flex flex-col-reverse gap-2 items-end max-w-xs pointer-events-none">
-  <template x-for="t in toasts" :key="t.id">
-    <div class="pointer-events-auto w-full"
-         x-show="true"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0 translate-y-2"
-         x-transition:enter-end="opacity-100 translate-y-0"
-         x-transition:leave="transition ease-in duration-150"
-         x-transition:leave-start="opacity-100 translate-y-0"
-         x-transition:leave-end="opacity-0 translate-y-2">
-      <div :class="{
-             'border-emerald-200 text-emerald-800 shadow-emerald-100': t.type === 'ok',
-             'border-amber-200  text-amber-800  shadow-amber-100':  t.type === 'warn',
-             'border-red-200    text-red-800    shadow-red-100':    t.type === 'err'
-           }"
-           class="bg-white px-4 py-3 rounded-xl border text-xs flex items-center gap-2.5 shadow-lg">
-        <i :class="{
-             'fa-solid fa-circle-check text-emerald-500':       t.type === 'ok',
-             'fa-solid fa-triangle-exclamation text-amber-500': t.type === 'warn',
-             'fa-solid fa-circle-xmark text-red-500':           t.type === 'err'
-           }"
-           class="shrink-0"></i>
-        <span x-text="t.message" class="flex-1"></span>
-        <button @click="toasts = toasts.filter(x => x.id !== t.id)"
-                class="opacity-40 hover:opacity-80 transition-opacity ml-1">
-          <i class="fa-solid fa-xmark text-[10px]"></i>
-        </button>
-      </div>
-    </div>
-  </template>
-</div>
-
 <!-- Image preview modal -->
 <template x-if="previewFile">
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -1073,8 +1040,6 @@ function pipeline() {
     nonPdfData: null,
     exportReady: false,
     previewFile: null,
-    toasts: [],
-    _toastId: 0,
     deleteConfirmPending: null,
     stageStatuses: {},
     stageResults: {},
@@ -1270,7 +1235,7 @@ function pipeline() {
       const res = await fetch(`/api/pipeline/run/${stageId}?${params}`, { method: 'POST' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Error al iniciar ${stageId}`);
+        throw new Error(apiErrorMessage(err.detail, `Error al iniciar ${stageId}`));
       }
       const { task_id } = await res.json();
       this.taskId = task_id;
@@ -1545,7 +1510,7 @@ function pipeline() {
             if (!res.ok) {
               const errMsg = res.status === 413
                 ? 'El archivo excede el límite de tamaño permitido por el servidor'
-                : (await res.json().catch(() => ({ detail: 'Error desconocido' }))).detail || 'Error desconocido';
+                : apiErrorMessage((await res.json().catch(() => ({}))).detail, 'Error desconocido');
               const msg = `[ERROR] ${errMsg}`;
               this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
             }
@@ -1569,7 +1534,7 @@ function pipeline() {
             const scanRes = await fetch('/api/invoices/ingest', { method:'POST', body:buildForm(true) });
             if (!scanRes.ok) {
               const err = await scanRes.json();
-              const msg = `[ERROR] ${err.detail || 'Error desconocido'}`;
+              const msg = `[ERROR] ${apiErrorMessage(err.detail, 'Error desconocido')}`;
               this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
             }
             const scan = await scanRes.json();
@@ -1602,7 +1567,7 @@ function pipeline() {
                   this.logLines.push(m); this._markLine(stageId, m);
                 } else {
                   const err = await saveRes.json().catch(() => ({}));
-                  const m = `[ERROR] ${err.detail || 'Error al guardar registros'}`;
+                  const m = `[ERROR] ${apiErrorMessage(err.detail, 'Error al guardar registros')}`;
                   this.logLines.push(m); this._markLine(stageId, m);
                 }
                 this.scrollLog(); continue;
@@ -1617,7 +1582,7 @@ function pipeline() {
             const res = await fetch('/api/invoices/ingest', { method:'POST', body:buildForm(false) });
             if (!res.ok) {
               const err = await res.json();
-              const msg = `[ERROR] ${err.detail || 'Error desconocido'}`;
+              const msg = `[ERROR] ${apiErrorMessage(err.detail, 'Error desconocido')}`;
               this.logLines.push(msg); this._markLine(stageId, msg); this.scrollLog(); continue;
             }
             const data = await res.json();
@@ -1712,7 +1677,7 @@ function pipeline() {
         this.annulData = null;
       } else {
         const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
-        this.showToast(false, 'Error al aplicar decisiones: ' + (err.detail || JSON.stringify(err)));
+        this.showToast(false, 'Error al aplicar decisiones: ' + (apiErrorMessage(err.detail, JSON.stringify(err))));
       }
     },
 
@@ -1738,7 +1703,7 @@ function pipeline() {
         sob._done = true;
       } else {
         const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
-        this.showToast(false, err.detail || JSON.stringify(err));
+        this.showToast(false, apiErrorMessage(err.detail, JSON.stringify(err)));
       }
     },
 
@@ -1771,7 +1736,7 @@ function pipeline() {
         if (!result.errors.length) this.nonPdfData = null;
       } else {
         const err = await res.json().catch(() => ({ detail: 'Error desconocido' }));
-        this.logLines.push(`[ERROR] ${err.detail || 'Error al procesar archivos'}`);
+        this.logLines.push(`[ERROR] ${apiErrorMessage(err.detail, 'Error al procesar archivos')}`);
         this.$nextTick(() => this.scrollLog());
       }
     },
@@ -1781,11 +1746,9 @@ function pipeline() {
       if (el) el.scrollTop = el.scrollHeight;
     },
 
+    // Thin wrapper over the shared store (static/js/toast.js).
     showToast(ok, message) {
-      const type = ok === 'warn' ? 'warn' : ok ? 'ok' : 'err';
-      const id = ++this._toastId;
-      this.toasts.push({ id, type, message });
-      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 4500);
+      Alpine.store('toast').legacy(ok, message);
     },
 
     confirmDeleteSurplus(inv, sob) {
@@ -1805,7 +1768,7 @@ function pipeline() {
         sob._done = true;
       } else {
         const err = await res.json().catch(() => ({detail: 'Error desconocido'}));
-        this.showToast(false, err.detail || JSON.stringify(err));
+        this.showToast(false, apiErrorMessage(err.detail, JSON.stringify(err)));
       }
     },
   };

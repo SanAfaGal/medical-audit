@@ -40,6 +40,11 @@ async def lifespan(app: FastAPI):
 
     app.state.task_manager = PipelineTaskManager()
     await _ensure_base_data()
+    from app.services.archive import sweep_stale_temp_zips
+
+    swept = sweep_stale_temp_zips()
+    if swept:
+        logger.info("stale_temp_zips_removed", count=swept)
     logger.info("startup", host=settings.host, port=settings.port, docs=settings.docs_enabled)
     yield
     await engine.dispose()

@@ -56,6 +56,14 @@ jobs:
       - name: Run unit tests
         run: pytest -m "not db and not slow and not pdf" -ra --tb=short
 
+      - name: Set up Node (frontend helper tests)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run JS tests
+        run: node --test tests/js/shared.test.mjs
+
   secrets-scan:
     name: Secrets Scan
     runs-on: ubuntu-latest

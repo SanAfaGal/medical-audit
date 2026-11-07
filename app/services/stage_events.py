@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from typing import AsyncGenerator, AsyncIterator, Callable, TypeVar
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, TypeVar
 
 T = TypeVar("T")
 
@@ -71,7 +71,7 @@ def event_lines(
 
 async def run_with_events(
     run_blocking: Callable[[Callable[[str, int, int, str, str], None], object], object],
-    ctx: dict,
+    ctx: Mapping[str, Any],
     *,
     noun: str = "elemento",
     verb: str = "Procesando",

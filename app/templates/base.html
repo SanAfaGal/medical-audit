@@ -11,6 +11,9 @@
 
   <!-- Tailwind CSS (local) -->
   <script src="/static/vendor/tailwind.min.js"></script>
+  <!-- Shared client helpers: API error formatting + the single toast store -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/toast.js"></script>
   <!-- Font Awesome 6 Free (local) -->
   <link rel="stylesheet" href="/static/vendor/fa6/css/all.min.css" />
   <!-- HTMX (local) -->
@@ -178,8 +181,6 @@
         thumbnails: [],
         pageOrder: [],
         reorderDragIdx: null,
-        toasts: [],
-        _toastId: 0,
         confirmingDelete: null,
         movingEntries: [],
         moveBrowserPath: '',
@@ -233,7 +234,7 @@
           try {
             const res = await fetch(url, opts);
             const data = await res.json();
-            if (!res.ok) return { ok: false, message: data.detail || `Error ${res.status}` };
+            if (!res.ok) return { ok: false, message: apiErrorMessage(data.detail, `Error ${res.status}`) };
             return data;
           } catch (e) {
             return { ok: false, message: `Error de red: ${e.message}` };
@@ -752,22 +753,9 @@
           document.addEventListener('mouseup', onUp);
         },
 
+        // Kept as a thin wrapper so existing calls work; the state lives in Alpine.store('toast').
         showToast(ok, message) {
-          // Quitar cualquier toast de carga previo (se reemplaza con el resultado)
-          this.toasts = this.toasts.filter(t => t.type !== 'loading');
-
-          const type = ok === 'loading' ? 'loading'
-                     : ok === 'warn'    ? 'warn'
-                     : ok              ? 'ok'
-                     :                   'err';
-          const id = ++this._toastId;
-          this.toasts.push({ id, type, message });
-
-          if (type !== 'loading') {
-            setTimeout(() => {
-              this.toasts = this.toasts.filter(t => t.id !== id);
-            }, 4500);
-          }
+          Alpine.store('toast').legacy(ok, message);
         },
 
         // ── Selección en lote ──────────────────────────────────────────────
@@ -936,7 +924,7 @@
             const response = await fetch(`/api/explorer/download-zip?${params}`);
             if (!response.ok) {
               const err = await response.json().catch(() => ({}));
-              this.showToast(false, err.detail || 'Error al generar el ZIP');
+              this.showToast(false, apiErrorMessage(err.detail, 'Error al generar el ZIP'));
               return;
             }
             const blob = await response.blob();
@@ -1049,6 +1037,8 @@
 </head>
 
 <body class="h-full flex font-sans bg-gray-50" x-data="explorerApp()">
+
+  {% include "partials/toasts.html" %}
 
   <!-- ================================================================ -->
   <!--  SIDEBAR                                                         -->

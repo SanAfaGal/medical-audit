@@ -156,7 +156,7 @@ class PipelineTaskManager:
         from app.database import AsyncSessionLocal
         from app.repositories.institution_repo import InstitutionRepo
         from app.repositories.invoice_repo import InvoiceRepo
-        from app.services import pipeline_runner
+        from app.services import pipeline as pipeline_runner
 
         extra = {**extra, "cancel_event": run.cancel_event}
         try:

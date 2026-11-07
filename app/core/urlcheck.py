@@ -78,7 +78,9 @@ async def is_blocked_request(url: str, cache: dict[str, bool]) -> bool:
         infos = await asyncio.get_running_loop().getaddrinfo(host, None)
         blocked = any(_is_blocked_ip(ipaddress.ip_address(i[4][0].split("%")[0])) for i in infos)
     except (OSError, ValueError):
-        blocked = False  # unresolvable: the browser will fail on its own
+        # Fail closed and don't cache the failure: if our resolver can't answer but the browser's can,
+        # letting the request through would bypass the check.
+        return True
     cache[host] = blocked
     return blocked
 

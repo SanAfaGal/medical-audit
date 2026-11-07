@@ -11,12 +11,12 @@ from pathlib import Path
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.background import BackgroundTask
 
 from app.config import settings
 from app.database import get_db
+from app.routers.responses import content_disposition, temp_file_response
 from app.models.institution import Institution
 from app.models.period import AuditPeriod
 from app.paths import audit_data_root, safe_join
@@ -182,7 +182,7 @@ async def serve_file(
     return StreamingResponse(
         _iter(),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{target.name}"'},
+        headers={"Content-Disposition": content_disposition(target.name, inline=True)},
     )
 
 
@@ -767,7 +767,7 @@ async def download_file(
     return StreamingResponse(
         _iter(),
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{abs_path.name}"'},
+        headers={"Content-Disposition": content_disposition(abs_path.name)},
     )
 
 
@@ -796,12 +796,7 @@ async def download_zip(
 
     zip_name = (Path(rel_paths[0]).name + ".zip") if len(rel_paths) == 1 else "seleccion.zip"
 
-    return FileResponse(
-        zip_path,
-        media_type="application/zip",
-        filename=zip_name,
-        background=BackgroundTask(zip_path.unlink, missing_ok=True),
-    )
+    return temp_file_response(zip_path, zip_name, "application/zip")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
