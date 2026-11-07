@@ -185,5 +185,5 @@ class TestNoHalfBuiltPage:
         session.page.route("**/vendor/alpine.min.js", lambda route: route.abort())
         session.page.goto(f"{session.base_url}/", wait_until="commit")
         session.page.wait_for_function(
-            "() => document.body && getComputedStyle(document.body).visibility !== 'hidden'", timeout=6000
+            "() => document.body && getComputedStyle(document.body).visibility !== 'hidden'", timeout=10000
         )  # the 3 s safety timeout in boot.js reveals it

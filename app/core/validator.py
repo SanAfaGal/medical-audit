@@ -1,16 +1,15 @@
-"""PDF content analysis: CUFE extraction, invoice code validation, and text search."""
+"""PDF content analysis: CUFE extraction and invoice code validation."""
 
 import logging
-import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 
-_PDF_WORKERS = min(16, (os.cpu_count() or 4) * 2)
-
-from app.core.helpers import ProgressFn  # noqa: E402
-from app.core.reader import DocumentReader  # noqa: E402
+from app.core import pdfpool
+from app.core.helpers import ProgressFn
+from app.core.reader import DocumentReader
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +26,41 @@ _RE_CUFE = re.compile(r"CUFE\s*[:]*\s*(.{64,})\n", re.IGNORECASE)
 _RE_INLINE_WHITESPACE = re.compile(r"[ \t]+")
 _MIN_CUFE_LENGTH: int = 64
 
+#: Invoices handed to a worker process per task (about 13 ms of work each).
+_CHUNK = 20
+
 
 def _collapse_inline_whitespace(text: str) -> str:
     """Remove spaces and tabs while preserving newlines."""
     return _RE_INLINE_WHITESPACE.sub("", text)
 
 
+@lru_cache(maxsize=32)
+def _invoice_code_regex(id_prefix: str) -> re.Pattern[str]:
+    return re.compile(rf"({re.escape(id_prefix)}\d+)$", re.IGNORECASE)
+
+
+def _evaluate(path: Path, id_prefix: str, read_text: Callable[[Path], str]) -> tuple[bool, bool]:
+    """(invoice number missing from the PDF text, CUFE missing or too short) for one invoice."""
+    content = read_text(path)
+    if not content:
+        return False, True
+    normalised = _collapse_inline_whitespace(content.upper())
+    invoice_match = _invoice_code_regex(id_prefix).search(path.stem.upper())
+    missing_code = bool(invoice_match and invoice_match.group(1) not in normalised)
+    cufe = _RE_CUFE.search(normalised)
+    cufe_val = cufe.group(1).strip() if cufe else None
+    missing_cufe = not (cufe_val and len(cufe_val) >= _MIN_CUFE_LENGTH)
+    return missing_code, missing_cufe
+
+
+def _validate_chunk(items: list[tuple[str, str]]) -> list[tuple[bool, bool]]:
+    """Worker (runs in the process pool): ``[(path, id_prefix), ...]`` to one result per invoice."""
+    return [_evaluate(Path(path), prefix, DocumentReader.read_text) for path, prefix in items]
+
+
 class InvoiceValidator:
-    """Analyses PDF content to validate CUFE codes, invoice numbers, and text presence.
+    """Analyses PDF content to validate CUFE codes and invoice numbers.
 
     Args:
         base_dir: Root directory for file operations.
@@ -43,16 +69,14 @@ class InvoiceValidator:
 
     def __init__(self, base_dir: Path, id_prefix: str = "", *, _reader=None) -> None:
         self.base_dir = Path(base_dir)
-        _esc = re.escape(id_prefix)
         self._id_prefix = id_prefix
-        self._re_invoice_code = re.compile(rf"({_esc}\d+)$", re.IGNORECASE)
         # Allow injecting a custom reader for testing without real PDF files.
         self._read_text = _reader if _reader is not None else DocumentReader.read_text
-        # Results are only reusable when they come from the real reader.
-        self._cacheable = _reader is None
+        # Only the real reader can run in worker processes and have its results reused.
+        self._real_reader = _reader is None
 
     def _cache_key(self, path: Path) -> tuple[str, int, int, str] | None:
-        if not self._cacheable:
+        if not self._real_reader:
             return None
         try:
             stat = path.stat()
@@ -73,57 +97,65 @@ class InvoiceValidator:
         on_progress: ProgressFn | None = None,
         cancel_event: threading.Event | None = None,
     ) -> tuple[list[Path], list[Path]]:
-        """Check invoice code and CUFE presence in a single read pass per file (parallel).
+        """Check invoice code and CUFE presence in a single read pass per file.
 
-        ``on_progress(done, total, file_name)`` is called after each file (from worker threads).
-        When ``cancel_event`` is set the remaining files are skipped and reported as valid.
+        Files already validated (same path, size, modification time and prefix) are answered from the cache; the
+        rest are read in worker processes (:mod:`app.core.pdfpool`). ``on_progress(done, total, file_name)`` is
+        called as files or chunks finish. When ``cancel_event`` is set the remaining files are skipped and
+        reported as valid (and not cached).
         """
-        if not file_paths:
-            return [], []
-
         total = len(file_paths)
-        done_count = 0
-        lock = threading.Lock()
+        results: list[tuple[bool, bool] | None] = [None] * total
+        keys = [self._cache_key(f) for f in file_paths]
 
-        re_invoice_code = self._re_invoice_code
-        read_text = self._read_text
+        pending: list[int] = []
+        done = 0
+        for index, key in enumerate(keys):
+            hit = _RESULT_CACHE.get(key) if key is not None else None
+            if hit is None:
+                pending.append(index)
+                continue
+            results[index] = hit
+            done += 1
+            if on_progress is not None:
+                on_progress(done, total, file_paths[index].name)
 
-        def _check(f: Path) -> tuple[bool, bool]:
-            nonlocal done_count
-            if cancel_event is not None and cancel_event.is_set():
-                return False, False
-            try:
-                key = self._cache_key(f)
-                if key is not None and (cached := _RESULT_CACHE.get(key)) is not None:
-                    return cached
-                result = _check_one(f)
-                if key is not None:
+        if pending:
+            cached_so_far = done
+            names = [file_paths[i].name for i in pending]
+
+            def forward(finished: int, _count: int, name: str) -> None:
+                if on_progress is not None:
+                    on_progress(cached_so_far + finished, total, name)
+
+            computed: list[tuple[bool, bool] | None]
+            if self._real_reader:
+                computed = pdfpool.run_chunked(
+                    _validate_chunk,
+                    [(str(file_paths[i]), self._id_prefix) for i in pending],
+                    chunk_size=_CHUNK,
+                    names=names,
+                    on_progress=forward,
+                    cancel_event=cancel_event,
+                )
+            else:  # an injected reader (tests) is not picklable: run it here, one file at a time
+                computed = []
+                for finished, index in enumerate(pending, 1):
+                    if cancel_event is not None and cancel_event.is_set():
+                        computed.append(None)
+                        continue
+                    computed.append(_evaluate(file_paths[index], self._id_prefix, self._read_text))
+                    forward(finished, len(pending), names[finished - 1])
+
+            for index, result in zip(pending, computed, strict=True):
+                if result is None:
+                    continue  # skipped by cancel: never cache a placeholder
+                results[index] = result
+                if keys[index] is not None:
                     if len(_RESULT_CACHE) >= _RESULT_CACHE_MAX:
                         _RESULT_CACHE.clear()
-                    _RESULT_CACHE[key] = result
-                return result
-            finally:
-                if on_progress is not None:
-                    with lock:
-                        done_count += 1
-                        current = done_count
-                    on_progress(current, total, f.name)
+                    _RESULT_CACHE[keys[index]] = result  # type: ignore[index]
 
-        def _check_one(f: Path) -> tuple[bool, bool]:
-            content = read_text(f)
-            if not content:
-                return False, True
-            normalised = _collapse_inline_whitespace(content.upper())
-            invoice_match = re_invoice_code.search(f.stem.upper())
-            missing_code = bool(invoice_match and invoice_match.group(1) not in normalised)
-            cufe = _RE_CUFE.search(normalised)
-            cufe_val = cufe.group(1).strip() if cufe else None
-            missing_cufe = not (cufe_val and len(cufe_val) >= _MIN_CUFE_LENGTH)
-            return missing_code, missing_cufe
-
-        with ThreadPoolExecutor(max_workers=_PDF_WORKERS) as pool:
-            results = list(pool.map(_check, file_paths))
-
-        missing_invoice_code = [f for f, (mc, _) in zip(file_paths, results, strict=True) if mc]
-        missing_cufe = [f for f, (_, mc) in zip(file_paths, results, strict=True) if mc]
+        missing_invoice_code = [f for f, r in zip(file_paths, results, strict=True) if r and r[0]]
+        missing_cufe = [f for f, r in zip(file_paths, results, strict=True) if r and r[1]]
         return missing_invoice_code, missing_cufe

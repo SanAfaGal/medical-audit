@@ -20,6 +20,7 @@ Todas las variables son leídas por `app/config.py` vía pydantic-settings.
 | `POSTGRES_PASSWORD` | Sí | — | Contraseña PostgreSQL. |
 | `POSTGRES_DB` | Sí | — | Nombre de la base de datos PostgreSQL. |
 | `LOG_LEVEL` | No | `INFO` | Nivel de structlog: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `PDF_WORKERS` | No | hasta 8 (sin pasar de los CPU) | Procesos que leen PDFs en paralelo (validar facturas, comprobar texto y apertura). PyMuPDF retiene el GIL, así que los hilos no escalan; los procesos dan ~3,7× en 1000 facturas. Cada proceso ocupa unos 70 MB. `0` o `1` lo desactiva y todo corre en el hilo de la etapa. Los lotes pequeños (< 40 archivos) nunca lo usan. |
 | `DOCS_ENABLED` | No | `false` | `true` para habilitar `/docs` y `/redoc`. Nunca activar en producción. |
 
 > `.env` está en `.gitignore` y nunca debe commitearse. Usar `.env.example` como punto de partida.
