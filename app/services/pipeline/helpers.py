@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import asyncio
 import re
 
@@ -70,3 +72,14 @@ def ct_for_folder(folder: str, ct_map: dict[str, str]) -> str | None:
         if num in folder:
             return ct
     return None
+
+
+async def invoice_pdfs(ctx) -> list[Path]:
+    """Invoice PDFs under STAGE: files starting with the FACTURA doc type prefix (the institution's one as fallback)."""
+    from app.core.scanner import DocumentScanner
+    from app.repositories.rules_repo import RulesRepo
+
+    invoice_doc = await RulesRepo(ctx["db"]).get_doc_type_by_code("FACTURA")
+    prefix = invoice_doc.prefix if invoice_doc and invoice_doc.prefix else (ctx["institution"].invoice_id_prefix or "")
+    pdfs: list[Path] = await get_executor()(DocumentScanner(ctx["stage_path"]).find_by_prefix, prefix)
+    return pdfs

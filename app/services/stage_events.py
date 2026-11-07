@@ -9,6 +9,7 @@ being re-implemented per stage:
   lines, wiring task cancellation to the thread.
 * ``run_with_progress``  - like ``run_with_events`` but only drives the progress bar, for scans that
   report their findings once at the end.
+* ``ProgressJob``  - ``run_with_progress`` packaged so the stage can read the job's return value.
 * ``with_heartbeat`` / ``heartbeat_event``  - server-side liveness signal that works for *any*
   stage, including ones that never emit a line.
 """
@@ -19,7 +20,7 @@ import asyncio
 import contextlib
 import json
 import threading
-from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, TypeVar
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Generic, Mapping, TypeVar
 
 T = TypeVar("T")
 
@@ -149,6 +150,41 @@ async def run_with_progress(
         if cancel_event is not None:
             cancel_event.set()
         raise
+
+
+class ProgressJob(Generic[T]):
+    """A blocking job whose progress bar is streamed as log lines and whose return value ends up in ``result``.
+
+    job = ProgressJob(lambda on_progress, cancel: scan(files, on_progress, cancel), ctx, label="PDFs", total=len(files))
+    async for line in job:
+        yield line
+    found = job.result
+    """
+
+    def __init__(
+        self,
+        run_blocking: Callable[[Callable[[int, int, str], None], threading.Event | None], T],
+        ctx: Mapping[str, Any],
+        *,
+        label: str = "Archivos",
+        total: int | None = None,
+    ) -> None:
+        self._run_blocking = run_blocking
+        self._ctx = ctx
+        self._label = label
+        self._total = total
+        self.result: T
+
+    def __aiter__(self) -> AsyncGenerator[str, None]:
+        return self._lines()
+
+    async def _lines(self) -> AsyncGenerator[str, None]:
+        if self._total is not None:
+            yield progress_line(0, self._total, label=self._label)  # the bar shows up before the first file ends
+        out: list[T] = []
+        async for line in run_with_progress(self._run_blocking, self._ctx, out, label=self._label):
+            yield line
+        self.result = out[0]
 
 
 def heartbeat_event(idle: float, elapsed: float) -> str:

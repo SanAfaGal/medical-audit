@@ -16,7 +16,7 @@ from app.services.stage_events import progress_line
 _MOVE_CHUNK = 25  # folders per progress report
 
 
-@stage("ORGANIZE")
+@stage("ORGANIZE", requires="stage")
 async def _organize(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Move eligible invoices (PRESENTE + no findings) to AUDIT/ADMIN[/CONTRACT]/FOLDER."""
     from app.core.helpers import safe_move
@@ -29,10 +29,6 @@ async def _organize(ctx: StageContext) -> AsyncGenerator[str, None]:
     institution = ctx["institution"]
     period = ctx["period"]
     db = ctx["db"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     inv_repo = InvoiceRepo(db)
     organizable = await inv_repo.get_organizable_invoices(period.id)
@@ -139,7 +135,7 @@ async def _organize(ctx: StageContext) -> AsyncGenerator[str, None]:
 _COMPRESS_CHUNK = 50  # files per progress report
 
 
-@stage("COMPRESS_AUDIT")
+@stage("COMPRESS_AUDIT", requires="audit")
 async def _compress_audit(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Compress all PDFs in AUDIT using Ghostscript (ebook quality)."""
     import os
@@ -148,10 +144,6 @@ async def _compress_audit(ctx: StageContext) -> AsyncGenerator[str, None]:
 
     loop = asyncio.get_running_loop()
     audit_path: Path = ctx["audit_path"]
-
-    if not audit_path.is_dir():
-        yield plog("WARN", f"Directorio AUDIT no existe: {audit_path}")
-        return
 
     all_pdfs = await loop.run_in_executor(None, lambda: list(audit_path.rglob("*.pdf")))
     yield plog("INFO", f"PDFs encontrados en AUDIT: {len(all_pdfs)}")
@@ -210,15 +202,11 @@ async def _compress_audit(ctx: StageContext) -> AsyncGenerator[str, None]:
         )
 
 
-@stage("EXPORTAR_AUDITADOS")
+@stage("EXPORTAR_AUDITADOS", requires="audit")
 async def _exportar_auditados(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Prepara la exportación de AUDIT: valida y cuenta archivos.
     El ZIP se genera al vuelo en el endpoint /api/pipeline/stream-audit-zip."""
     audit_path: Path = ctx["audit_path"]
-
-    if not audit_path.is_dir():
-        yield plog("WARN", "Directorio AUDIT no existe — no hay nada que exportar.")
-        return
 
     all_files = await asyncio.to_thread(lambda: [f for f in audit_path.rglob("*") if f.is_file()])
     if not all_files:

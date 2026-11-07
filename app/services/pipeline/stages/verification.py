@@ -11,57 +11,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.helpers import ProgressFn
 from app.services.pipeline.context import StageContext
-from app.services.pipeline.helpers import build_ct_map, ct_for_folder, get_executor
+from app.services.pipeline.helpers import invoice_pdfs, build_ct_map, ct_for_folder, get_executor
 from app.services.pipeline.logfmt import plog
 from app.services.pipeline.registry import stage
-from app.services.stage_events import progress_line, run_with_progress
+from app.services.stage_events import ProgressJob
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-@stage("VERIFY_INVOICE_CODE")
+@stage("VERIFY_INVOICE_CODE", requires="stage")
 async def _verify_invoice_code(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Verify that each invoice PDF contains its own invoice number in the text."""
-    from app.core.scanner import DocumentScanner
     from app.core.validator import InvoiceValidator
 
-    from app.repositories.rules_repo import RulesRepo
-
-    executor = get_executor()
     stage_path: Path = ctx["stage_path"]
     institution = ctx["institution"]
-    db = ctx["db"]
 
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
-
-    rules_repo = RulesRepo(db)
-    invoice_doc = await rules_repo.get_doc_type_by_code("FACTURA")
-    invoice_prefix = invoice_doc.prefix if invoice_doc and invoice_doc.prefix else (institution.invoice_id_prefix or "")
-
-    scanner = DocumentScanner(stage_path)
-    invoices = await executor(scanner.find_by_prefix, invoice_prefix)
+    invoices = await invoice_pdfs(ctx)
 
     validator = InvoiceValidator(stage_path, institution.invoice_id_prefix or "")
-    yield progress_line(0, len(invoices), label="Facturas")
-    out: list = []
-    async for line in run_with_progress(
+    job = ProgressJob(
         lambda on_progress, cancel: validator.validate_invoice_files(invoices, on_progress, cancel),
         ctx,
-        out,
         label="Facturas",
-    ):
+        total=len(invoices),
+    )
+    async for line in job:
         yield line
-    missing_code, _ = out[0]
+    missing_code, _ = job.result
     for f in missing_code:
         yield plog("WARN", f"Sin número de factura en PDF: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Facturas sin código: {len(missing_code)}")
 
 
-@stage("CHECK_INVOICE_NUMBER_ON_FILES")
+@stage("CHECK_INVOICE_NUMBER_ON_FILES", requires="stage")
 async def _check_invoice_number_on_files(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Verify that files inside each invoice folder match the folder name."""
     from app.core.inspector import FolderInspector
@@ -69,26 +54,19 @@ async def _check_invoice_number_on_files(ctx: StageContext) -> AsyncGenerator[st
     stage_path: Path = ctx["stage_path"]
     institution = ctx["institution"]
 
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
-
     inspector = FolderInspector(stage_path, institution.invoice_id_prefix or "")
-    out: list = []
-    async for line in run_with_progress(
-        lambda on_progress, cancel: inspector.find_mismatched_files(None, on_progress, cancel),
-        ctx,
-        out,
-        label="Carpetas",
-    ):
+    job = ProgressJob(
+        lambda on_progress, cancel: inspector.find_mismatched_files(None, on_progress, cancel), ctx, label="Carpetas"
+    )
+    async for line in job:
         yield line
-    mismatched = out[0]
+    mismatched = job.result
     for f in mismatched:
         yield plog("WARN", f"Archivo desajustado: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Archivos desajustados: {len(mismatched)}")
 
 
-@stage("CHECK_FOLDERS_WITH_EXTRA_TEXT")
+@stage("CHECK_FOLDERS_WITH_EXTRA_TEXT", requires="stage")
 async def _check_folders_with_extra_text(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Detect folders with extra text; send interactive payload for auditor review."""
 
@@ -102,10 +80,6 @@ async def _check_folders_with_extra_text(ctx: StageContext) -> AsyncGenerator[st
     institution = ctx["institution"]
     period = ctx["period"]
     db: AsyncSession = ctx["db"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     inspector = FolderInspector(stage_path, institution.invoice_id_prefix or "")
     malformed: list[Path] = await executor(inspector.find_malformed_dirs)
@@ -165,7 +139,7 @@ async def _check_folders_with_extra_text(ctx: StageContext) -> AsyncGenerator[st
     yield f"[DATA] {json.dumps(payload, ensure_ascii=False)}"
 
 
-@stage("NORMALIZE_DIR_NAMES")
+@stage("NORMALIZE_DIR_NAMES", requires="stage")
 async def _normalize_dir_names(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Rename folders with extra text to their canonical identifier."""
     from app.core.inspector import FolderInspector
@@ -174,10 +148,6 @@ async def _normalize_dir_names(ctx: StageContext) -> AsyncGenerator[str, None]:
     executor = get_executor()
     stage_path: Path = ctx["stage_path"]
     institution = ctx["institution"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     inspector = FolderInspector(stage_path, institution.invoice_id_prefix or "")
     malformed = await executor(inspector.find_malformed_dirs)
@@ -189,7 +159,7 @@ async def _normalize_dir_names(ctx: StageContext) -> AsyncGenerator[str, None]:
         yield plog("INFO", f"Carpetas renombradas: {renamed}")
 
 
-@stage("CHECK_DIRS")
+@stage("CHECK_DIRS", requires="stage")
 async def _check_dirs(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Compare invoice numbers in DB against folders on disk; mark missing ones FALTANTE."""
     from app.core.inspector import FolderInspector
@@ -201,10 +171,6 @@ async def _check_dirs(ctx: StageContext) -> AsyncGenerator[str, None]:
     institution = ctx["institution"]
     period = ctx["period"]
     db = ctx["db"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     inv_repo = InvoiceRepo(db)
     presente_numbers = await inv_repo.get_invoice_numbers_by_status(period.id, "PRESENTE")
@@ -223,7 +189,7 @@ async def _check_dirs(ctx: StageContext) -> AsyncGenerator[str, None]:
             yield plog("WARN", "Sin carpeta en disco", folder=name, contract_type=ct_for_folder(name, ct_map))
 
 
-@stage("MARK_UNKNOWN_DIRS")
+@stage("MARK_UNKNOWN_DIRS", requires="stage")
 async def _mark_unknown_dirs(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Rename STAGE folders that match the invoice pattern but have no DB record.
 
@@ -238,10 +204,6 @@ async def _mark_unknown_dirs(ctx: StageContext) -> AsyncGenerator[str, None]:
     institution = ctx["institution"]
     period = ctx["period"]
     db = ctx["db"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     inv_repo = InvoiceRepo(db)
     known_numbers = await inv_repo.get_all_invoice_numbers(period.id)
@@ -278,7 +240,7 @@ async def _mark_unknown_dirs(ctx: StageContext) -> AsyncGenerator[str, None]:
     yield plog("INFO", f"Renombradas: {len(renamed)}, errores: {len(failed)}")
 
 
-@stage("CHECK_REQUIRED_DOCS")
+@stage("CHECK_REQUIRED_DOCS", requires="stage")
 async def _check_required_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Verify required documents per service type; record findings for missing ones."""
     from app.core.inspector import FolderInspector
@@ -291,10 +253,6 @@ async def _check_required_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
     institution = ctx["institution"]
     period = ctx["period"]
     db = ctx["db"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     inv_repo = InvoiceRepo(db)
     rules_repo = RulesRepo(db)
@@ -335,16 +293,15 @@ async def _check_required_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
                 results[inv_id] = (inv_number, [int(c) for c in missing_codes])
         return results
 
-    yield progress_line(0, len(invoice_data), label="Facturas")
-    out: list = []
-    async for line in run_with_progress(
+    job = ProgressJob(
         lambda on_progress, cancel: _check_all_folders(invoice_data, on_progress, cancel),
         ctx,
-        out,
         label="Facturas",
-    ):
+        total=len(invoice_data),
+    )
+    async for line in job:
         yield line
-    findings_map = out[0]
+    findings_map = job.result
 
     # Bulk upsert all findings in one DB call
     all_findings: list[tuple[int, int]] = [
@@ -372,7 +329,7 @@ async def _check_required_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
     yield plog("INFO", f"Hallazgos totales registrados: {total_findings}")
 
 
-@stage("REVISAR_SOBRANTES")
+@stage("REVISAR_SOBRANTES", requires="stage", missing="ERROR")
 async def _revisar_sobrantes(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Identify surplus files per invoice folder and suggest doc-type renames."""
 
@@ -388,10 +345,6 @@ async def _revisar_sobrantes(ctx: StageContext) -> AsyncGenerator[str, None]:
     institution = ctx["institution"]
     period = ctx["period"]
     db: AsyncSession = ctx["db"]
-
-    if not stage_path.exists():
-        yield plog("ERROR", "Directorio STAGE no existe")
-        return
 
     rules_repo = RulesRepo(db)
     std_map = await rules_repo.get_service_type_docs_map(institution.id)
@@ -554,17 +507,16 @@ async def _revisar_sobrantes(ctx: StageContext) -> AsyncGenerator[str, None]:
 
         return items_out, log_lines, total
 
-    out: list = []
-    async for line in run_with_progress(
+    job = ProgressJob(
         lambda on_progress, cancel: _scan_folders(
             stage_path, invoice_snapshot, std_map, prefix_map, on_progress, cancel
         ),
         ctx,
-        out,
         label="Carpetas",
-    ):
+    )
+    async for line in job:
         yield line
-    items, log_lines, total_sobrantes = out[0]
+    items, log_lines, total_sobrantes = job.result
 
     for line in log_lines:
         yield line
@@ -576,42 +528,28 @@ async def _revisar_sobrantes(ctx: StageContext) -> AsyncGenerator[str, None]:
         yield plog("INFO", "No se encontraron archivos sobrantes")
 
 
-@stage("VERIFY_CUFE")
+@stage("VERIFY_CUFE", requires="stage")
 async def _verify_cufe(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Verify CUFE presence and tag folders missing a CUFE in invoice PDFs."""
     from app.core.ops import DocumentOps
-    from app.core.scanner import DocumentScanner
     from app.core.validator import InvoiceValidator
-
-    from app.repositories.rules_repo import RulesRepo
 
     executor = get_executor()
     stage_path: Path = ctx["stage_path"]
     institution = ctx["institution"]
-    db = ctx["db"]
 
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
-
-    rules_repo = RulesRepo(db)
-    invoice_doc = await rules_repo.get_doc_type_by_code("FACTURA")
-    invoice_prefix = invoice_doc.prefix if invoice_doc and invoice_doc.prefix else (institution.invoice_id_prefix or "")
-
-    scanner = DocumentScanner(stage_path)
-    invoices = await executor(scanner.find_by_prefix, invoice_prefix)
+    invoices = await invoice_pdfs(ctx)
 
     validator = InvoiceValidator(stage_path, institution.invoice_id_prefix or "")
-    yield progress_line(0, len(invoices), label="Facturas")
-    out: list = []
-    async for line in run_with_progress(
+    job = ProgressJob(
         lambda on_progress, cancel: validator.validate_invoice_files(invoices, on_progress, cancel),
         ctx,
-        out,
         label="Facturas",
-    ):
+        total=len(invoices),
+    )
+    async for line in job:
         yield line
-    _, missing_cufe = out[0]
+    _, missing_cufe = job.result
     for f in missing_cufe:
         yield plog("WARN", f"Sin CUFE: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Facturas sin CUFE: {len(missing_cufe)}")

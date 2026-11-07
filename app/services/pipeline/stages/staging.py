@@ -9,13 +9,13 @@ import json
 import shutil
 
 from app.services.pipeline.context import StageContext
-from app.services.pipeline.helpers import build_ct_map, ct_for_folder, get_executor
+from app.services.pipeline.helpers import invoice_pdfs, build_ct_map, ct_for_folder, get_executor
 from app.services.pipeline.logfmt import plog
 from app.services.pipeline.registry import stage
-from app.services.stage_events import progress_line, run_with_progress
+from app.services.stage_events import ProgressJob, progress_line
 
 
-@stage("RUN_STAGING")
+@stage("RUN_STAGING", requires="drive", missing="ERROR")
 async def _run_staging(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Move leaf folders from DRIVE to STAGE."""
     from app.core.organizer import FolderCopier, LeafFolderFinder
@@ -23,10 +23,6 @@ async def _run_staging(ctx: StageContext) -> AsyncGenerator[str, None]:
     executor = get_executor()
     drive_path: Path = ctx["drive_path"]
     stage_path: Path = ctx["stage_path"]
-
-    if not drive_path.is_dir():
-        yield plog("ERROR", f"Directorio DRIVE no existe: {drive_path}")
-        return
 
     yield plog("INFO", f"Buscando carpetas hoja en {drive_path}...")
     leaf_finder = LeafFolderFinder()
@@ -41,14 +37,10 @@ async def _run_staging(ctx: StageContext) -> AsyncGenerator[str, None]:
         yield plog("WARN", "No se encontraron carpetas hoja en DRIVE.")
 
 
-@stage("CHECK_NESTED_FOLDERS")
+@stage("CHECK_NESTED_FOLDERS", requires="stage", missing="ERROR")
 async def _check_nested_folders(ctx: StageContext) -> AsyncGenerator[str, None]:
     """List invoice-level folders in STAGE that contain nested subdirectories."""
     stage_path: Path = ctx["stage_path"]
-
-    if not stage_path.is_dir():
-        yield plog("ERROR", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     def _find_nested(path: Path) -> list[tuple[str, list[str]]]:
         result = []
@@ -74,7 +66,7 @@ async def _check_nested_folders(ctx: StageContext) -> AsyncGenerator[str, None]:
     )
 
 
-@stage("REMOVE_NON_PDF")
+@stage("REMOVE_NON_PDF", requires="stage")
 async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Scan STAGE for non-PDF files and corrupt PDFs; emit [DATA] for user review."""
     from app.core.ops import IMAGE_EXTENSIONS
@@ -82,10 +74,6 @@ async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
 
     executor = get_executor()
     stage_path: Path = ctx["stage_path"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     def _scan(s_path: Path) -> tuple[list[dict], list[Path]]:
         """Single rglob pass → returns (non_pdf_metadata, pdf_candidates)."""
@@ -195,7 +183,7 @@ def apply_prefix_corrections(
     return renamed, renames, errors
 
 
-@stage("NORMALIZE_FILES")
+@stage("NORMALIZE_FILES", requires="stage")
 async def _normalize_files(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Rename files with invalid names to the canonical standard.
 
@@ -213,10 +201,6 @@ async def _normalize_files(ctx: StageContext) -> AsyncGenerator[str, None]:
     institution = ctx["institution"]
     db = ctx["db"]
     period = ctx.get("period")
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
 
     rules_repo = RulesRepo(db)
 
@@ -248,13 +232,15 @@ async def _normalize_files(ctx: StageContext) -> AsyncGenerator[str, None]:
             valid_prefixes=prefixes,
             suffix_const=institution.invoice_id_prefix or "",
         )
-        yield progress_line(0, len(invalid), label="Archivos")
-        out: list = []
-        async for line in run_with_progress(
-            lambda on_progress, cancel: standardizer.run(invalid, on_progress, cancel), ctx, out, label="Archivos"
-        ):
+        job = ProgressJob(
+            lambda on_progress, cancel: standardizer.run(invalid, on_progress, cancel),
+            ctx,
+            label="Archivos",
+            total=len(invalid),
+        )
+        async for line in job:
             yield line
-        results = out[0]
+        results = job.result
 
         # Build invoice_number → contract_type_name map for the period (one query)
         ct_map = await build_ct_map(db, period) if period else {}
@@ -281,47 +267,29 @@ async def _normalize_files(ctx: StageContext) -> AsyncGenerator[str, None]:
         yield plog("INFO", f"Archivos renombrados: {success}/{len(invalid)}")
 
 
-@stage("LIST_UNREADABLE_PDFS")
+@stage("LIST_UNREADABLE_PDFS", requires="stage")
 async def _list_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None]:
     """List invoice PDFs without a text layer (scanned, unreadable)."""
     from app.core.reader import DocumentReader
-    from app.core.scanner import DocumentScanner
 
-    from app.repositories.rules_repo import RulesRepo
-
-    executor = get_executor()
-    stage_path: Path = ctx["stage_path"]
-    institution = ctx["institution"]
-    db = ctx["db"]
-
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
-
-    rules_repo = RulesRepo(db)
-    invoice_doc = await rules_repo.get_doc_type_by_code("FACTURA")
-    invoice_prefix = invoice_doc.prefix if invoice_doc and invoice_doc.prefix else (institution.invoice_id_prefix or "")
-
-    scanner = DocumentScanner(stage_path)
-    invoices = await executor(scanner.find_by_prefix, invoice_prefix)
+    invoices = await invoice_pdfs(ctx)
     yield plog("INFO", f"PDFs de factura encontrados: {len(invoices)}")
 
-    yield progress_line(0, len(invoices), label="PDFs")
-    out: list = []
-    async for line in run_with_progress(
+    job = ProgressJob(
         lambda on_progress, cancel: DocumentReader.find_needing_ocr(invoices, on_progress, cancel),
         ctx,
-        out,
         label="PDFs",
-    ):
+        total=len(invoices),
+    )
+    async for line in job:
         yield line
-    no_text = out[0]
+    no_text = job.result
     for f in no_text:
         yield plog("WARN", f"Sin capa de texto: {f.name}", folder=f.parent.name)
     yield plog("INFO", f"Facturas sin texto: {len(no_text)}")
 
 
-@stage("DELETE_UNREADABLE_PDFS")
+@stage("DELETE_UNREADABLE_PDFS", requires="stage")
 async def _delete_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Move invoice PDFs without a text layer to a quarantine folder (reversible).
 
@@ -331,35 +299,20 @@ async def _delete_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None
     real text pages, so an irreversible delete here is too risky for audit data.
     """
     from app.core.reader import DocumentReader
-    from app.core.scanner import DocumentScanner
-
-    from app.repositories.rules_repo import RulesRepo
 
     executor = get_executor()
     stage_path: Path = ctx["stage_path"]
-    institution = ctx["institution"]
-    db = ctx["db"]
 
-    if not stage_path.is_dir():
-        yield plog("WARN", f"Directorio STAGE no existe: {stage_path}")
-        return
-
-    rules_repo = RulesRepo(db)
-    invoice_doc = await rules_repo.get_doc_type_by_code("FACTURA")
-    invoice_prefix = invoice_doc.prefix if invoice_doc and invoice_doc.prefix else (institution.invoice_id_prefix or "")
-
-    scanner = DocumentScanner(stage_path)
-    invoices = await executor(scanner.find_by_prefix, invoice_prefix)
-    yield progress_line(0, len(invoices), label="PDFs")
-    out: list = []
-    async for line in run_with_progress(
+    invoices = await invoice_pdfs(ctx)
+    job = ProgressJob(
         lambda on_progress, cancel: DocumentReader.find_needing_ocr(invoices, on_progress, cancel),
         ctx,
-        out,
         label="PDFs",
-    ):
+        total=len(invoices),
+    )
+    async for line in job:
         yield line
-    no_text = out[0]
+    no_text = job.result
     yield plog("INFO", f"PDFs sin texto a mover a cuarentena: {len(no_text)}")
 
     quarantine_root = stage_path / "_CUARENTENA_SIN_TEXTO"

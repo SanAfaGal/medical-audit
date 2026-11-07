@@ -1,0 +1,161 @@
+"""Run real verification/staging stages over a folder of generated PDFs — requires PostgreSQL (doc types)."""
+
+from __future__ import annotations
+
+import datetime
+from pathlib import Path
+from unittest.mock import patch
+
+import fitz
+import pytest
+
+from app.models.institution import Institution
+from app.models.period import AuditPeriod
+from app.services.pipeline.context import build_context as make_context
+from app.services.pipeline.registry import STAGE_HANDLERS, stage
+from app.services.stage_events import ProgressJob
+from tests.app.repos.conftest import db_session, seeded, test_engine  # noqa: F401
+
+CUFE = "a1b2c3d4" * 12  # 96 chars: longer than the 64 the validator requires
+
+
+def _pdf(path: Path, text: str | None) -> None:
+    doc = fitz.open()
+    page = doc.new_page()
+    if text:
+        page.insert_text((36, 60), text, fontsize=9)
+    doc.save(str(path))
+    doc.close()
+
+
+@pytest.fixture
+async def stage_env(seeded, tmp_path):  # noqa: F811
+    """Institution HOSP (invoice prefix HSL) with an empty period whose STAGE folder exists."""
+    institution = Institution(name="HOSP", display_name="Hosp", nit="900123456", invoice_id_prefix="HSL")
+    seeded.add(institution)
+    await seeded.flush()
+    period = AuditPeriod(
+        institution_id=institution.id,
+        date_from=datetime.date(2024, 1, 1),
+        date_to=datetime.date(2024, 1, 31),
+        period_label="2024-01",
+    )
+    seeded.add(period)
+    await seeded.flush()
+    with patch("app.paths.audit_data_root", tmp_path):
+        ctx = make_context(institution, period, seeded, {})
+        ctx["stage_path"].mkdir(parents=True)
+        yield ctx
+
+
+async def _run(name: str, ctx) -> list[str]:
+    return [line async for line in STAGE_HANDLERS[name](ctx)]
+
+
+def _invoice(stage_path: Path, number: str, text: str | None, folder: str | None = None) -> Path:
+    folder_path = stage_path / (folder or f"HSL{number}")
+    folder_path.mkdir(exist_ok=True)
+    pdf = folder_path / f"FEV_900123456_HSL{number}.pdf"
+    _pdf(pdf, text)
+    return pdf
+
+
+pytestmark = pytest.mark.db
+
+
+class TestVerifyStages:
+    async def test_verify_cufe_flags_only_the_invoice_without_cufe(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        _invoice(stage_path, "1", f"Factura HSL1\nCUFE: {CUFE}\n")
+        _invoice(stage_path, "2", "Factura HSL2 sin codigo")
+
+        lines = await _run("VERIFY_CUFE", stage_env)
+
+        assert any("Sin CUFE: FEV_900123456_HSL2.pdf" in line for line in lines)
+        assert not any("HSL1.pdf" in line and "Sin CUFE" in line for line in lines)
+        assert any("Facturas sin CUFE: 1" in line for line in lines)
+        assert any('"type": "progress"' in line and '"current": 2' in line for line in lines)
+
+    async def test_verify_invoice_code_flags_a_pdf_that_lacks_its_own_number(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        _invoice(stage_path, "10", "Esta factura es HSL10 de verdad")
+        _invoice(stage_path, "11", "Texto sin el numero")
+
+        lines = await _run("VERIFY_INVOICE_CODE", stage_env)
+
+        assert any("Sin número de factura en PDF: FEV_900123456_HSL11.pdf" in line for line in lines)
+        assert not any("HSL10.pdf" in line and "Sin número" in line for line in lines)
+        assert any("Facturas sin código: 1" in line for line in lines)
+
+    async def test_list_unreadable_pdfs_finds_pdfs_without_a_text_layer(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        _invoice(stage_path, "20", "texto legible HSL20")
+        _invoice(stage_path, "21", None)  # a blank page: no text layer
+
+        lines = await _run("LIST_UNREADABLE_PDFS", stage_env)
+
+        assert any("Sin capa de texto: FEV_900123456_HSL21.pdf" in line for line in lines)
+        assert not any("HSL20.pdf" in line and "Sin capa" in line for line in lines)
+        assert any("PDFs de factura encontrados: 2" in line for line in lines)
+
+    async def test_check_invoice_number_on_files_reports_a_misfiled_document(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        _invoice(stage_path, "30", "x")
+        misfiled = _invoice(stage_path, "31", "x", folder="HSL30")  # HSL31's file inside HSL30's folder
+        assert misfiled.parent.name == "HSL30"
+
+        lines = await _run("CHECK_INVOICE_NUMBER_ON_FILES", stage_env)
+
+        assert any("Archivo desajustado: FEV_900123456_HSL31.pdf" in line for line in lines)
+        assert any("Archivos desajustados: 1" in line for line in lines)
+
+
+class TestStageFolderGuard:
+    async def test_a_missing_stage_folder_ends_the_stage_with_one_warning(self, stage_env):
+        stage_env["stage_path"].rmdir()
+
+        lines = await _run("VERIFY_CUFE", stage_env)
+
+        assert len(lines) == 1
+        assert lines[0].startswith("[WARN]") and "Directorio STAGE no existe" in lines[0]
+
+    async def test_stages_that_cannot_run_without_the_folder_report_an_error(self, stage_env):
+        stage_env["stage_path"].rmdir()
+
+        lines = await _run("CHECK_NESTED_FOLDERS", stage_env)
+
+        assert len(lines) == 1 and lines[0].startswith("[ERROR]")
+
+
+class TestRegistryGuard:
+    async def test_guard_skips_the_handler_body(self, tmp_path):
+        ran = []
+
+        @stage("__GUARD_TEST__", requires="audit", missing="ERROR")
+        async def _handler(ctx):
+            ran.append(True)
+            yield "[INFO] ran"
+
+        try:
+            ctx = {"audit_path": tmp_path / "AUDIT"}
+            assert [line async for line in STAGE_HANDLERS["__GUARD_TEST__"](ctx)][0].startswith("[ERROR]")
+            assert ran == []
+            ctx["audit_path"].mkdir()
+            assert [line async for line in STAGE_HANDLERS["__GUARD_TEST__"](ctx)] == ["[INFO] ran"]
+        finally:
+            STAGE_HANDLERS.pop("__GUARD_TEST__", None)
+
+
+class TestProgressJob:
+    async def test_streams_the_bar_and_exposes_the_result(self):
+        def work(on_progress, cancel):
+            for i in range(1, 4):
+                on_progress(i, 3, f"f{i}")
+            return "done"
+
+        job = ProgressJob(work, {}, label="Cosas", total=3)
+        lines = [line async for line in job]
+
+        assert job.result == "done"
+        assert lines[0].startswith("[DATA]") and '"current": 0' in lines[0] and '"total": 3' in lines[0]
+        assert '"label": "Cosas"' in lines[-1]
