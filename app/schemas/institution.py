@@ -162,3 +162,12 @@ class ServiceUpdate(BaseModel):
 class ServiceCreate(BaseModel):
     raw_service: str
     service_type_id: int | None = None
+
+
+class MappingsCopyRequest(BaseModel):
+    source_institution_id: int
+
+
+class MappingsCopyOut(BaseModel):
+    services: int
+    documents: int

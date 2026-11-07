@@ -34,6 +34,7 @@ Todos los endpoints tienen el prefijo `/api`. Swagger UI disponible en `/docs` c
 | `GET` | `/api/institutions/{id}/service-type-documents` | Listar documentos requeridos por tipo de servicio |
 | `POST` | `/api/institutions/{id}/service-type-documents` | Agregar documento requerido a tipo de servicio |
 | `DELETE` | `/api/institutions/{id}/service-type-documents/{st_id}/{dt_id}` | Quitar documento requerido |
+| `POST` | `/api/institutions/{id}/copy-mappings` | Reemplazar servicios y documentos por servicio de `{id}` con una copia de `source_institution_id` (body). Devuelve `{services, documents}` |
 
 ### Periodos de auditoría — `/api/institutions/{id}/periods`
 

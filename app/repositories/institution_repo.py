@@ -383,6 +383,46 @@ class InstitutionRepo:
         )
         await self.db.flush()
 
+    async def copy_mappings(self, source_id: int, target_id: int) -> dict[str, int]:
+        """Replace target's services and service-type-documents with a copy of source's.
+
+        No commit — caller owns the transaction, so a failure leaves target untouched.
+        """
+        services = await self.get_services(source_id)
+        stdocs = await self.get_service_type_documents(source_id)
+
+        await self.db.execute(delete(Service).where(Service.institution_id == target_id))
+        await self.db.execute(delete(ServiceTypeDocument).where(ServiceTypeDocument.institution_id == target_id))
+
+        if services:
+            await self.db.execute(
+                pg_insert(Service).values(
+                    [
+                        {
+                            "institution_id": target_id,
+                            "raw_service": s.raw_service,
+                            "service_type_id": s.service_type_id,
+                        }
+                        for s in services
+                    ]
+                )
+            )
+        if stdocs:
+            await self.db.execute(
+                pg_insert(ServiceTypeDocument).values(
+                    [
+                        {
+                            "institution_id": target_id,
+                            "service_type_id": d.service_type_id,
+                            "doc_type_id": d.doc_type_id,
+                        }
+                        for d in stdocs
+                    ]
+                )
+            )
+        await self.db.flush()
+        return {"services": len(services), "documents": len(stdocs)}
+
     # ------------------------------------------------------------------
     # Create / Delete helpers
     # ------------------------------------------------------------------

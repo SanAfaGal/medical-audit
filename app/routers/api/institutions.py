@@ -31,6 +31,8 @@ from app.schemas.institution import (  # noqa: E402
     InstitutionCreate,
     InstitutionOut,
     InstitutionUpdate,
+    MappingsCopyOut,
+    MappingsCopyRequest,
     ServiceCreate,
     ServiceOut,
     ServiceUpdate,
@@ -418,6 +420,21 @@ async def create_service(institution_id: int, data: ServiceCreate, db: AsyncSess
     svc = await repo.create_service(institution_id, data.raw_service, data.service_type_id or None)
     await db.commit()
     return svc
+
+
+@router.post("/{institution_id}/copy-mappings", response_model=MappingsCopyOut)
+async def copy_mappings(institution_id: int, data: MappingsCopyRequest, db: AsyncSession = Depends(get_db)):
+    """Replace this institution's services and doc-per-service mappings with a copy from a reference institution."""
+    if data.source_institution_id == institution_id:
+        raise HTTPException(400, "La institución de origen y destino son la misma")
+    repo = InstitutionRepo(db)
+    if not await repo.get_by_id(institution_id):
+        raise HTTPException(404, "Institución destino no encontrada")
+    if not await repo.get_by_id(data.source_institution_id):
+        raise HTTPException(404, "Institución de origen no encontrada")
+    result = await repo.copy_mappings(data.source_institution_id, institution_id)
+    await db.commit()
+    return result
 
 
 @router.delete("/services/{service_id}", status_code=204)

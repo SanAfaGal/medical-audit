@@ -920,6 +920,29 @@
         </div>
       </template>
 
+      <!-- Copy mappings from a reference institution -->
+      <template x-if="$store.ctx.institutionId">
+        <div class="cfg-card p-4 space-y-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <i class="fa-solid fa-copy text-xs" style="color:var(--text-3)"></i>
+            <span class="text-xs font-medium" style="color:var(--text-2)">Copiar mapeos desde un hospital referente</span>
+            <select x-model="copySourceId" class="cfg-input" style="max-width:260px" @change="copyConfirm = false">
+              <option value="">Seleccionar hospital…</option>
+              <template x-for="i in institutions.filter(i => i.id !== $store.ctx.institutionId)" :key="i.id">
+                <option :value="i.id" x-text="i.display_name"></option>
+              </template>
+            </select>
+            <button type="button" class="cfg-btn-sm cfg-btn-sky" :disabled="!copySourceId || copyBusy"
+                    x-show="!copyConfirm" @click="copyConfirm = true">Copiar</button>
+          </div>
+          <div x-show="copyConfirm" class="flex flex-wrap items-center gap-2 text-xs" style="color:var(--red)">
+            <span>Esto reemplazará los <b x-text="allServices.length"></b> servicios y <b x-text="serviceTypeDocs.length"></b> documentos actuales de <b x-text="$store.ctx.institution?.display_name"></b>. No se puede deshacer.</span>
+            <button type="button" class="cfg-btn-sm cfg-btn-red" :disabled="copyBusy" @click="copyMappings()">Sí, reemplazar</button>
+            <button type="button" class="cfg-btn-sm" @click="copyConfirm = false">Cancelar</button>
+          </div>
+        </div>
+      </template>
+
       <div class="cfg-card">
         <!-- Sub-tabs -->
         <div class="flex" style="border-bottom:1px solid var(--border);background:var(--bg-subtle)">
@@ -1690,6 +1713,7 @@ function settingsApp() {
 
     // Mapeos
     mapSubTab: 'services',
+    copySourceId: '', copyConfirm: false, copyBusy: false,
     allServices: [], serviceTypeDocs: [],
     editingServiceId: null, editingServiceTypeId: '',
     confirmDeleteServiceId: null,
@@ -1997,6 +2021,27 @@ function settingsApp() {
         ]);
         this.allServices = services; this.serviceTypeDocs = stdocs;
       }
+    },
+
+    async copyMappings() {
+      const id = this.$store.ctx.institutionId;
+      if (!id || !this.copySourceId) return;
+      this.copyBusy = true;
+      try {
+        const res = await fetch(`/api/institutions/${id}/copy-mappings`, {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ source_institution_id: parseInt(this.copySourceId) }),
+        });
+        if (res.ok) {
+          const r = await res.json();
+          this.copySourceId = ''; this.copyConfirm = false;
+          await this.loadMappings();
+          this.showToast(`Copiado: ${r.services} servicios y ${r.documents} documentos.`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          this.showToast(err.detail || 'Error al copiar mapeos.', 'error');
+        }
+      } finally { this.copyBusy = false; }
     },
 
     // Services
