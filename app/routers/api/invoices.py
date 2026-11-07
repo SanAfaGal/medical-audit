@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import Response
@@ -269,6 +270,37 @@ async def export_invoices(period_id: int, db: AsyncSession = Depends(get_db)):
     )
 
 
+def _period_sandbox(institution_name: str, period_label: str) -> Path:
+    """Sandbox of a period: audit_root/<institution>/<period> (read at call time so tests can patch the root)."""
+    from app.paths import audit_data_root
+
+    return (audit_data_root / institution_name / period_label).resolve()
+
+
+def _invoice_folder(sandbox: Path, folder_path: str) -> Path:
+    """Resolve a client-supplied folder inside the period sandbox, at least one level below DRIVE/STAGE/AUDIT.
+
+    Raises ValueError for anything else (escapes, the sandbox itself, a phase folder, empty or ".").
+    """
+    from app.paths import safe_resolve
+
+    folder = safe_resolve(sandbox, folder_path)
+    if len(folder.relative_to(sandbox).parts) < 2:
+        raise ValueError("not an invoice folder")
+    return folder
+
+
+async def _invoice_sandbox(db: AsyncSession, invoice) -> Path:
+    """Sandbox of the period the invoice belongs to (the client cannot choose another one)."""
+    from app.repositories.institution_repo import InstitutionRepo
+
+    period = await InvoiceRepo(db).get_period_by_id(invoice.audit_period_id)
+    institution = await InstitutionRepo(db).get_by_id(period.institution_id) if period else None
+    if not period or not institution:
+        raise HTTPException(404, "Período de la factura no encontrado")
+    return _period_sandbox(institution.name, period.period_label)
+
+
 class RenameSurplusRequest(BaseModel):
     folder_path: str
     old_filename: str
@@ -284,7 +316,6 @@ async def rename_surplus_file(
     """Rename a surplus file to match the required doc-type prefix and resolve the finding."""
     import os
 
-    from app.paths import audit_data_root, safe_resolve
     from app.repositories.rules_repo import RulesRepo
 
     repo = InvoiceRepo(db)
@@ -297,9 +328,9 @@ async def rename_surplus_file(
 
     rules_repo = RulesRepo(db)
     try:
-        folder = safe_resolve(audit_data_root, data.folder_path)
+        folder = _invoice_folder(await _invoice_sandbox(db, invoice), data.folder_path)
     except ValueError as exc:
-        raise HTTPException(400, "Ruta fuera del directorio de auditoría") from exc
+        raise HTTPException(400, "Ruta fuera del directorio del período") from exc
 
     if not folder.is_dir():
         raise HTTPException(400, "Carpeta no encontrada")
@@ -339,7 +370,7 @@ async def delete_surplus_file(
     """Delete a surplus file from disk."""
     import os
 
-    from app.paths import audit_data_root, safe_resolve
+    from app.paths import safe_resolve
 
     repo = InvoiceRepo(db)
     invoice = await repo.get_by_id(invoice_id)
@@ -350,12 +381,12 @@ async def delete_surplus_file(
         raise HTTPException(400, "Nombre de archivo inválido")
 
     try:
-        folder = safe_resolve(audit_data_root, data.folder_path)
+        folder = _invoice_folder(await _invoice_sandbox(db, invoice), data.folder_path)
+        target = safe_resolve(folder, data.filename)  # also rejects a symlink pointing outside the folder
     except ValueError as exc:
-        raise HTTPException(400, "Ruta fuera del directorio de auditoría") from exc
+        raise HTTPException(400, "Ruta fuera del directorio del período") from exc
 
-    target = folder / data.filename
-    if not target.exists():
+    if not target.is_file():
         raise HTTPException(404, "Archivo no encontrado en disco")
 
     os.remove(target)
@@ -390,7 +421,6 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     import asyncio
     import shutil
 
-    from app.paths import audit_data_root, safe_resolve
     from app.repositories.institution_repo import InstitutionRepo
 
     inv_repo = InvoiceRepo(db)
@@ -402,7 +432,7 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     period = await inv_repo.get_period_by_id(data.period_id)
     if not period or period.institution_id != data.institution_id:
         raise HTTPException(404, "Período no encontrado")
-    sandbox = (audit_data_root / institution.name / period.period_label).resolve()
+    sandbox = _period_sandbox(institution.name, period.period_label)
 
     anular_status = await inv_repo.get_or_create_folder_status("ANULAR")
 
@@ -418,9 +448,7 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
         # Security: the folder must be inside the period sandbox and at least one level below a
         # phase folder (DRIVE/STAGE/AUDIT). Empty, "." or a phase folder itself would wipe far too much.
         try:
-            folder = safe_resolve(sandbox, decision.folder_path)
-            if len(folder.relative_to(sandbox).parts) < 2:
-                raise ValueError("not an invoice folder")
+            folder = _invoice_folder(sandbox, decision.folder_path)
         except ValueError:
             errors.append(f"Ruta fuera del directorio del período: {decision.folder_path}")
             continue
