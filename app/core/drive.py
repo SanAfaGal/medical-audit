@@ -30,6 +30,11 @@ _MAX_RETRIES: int = 4
 _RETRY_BACKOFF_BASE: float = 2.0  # seconds; doubles on each attempt
 
 
+def _q(value: str) -> str:
+    """Escape a value for use inside a single-quoted Drive query string."""
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
 class DriveSync:
     """Client for the Google Drive API.
 
@@ -65,7 +70,7 @@ class DriveSync:
 
     def find_folders_by_name(self, folder_name: str) -> list[dict]:
         """Search Drive for folders whose names contain the given string."""
-        query = f"name contains '{folder_name}' and mimeType = '{_DRIVE_FOLDER_MIME}' and trashed = false"
+        query = f"name contains '{_q(folder_name)}' and mimeType = '{_DRIVE_FOLDER_MIME}' and trashed = false"
         request = self.service.files().list(
             q=query,
             fields="files(id, name, parents)",
@@ -178,7 +183,7 @@ class DriveSync:
 
         for offset in range(0, len(invoice_numbers), _DRIVE_FILE_BATCH_SIZE):
             chunk = invoice_numbers[offset : offset + _DRIVE_FILE_BATCH_SIZE]
-            names_clause = " or ".join(f"name contains '{n}'" for n in chunk)
+            names_clause = " or ".join(f"name contains '{_q(n)}'" for n in chunk)
             query = f"({names_clause}) and mimeType = '{_DRIVE_FOLDER_MIME}' and trashed = false"
             request = self.service.files().list(
                 q=query,
@@ -285,7 +290,7 @@ class DriveSync:
 
         for offset in range(0, len(names), _DRIVE_FILE_BATCH_SIZE):
             chunk = names[offset : offset + _DRIVE_FILE_BATCH_SIZE]
-            names_clause = " or ".join(f"name = '{n}'" for n in chunk)
+            names_clause = " or ".join(f"name = '{_q(n)}'" for n in chunk)
             query = f"({names_clause}) and mimeType != '{_DRIVE_FOLDER_MIME}' and trashed = false"
             request = self.service.files().list(
                 q=query,

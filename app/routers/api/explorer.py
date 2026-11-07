@@ -119,30 +119,35 @@ async def list_directory(
     if not target.is_dir():
         raise HTTPException(400, "La ruta no es un directorio")
 
-    entries: list[FileNode] = []
-    try:
-        for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-            if item.is_dir():
-                entries.append(
-                    FileNode(
-                        name=item.name,
-                        path=str(item.relative_to(sandbox)).replace("\\", "/"),
-                        is_dir=True,
-                        file_count=sum(1 for f in item.rglob("*") if f.is_file()),
+    def _scan() -> list[FileNode]:
+        found: list[FileNode] = []
+        try:
+            for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                if item.is_dir():
+                    found.append(
+                        FileNode(
+                            name=item.name,
+                            path=str(item.relative_to(sandbox)).replace("\\", "/"),
+                            is_dir=True,
+                            file_count=sum(1 for f in item.rglob("*") if f.is_file()),
+                        )
                     )
-                )
-            elif item.is_file():
-                entries.append(
-                    FileNode(
-                        name=item.name,
-                        path=str(item.relative_to(sandbox)).replace("\\", "/"),
-                        is_dir=False,
-                        is_pdf=item.suffix.lower() == ".pdf",
-                        size=item.stat().st_size,
+                elif item.is_file():
+                    found.append(
+                        FileNode(
+                            name=item.name,
+                            path=str(item.relative_to(sandbox)).replace("\\", "/"),
+                            is_dir=False,
+                            is_pdf=item.suffix.lower() == ".pdf",
+                            size=item.stat().st_size,
+                        )
                     )
-                )
-    except PermissionError as e:
-        raise HTTPException(403, f"Sin permiso para leer el directorio: {e}")
+        except PermissionError as e:
+            raise HTTPException(403, f"Sin permiso para leer el directorio: {e}")
+        return found
+
+    # Directory walks can touch thousands of files: run them off the event loop.
+    entries = await asyncio.to_thread(_scan)
 
     return ListResponse(entries=entries, current_path=rel)
 
@@ -495,24 +500,28 @@ async def search_entries(
         return ListResponse(entries=[], current_path=rel)
 
     q_lower = q.lower()
-    entries: list[FileNode] = []
 
-    for item in sorted(base.rglob("*"), key=lambda x: (not x.is_dir(), x.name.lower())):
-        if q_lower not in item.name.lower():
-            continue
-        if not item.is_dir() and not item.is_file():
-            continue
-        entries.append(
-            FileNode(
-                name=item.name,
-                path=str(item.relative_to(sandbox)).replace("\\", "/"),
-                is_dir=item.is_dir(),
-                is_pdf=item.is_dir() or item.suffix.lower() == ".pdf",
-                size=item.stat().st_size if item.is_file() else None,
+    def _search() -> list[FileNode]:
+        found: list[FileNode] = []
+        for item in sorted(base.rglob("*"), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if q_lower not in item.name.lower():
+                continue
+            if not item.is_dir() and not item.is_file():
+                continue
+            found.append(
+                FileNode(
+                    name=item.name,
+                    path=str(item.relative_to(sandbox)).replace("\\", "/"),
+                    is_dir=item.is_dir(),
+                    is_pdf=item.is_dir() or item.suffix.lower() == ".pdf",
+                    size=item.stat().st_size if item.is_file() else None,
+                )
             )
-        )
-        if len(entries) >= _SEARCH_MAX_RESULTS:
-            break
+            if len(found) >= _SEARCH_MAX_RESULTS:
+                break
+        return found
+
+    entries = await asyncio.to_thread(_search)
 
     return ListResponse(entries=entries, current_path=rel)
 
@@ -540,11 +549,15 @@ async def copy_entry(body: CopyRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(400, "No puedes copiar una carpeta dentro de sí misma")
 
     dst = dst_folder / src.name
-    try:
+
+    def _copy() -> None:
         if src.is_file():
             shutil.copy2(src, dst)
         else:
             shutil.copytree(src, dst, dirs_exist_ok=True)
+
+    try:
+        await asyncio.to_thread(_copy)
     except OSError as e:
         logger.error("Error al copiar %s a %s: %s", src, dst, e)
         raise HTTPException(500, "Error al copiar el archivo o carpeta")
@@ -562,7 +575,7 @@ async def delete_entry(body: DeleteRequest, db: AsyncSession = Depends(get_db)):
     """Elimina un archivo o carpeta (con todo su contenido si es carpeta)."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
     target = _safe_resolve(sandbox, body.path)
-    message = _delete_path(target, sandbox)
+    message = await asyncio.to_thread(_delete_path, target, sandbox)
     return OperationResult(ok=True, message=message)
 
 
@@ -582,7 +595,7 @@ async def delete_batch(body: DeleteBatchRequest, db: AsyncSession = Depends(get_
     for rel_path in body.paths:
         try:
             target = _safe_resolve(sandbox, rel_path)
-            _delete_path(target, sandbox)
+            await asyncio.to_thread(_delete_path, target, sandbox)
             deleted.append(rel_path)
         except HTTPException as exc:
             errors.append(f"{rel_path}: {exc.detail}")

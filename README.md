@@ -266,6 +266,9 @@ Ambos stacks pueden correr al mismo tiempo sin conflicto (nombres de proyecto y 
 - **Sin autenticación** — la app no pide usuario ni contraseña: cualquiera que alcance el puerto accede a todo (datos de auditoría y administración de credenciales SIHOS/Drive). Exponerla solo en una red de confianza (LAN cerrada, VPN o firewall); no publicarla a internet.
 - **`.env` nunca se commitea** — está en `.gitignore`. Usar `.env.example` como plantilla.
 - **Variables requeridas son obligatorias** — `docker-compose.yml` usa sintaxis `:?` para `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `SECRET_KEY`. Si alguna falta, Docker Compose aborta con error explícito.
+- **URL de SIHOS validada (anti-SSRF)** — `sihos_base_url` solo admite `http(s)` y rechaza loopback, enlaces locales y endpoints de metadatos (`app/core/urlcheck.py`); se revalida resolviendo DNS justo antes de abrir el navegador, y el navegador bloquea redirecciones a esas direcciones. Las IP privadas (LAN) siguen permitidas.
+- **Archivos comprimidos acotados** — `load-drive-zip` limita el tamaño subido (1 GB) y descomprimido (5 GB), el número de elementos, rechaza rutas inseguras y enlaces simbólicos (`app/services/archive.py`).
+- **Trabajo pesado fuera del event loop** — el backend corre con un solo worker, así que escaneos de disco, extracción y lectura de Excel se ejecutan con `asyncio.to_thread`; no bloquear el loop en endpoints `async`.
 - **Secretos cifrados en reposo** — contraseñas SIHOS y credenciales de Google Drive se almacenan en DB cifradas vía `app/crypto.py`. La clave proviene de `SECRET_KEY`.
 - **Logos almacenados en DB** — los logos de instituciones se guardan como `BYTEA` en PostgreSQL y se sirven vía API, sin volúmenes compartidos.
 - **Contenedor sin root** — la imagen Docker corre como `appuser`, no como `root`.

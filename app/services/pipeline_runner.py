@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
+import logging
 import shutil
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
@@ -114,6 +114,23 @@ def plog(
         parts.append(f"[{folder}]")
     parts.append(msg)
     return " ".join(parts)
+
+
+_INVOICE_NUMBER_RE = re.compile(r"[\w.\-]{1,50}")
+
+
+def _sihos_url_error(institution) -> str | None:
+    """Re-validate the stored SIHOS URL (with DNS) right before the server's browser opens it."""
+    from app.core.urlcheck import validate_portal_url
+
+    url = institution.sihos_base_url or ""
+    if not url.strip():
+        return "La institución no tiene URL de SIHOS configurada."
+    try:
+        validate_portal_url(url, resolve=True)
+    except ValueError as exc:
+        return f"URL de SIHOS no permitida: {exc}"
+    return None
 
 
 async def _build_ct_map(db, period) -> dict[str, str]:
@@ -642,6 +659,10 @@ async def _download_invoices_from_sihos(ctx: dict) -> AsyncGenerator[str, None]:
         yield plog("ERROR", "Credenciales SIHOS no configuradas en la institución.")
         return
 
+    if url_error := _sihos_url_error(institution):
+        yield plog("ERROR", url_error)
+        return
+
     doc_type_result = await db.execute(select(DocType).where(DocType.id == doc_type_id))
     doc_type = doc_type_result.scalar_one_or_none()
     if not doc_type:
@@ -721,6 +742,10 @@ async def _download_medication_sheets(ctx: dict) -> AsyncGenerator[str, None]:
 
     if not institution.sihos_user or not institution.sihos_password:
         yield plog("ERROR", "Credenciales SIHOS no configuradas en la institución.")
+        return
+
+    if url_error := _sihos_url_error(institution):
+        yield plog("ERROR", url_error)
         return
 
     doc_type_result = await db.execute(select(DocType).where(DocType.id == doc_type_id))
@@ -1463,8 +1488,13 @@ async def _download_drive(ctx: dict) -> AsyncGenerator[str, None]:
     inv_repo: InvoiceRepo | None = None
 
     if manual_list is not None:
-        missing = manual_list
+        # The numbers end up inside Drive search queries: accept only plain identifiers.
+        missing = [n for n in manual_list if _INVOICE_NUMBER_RE.fullmatch(n)]
+        if len(missing) != len(manual_list):
+            yield plog("WARN", f"Se ignoraron {len(manual_list) - len(missing)} número(s) con caracteres no válidos.")
         yield plog("INFO", f"Modo manual: {len(missing)} carpeta(s) ingresadas.")
+        if not missing:
+            return
     else:
         inv_repo = InvoiceRepo(db)
         missing = await inv_repo.get_invoice_numbers_by_status(period.id, "FALTANTE")
@@ -1578,7 +1608,7 @@ async def _compress_audit(ctx: dict) -> AsyncGenerator[str, None]:
         yield plog("WARN", f"Directorio AUDIT no existe: {audit_path}")
         return
 
-    all_pdfs = list(audit_path.rglob("*.pdf"))
+    all_pdfs = await loop.run_in_executor(None, lambda: list(audit_path.rglob("*.pdf")))
     yield plog("INFO", f"PDFs encontrados en AUDIT: {len(all_pdfs)}")
 
     if not all_pdfs:
@@ -1645,11 +1675,11 @@ async def _exportar_auditados(ctx: dict) -> AsyncGenerator[str, None]:
         yield plog("WARN", "Directorio AUDIT no existe — no hay nada que exportar.")
         return
 
-    all_files = [f for f in audit_path.rglob("*") if f.is_file()]
+    all_files = await asyncio.to_thread(lambda: [f for f in audit_path.rglob("*") if f.is_file()])
     if not all_files:
         yield plog("INFO", "No hay archivos en AUDIT para exportar.")
         return
 
-    total_mb = sum(f.stat().st_size for f in all_files) / (1024 * 1024)
+    total_mb = await asyncio.to_thread(lambda: sum(f.stat().st_size for f in all_files)) / (1024 * 1024)
     yield plog("INFO", f"{len(all_files)} archivos listos para descargar ({total_mb:.1f} MB)")
     yield plog("DATA", f"export_ready:{len(all_files)}")

@@ -1,9 +1,18 @@
 """Pydantic schemas for institutions, administrators, contracts, contract_types, agreements, and services."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.urlcheck import validate_portal_url
 
 # Letras latinas con tildes/ñ/ü permitidas (nombres en español); sigue bloqueando separadores de ruta y puntos.
 _SAFE_NAME_PATTERN = r"^[A-Za-z0-9_\- áéíóúüñÁÉÍÓÚÜÑ]+$"
+
+
+def _check_portal_url(value: str | None) -> str | None:
+    """Reject portal URLs that would let the server's browser reach loopback/metadata addresses."""
+    if value is None or not value.strip():
+        return value
+    return validate_portal_url(value)
 
 
 class InstitutionCreate(BaseModel):
@@ -17,6 +26,8 @@ class InstitutionCreate(BaseModel):
     sihos_password: str | None = None  # plaintext — encrypted before DB insert
     drive_credentials_json: str | None = None  # plaintext JSON — encrypted before DB insert
 
+    _validate_sihos_url = field_validator("sihos_base_url")(_check_portal_url)
+
 
 class InstitutionUpdate(BaseModel):
     name: str | None = Field(None, pattern=_SAFE_NAME_PATTERN, max_length=100)
@@ -28,6 +39,8 @@ class InstitutionUpdate(BaseModel):
     sihos_user: str | None = None
     sihos_password: str | None = None  # plaintext — encrypted before DB insert
     drive_credentials_json: str | None = None  # plaintext JSON — encrypted before DB insert
+
+    _validate_sihos_url = field_validator("sihos_base_url")(_check_portal_url)
 
 
 class InstitutionOut(BaseModel):

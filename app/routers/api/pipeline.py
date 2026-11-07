@@ -18,11 +18,12 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.paths import audit_data_root, safe_join
+from app.paths import audit_data_root
 from app.repositories.institution_repo import InstitutionRepo
 from app.repositories.invoice_repo import InvoiceRepo
 
 from app.services import pipeline_runner
+from app.services.archive import MAX_ARCHIVE_BYTES, ArchiveError, ArchiveToolMissing, extract_archive
 from app.services.stage_events import heartbeat_event, with_heartbeat
 from app.services.task_manager import HEARTBEAT_SECONDS, PipelineTaskManager, TaskAlreadyRunningError
 
@@ -218,96 +219,17 @@ async def load_drive_zip(
     drive_path: Path = audit_data_root / institution.name / period.period_label / "DRIVE"
     drive_path.mkdir(parents=True, exist_ok=True)
 
-    filename = file.filename or ""
-    file_bytes = await file.read()
-    ext = Path(filename).suffix.lower()
+    file_bytes = await file.read(MAX_ARCHIVE_BYTES + 1)
+    if len(file_bytes) > MAX_ARCHIVE_BYTES:
+        raise HTTPException(413, f"Archivo demasiado grande (máx {MAX_ARCHIVE_BYTES // 1024**3} GB)")
 
-    extracted: list[str] = []
-
-    if ext == ".zip":
-        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
-            members = [m for m in zf.infolist() if not m.filename.endswith("/")]
-            # Solo eliminar el directorio raíz si TODOS los archivos comparten
-            # exactamente un directorio de nivel superior (es decir, el ZIP tiene
-            # una carpeta envolvente). Si hay múltiples carpetas de nivel superior
-            # (estructura real de facturas), preservar la ruta completa.
-            top_levels = {Path(m.filename).parts[0] for m in members if Path(m.filename).parts}
-            has_single_wrapper = len(top_levels) == 1
-            for member in members:
-                parts = Path(member.filename).parts
-                if has_single_wrapper and len(parts) > 1:
-                    rel = Path(*parts[1:])
-                else:
-                    rel = Path(*parts)
-                try:
-                    dest = safe_join(drive_path, str(rel))
-                except ValueError:
-                    raise HTTPException(400, f"Ruta insegura en ZIP: {member.filename}")
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(zf.read(member.filename))
-                extracted.append(str(rel))
-
-    elif ext == ".7z":
-        import tempfile
-        import shutil
-
-        try:
-            import py7zr
-        except ImportError:
-            raise HTTPException(500, "py7zr no está instalado (soporte .7z no disponible)")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with py7zr.SevenZipFile(io.BytesIO(file_bytes), mode="r") as szf:
-                all_names = szf.getnames()
-                top_levels = {Path(n).parts[0] for n in all_names if Path(n).parts}
-                szf.extractall(path=tmpdir)
-            src_root = Path(tmpdir)
-            # Si hay un único directorio wrapper, bajar un nivel
-            if len(top_levels) == 1:
-                wrapper = Path(tmpdir) / top_levels.pop()
-                if wrapper.is_dir():
-                    src_root = wrapper
-            for item in src_root.iterdir():
-                dest = drive_path / item.name
-                if item.is_dir():
-                    shutil.copytree(str(item), str(dest), dirs_exist_ok=True)
-                else:
-                    shutil.copy2(str(item), str(dest))
-        extracted = [str(p) for p in drive_path.rglob("*") if p.is_file()]
-
-    elif ext == ".rar":
-        import tempfile
-        import shutil
-
-        try:
-            import rarfile
-        except ImportError:
-            raise HTTPException(500, "rarfile no está instalado (soporte .rar no disponible)")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with tempfile.NamedTemporaryFile(suffix=".rar", delete=False) as tmp:
-                tmp.write(file_bytes)
-                tmp_path = tmp.name
-            try:
-                with rarfile.RarFile(tmp_path) as rf:
-                    all_names = rf.namelist()
-                    top_levels = {Path(n).parts[0] for n in all_names if Path(n).parts}
-                    rf.extractall(path=tmpdir)
-            finally:
-                Path(tmp_path).unlink(missing_ok=True)
-            src_root = Path(tmpdir)
-            if len(top_levels) == 1:
-                wrapper = Path(tmpdir) / top_levels.pop()
-                if wrapper.is_dir():
-                    src_root = wrapper
-            for item in src_root.iterdir():
-                dest = drive_path / item.name
-                if item.is_dir():
-                    shutil.copytree(str(item), str(dest), dirs_exist_ok=True)
-                else:
-                    shutil.copy2(str(item), str(dest))
-        extracted = [str(p) for p in drive_path.rglob("*") if p.is_file()]
-
-    else:
-        raise HTTPException(400, f"Formato no soportado: '{ext}'. Use .zip, .7z o .rar")
+    try:
+        # Extraction is blocking disk work: keep it off the event loop.
+        extracted = await asyncio.to_thread(extract_archive, file_bytes, file.filename or "", drive_path)
+    except ArchiveToolMissing as exc:
+        raise HTTPException(500, str(exc))
+    except ArchiveError as exc:
+        raise HTTPException(400, str(exc))
 
     return {
         "ok": True,
@@ -408,7 +330,7 @@ async def stream_audit_zip(
     if not audit_path.is_dir():
         raise HTTPException(404, "Directorio AUDIT no encontrado")
 
-    all_files = [f for f in audit_path.rglob("*") if f.is_file()]
+    all_files = await asyncio.to_thread(lambda: [f for f in audit_path.rglob("*") if f.is_file()])
     if not all_files:
         raise HTTPException(404, "No hay archivos en AUDIT")
 

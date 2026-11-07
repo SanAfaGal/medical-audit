@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 
@@ -79,7 +80,7 @@ async def ingest(
     if not default_fs:
         raise RuntimeError(f"Folder status '{_DEFAULT_FOLDER_STATUS}' not found — run seeds first.")
 
-    raw_df = load_excel(file_bytes)
+    raw_df = await asyncio.to_thread(load_excel, file_bytes)  # pandas parsing is CPU-bound
     df = _normalize(raw_df)
     skipped = int(df["FECHA"].isna().sum())
 

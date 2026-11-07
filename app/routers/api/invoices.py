@@ -388,6 +388,7 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     - Updates the invoice's folder_status to ANULAR in the DB (if invoice_id provided).
     - Deletes the folder and all its contents from disk.
     """
+    import asyncio
     import shutil
 
     from sqlalchemy import select, update
@@ -429,7 +430,7 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
 
         # Delete folder from disk
         if folder.exists() and folder.is_dir():
-            shutil.rmtree(folder)
+            await asyncio.to_thread(shutil.rmtree, folder)
 
         annulled += 1
 
