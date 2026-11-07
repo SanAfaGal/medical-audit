@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 import datetime
 import logging
 
@@ -10,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.repositories._sql import affected_rows
 from app.models.finding import MissingFile
 from app.models.institution import Administrator, Agreement, Contract, ContractType
 from app.models.invoice import Invoice
@@ -204,7 +206,7 @@ class InvoiceRepo:
                 .where(Invoice.audit_period_id == period_id, Invoice.invoice_number == invoice_number)
                 .values(service_type_id=service_type_id)
             )
-            count += result.rowcount  # type: ignore[attr-defined]
+            count += affected_rows(result)
         await self.db.flush()
         return count
 
@@ -219,7 +221,7 @@ class InvoiceRepo:
     async def batch_delete_invoices(self, invoice_ids: list[int]) -> int:
         result = await self.db.execute(delete(Invoice).where(Invoice.id.in_(invoice_ids)))
         await self.db.flush()
-        return result.rowcount  # type: ignore[attr-defined, no-any-return]
+        return affected_rows(result)
 
     # ------------------------------------------------------------------
     # Pipeline helpers
@@ -313,6 +315,21 @@ class InvoiceRepo:
         result = await self.db.execute(q)
         return list(result.scalars().all())
 
+    async def get_with_findings(self, period_id: int) -> list[Invoice]:
+        """Every invoice of the period with what the surplus review needs loaded: contract type, service type and
+        findings with their document type."""
+        q = (
+            select(Invoice)
+            .where(Invoice.audit_period_id == period_id)
+            .options(
+                selectinload(Invoice.agreement).selectinload(Agreement.contract_type),
+                selectinload(Invoice.service_type),
+                selectinload(Invoice.missing_files).selectinload(MissingFile.doc_type),
+            )
+        )
+        result = await self.db.execute(q)
+        return list(result.scalars().all())
+
     async def batch_update_to_auditada(self, period_id: int, invoice_numbers: list[str]) -> int:
         """Update invoices to AUDITADA status by invoice number.
 
@@ -378,7 +395,7 @@ class InvoiceRepo:
         result = await self.db.execute(q.order_by(Invoice.invoice_number))
         return list(result.scalars().all())
 
-    async def get_stats(self, period_id: int) -> dict:
+    async def get_stats(self, period_id: int) -> dict[str, Any]:
         """Return summary stats for a period: counts by status + total findings."""
         status_q = (
             select(FolderStatus.status, func.count(Invoice.id))

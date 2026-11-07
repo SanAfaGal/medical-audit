@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import datetime
 from pathlib import Path
-from unittest.mock import patch
 
 import fitz
 import pytest
 
-from app.models.institution import Institution
-from app.models.period import AuditPeriod
-from app.services.pipeline.context import build_context as make_context
 from app.services.pipeline.registry import STAGE_HANDLERS, stage
 from app.services.stage_events import ProgressJob
-from tests.app.repos.conftest import db_session, seeded, test_engine  # noqa: F401
+from tests.app.stage_helpers import run_stage as _run
 
 CUFE = "a1b2c3d4" * 12  # 96 chars: longer than the 64 the validator requires
 
@@ -26,30 +21,6 @@ def _pdf(path: Path, text: str | None) -> None:
         page.insert_text((36, 60), text, fontsize=9)
     doc.save(str(path))
     doc.close()
-
-
-@pytest.fixture
-async def stage_env(seeded, tmp_path):  # noqa: F811
-    """Institution HOSP (invoice prefix HSL) with an empty period whose STAGE folder exists."""
-    institution = Institution(name="HOSP", display_name="Hosp", nit="900123456", invoice_id_prefix="HSL")
-    seeded.add(institution)
-    await seeded.flush()
-    period = AuditPeriod(
-        institution_id=institution.id,
-        date_from=datetime.date(2024, 1, 1),
-        date_to=datetime.date(2024, 1, 31),
-        period_label="2024-01",
-    )
-    seeded.add(period)
-    await seeded.flush()
-    with patch("app.paths.audit_data_root", tmp_path):
-        ctx = make_context(institution, period, seeded, {})
-        ctx["stage_path"].mkdir(parents=True)
-        yield ctx
-
-
-async def _run(name: str, ctx) -> list[str]:
-    return [line async for line in STAGE_HANDLERS[name](ctx)]
 
 
 def _invoice(stage_path: Path, number: str, text: str | None, folder: str | None = None) -> Path:
