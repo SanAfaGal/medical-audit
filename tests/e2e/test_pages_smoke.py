@@ -146,3 +146,44 @@ class TestScriptsAreServed:
         assert all("?v=" in src for src in sources), sources
         assert failed == []
         assert not session.page_errors
+
+
+class TestNoHalfBuiltPage:
+    """The page stays hidden until Alpine and the fonts are ready: no flash of unstyled or hidden-then-gone content."""
+
+    @pytest.mark.parametrize("path", ["/", "/audit", "/settings", "/help"])
+    def test_page_is_revealed_with_alpine_started_and_the_font_loaded(self, session, path):
+        session.open(path)
+        state = session.page.evaluate(
+            """() => ({
+                revealed: !document.documentElement.classList.contains('preboot'),
+                visible: getComputedStyle(document.body).visibility !== 'hidden',
+                font: document.fonts.check('16px "Plus Jakarta Sans"'),
+            })"""
+        )
+        assert state == {"revealed": True, "visible": True, "font": True}
+
+    def test_x_show_elements_are_never_visible_before_alpine_starts(self, session):
+        session.page.add_init_script(
+            """
+            window.__leaks = 0;
+            window.__alpineUp = false;
+            document.addEventListener('alpine:initialized', () => { window.__alpineUp = true; });
+            (function sample() {
+                if (document.body && !window.__alpineUp && getComputedStyle(document.body).visibility !== 'hidden') {
+                    window.__leaks += [...document.querySelectorAll('[x-show]')].filter(
+                        e => getComputedStyle(e).display !== 'none' && e.getClientRects().length > 0).length;
+                }
+                requestAnimationFrame(sample);
+            })();
+            """
+        )
+        session.open("/settings")
+        assert session.page.evaluate("window.__leaks") == 0
+
+    def test_a_blocked_alpine_does_not_leave_the_page_blank(self, session):
+        session.page.route("**/vendor/alpine.min.js", lambda route: route.abort())
+        session.page.goto(f"{session.base_url}/", wait_until="commit")
+        session.page.wait_for_function(
+            "() => document.body && getComputedStyle(document.body).visibility !== 'hidden'", timeout=6000
+        )  # the 3 s safety timeout in boot.js reveals it

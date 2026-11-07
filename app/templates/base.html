@@ -6,8 +6,12 @@
   <title>{% block title %}Auditoría Médica{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 
-  <!-- Fonts (local) -->
+  <!-- Fonts (local): the Latin subset (covers Spanish accents and ñ) is preloaded so the text never shows in the fallback font -->
+  <link rel="preload" href="/static/vendor/fonts/plus-jakarta-sans/plus-jakarta-sans-4.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/vendor/fonts/plus-jakarta-sans/plus-jakarta-sans.css">
+  <!-- Hides the page until Alpine and the fonts are ready (boot.js adds/removes the class; see there) -->
+  <style>html.preboot body { visibility: hidden; }</style>
+  <script src="{{ asset('js/boot.js') }}"></script>
 
   <!-- Tailwind CSS (local) -->
   <script src="/static/vendor/tailwind.min.js"></script>
