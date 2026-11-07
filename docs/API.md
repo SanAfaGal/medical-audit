@@ -97,7 +97,7 @@ Registros de documentos requeridos faltantes por factura.
 
 El estado de las tareas vive en memoria del proceso, por eso el backend corre con **un solo worker** de uvicorn.
 
-Ver [docs/DOMAIN.md](DOMAIN.md#pipeline-de-auditoría) para el detalle de las 22 etapas del pipeline.
+Ver [docs/DOMAIN.md](DOMAIN.md#pipeline-de-auditoría) para el detalle de las 24 etapas del pipeline.
 
 ### Configuración — `/api/settings`
 

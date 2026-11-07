@@ -25,13 +25,14 @@ El pipeline está compuesto por etapas secuenciales. Cada etapa se activa indivi
 | 13 | `CHECK_FOLDERS_WITH_EXTRA_TEXT` | Detectar carpetas con texto adicional pegado al nombre canónico. |
 | 14 | `NORMALIZE_DIR_NAMES` | Renombrar carpetas malformadas al ID canónico de factura. |
 | 15 | `CHECK_DIRS` | Reconciliar facturas en DB vs. carpetas en disco; marcar faltantes como `FALTANTE`. |
-| 16 | `MARK_UNKNOWN_DIRS` | Validar documentos requeridos por tipo de servicio; registrar hallazgos; marcar `PENDIENTE`. |
-| 17 | `REVISAR_SOBRANTES` | Revisar archivos cuyos nombres no coinciden con ningún prefijo requerido. Para cada sobrante, sugiere el tipo de documento faltante más probable (1:1 → alta confianza; N:M vía similitud `difflib` → baja confianza). El panel interactivo permite confirmar o corregir la sugerencia para renombrar el archivo en disco y resolver el hallazgo, o eliminar el archivo. |
-| 18 | `VERIFY_CUFE` | Verificar el código CUFE (64+ caracteres) de factura electrónica colombiana en los PDFs. |
-| 19 | `ORGANIZE` | Mover facturas elegibles (`PRESENTE`, sin hallazgos) al destino de auditoría; marcar `AUDITADA`. |
-| 20 | `DOWNLOAD_DRIVE` | Sincronizar carpetas `FALTANTE` desde Google Drive; actualizar estado a `PRESENTE`. |
-| 21 | `DOWNLOAD_MISSING_DOCS` | Descargar documentos faltantes específicos desde Drive para facturas con hallazgos abiertos. |
-| 22 | `COMPRESS_AUDIT` | Comprimir el directorio de auditoría en un archivo ZIP. |
+| 16 | `MARK_UNKNOWN_DIRS` | Renombrar con prefijo `(DESCONOCIDO)` las carpetas de STAGE que tienen forma de factura pero no existen en DB. |
+| 17 | `CHECK_REQUIRED_DOCS` | Validar documentos requeridos por tipo de servicio; registrar hallazgos; marcar `PENDIENTE`. |
+| 18 | `REVISAR_SOBRANTES` | Revisar archivos cuyos nombres no coinciden con ningún prefijo requerido. Para cada sobrante, sugiere el tipo de documento faltante más probable (1:1 → alta confianza; N:M vía similitud `difflib` → baja confianza). El panel interactivo permite confirmar o corregir la sugerencia para renombrar el archivo en disco y resolver el hallazgo, o eliminar el archivo. |
+| 19 | `VERIFY_CUFE` | Verificar el código CUFE (64+ caracteres) de factura electrónica colombiana en los PDFs. |
+| 20 | `ORGANIZE` | Mover facturas elegibles (`PRESENTE`, sin hallazgos) al destino de auditoría; marcar `AUDITADA`. |
+| 21 | `DOWNLOAD_DRIVE` | Sincronizar carpetas `FALTANTE` desde Google Drive; actualizar estado a `PRESENTE`. |
+| 22 | `DOWNLOAD_MISSING_DOCS` | Descargar documentos faltantes específicos desde Drive para facturas con hallazgos abiertos. |
+| 23 | `COMPRESS_AUDIT` | Comprimir el directorio de auditoría en un archivo ZIP. |
 
 ### Cómo reportan progreso las etapas
 

@@ -162,6 +162,8 @@ Esta ruta apunta al volumen Docker `medical-audit-prod_audit_data` donde se alma
 ```
 
 - **backend** es el único punto de entrada (host `:80` → contenedor `:8000`). Uvicorn sirve directo, sin proxy: no hay rate limiting ni TLS, así que no exponerlo fuera de la red local.
+- **Sin login.** La app no tiene autenticación: quien alcance el puerto 80 ve datos de pacientes y puede administrar credenciales SIHOS/Drive. Limitar el acceso por firewall, publicando el puerto solo en una IP interna o detrás de una VPN.
+- **Un solo worker.** El estado de las tareas del pipeline vive en memoria (`PipelineTaskManager`), así que Uvicorn corre con `--workers 1`. Un reinicio del contenedor pierde las tareas en curso; la UI lo detecta con `/api/pipeline/status`.
 - **db** solo es accesible desde `backend` dentro de la red Docker.
 
 ---

@@ -12,7 +12,7 @@ El README.md es solo orientación rápida (stack, arquitectura, setup). El detal
 - `docs/DEPLOY.md` — runbook completo de producción (comandos `docker compose -f docker-compose.yml`, rollback, backups, firewall)
 - `docs/MIGRATION.md` — migrar el stack completo (DB + volumen de PDFs) a otra máquina
 - `docs/API.md` — referencia completa de endpoints REST
-- `docs/DOMAIN.md` — modelo de dominio (entidades, estados) y las 22 etapas del pipeline
+- `docs/DOMAIN.md` — modelo de dominio (entidades, estados) y las 24 etapas del pipeline
 
 ## Comandos
 
@@ -47,7 +47,7 @@ Capas con dirección de dependencia estricta: `routers → services → reposito
 
 **Autenticación**: la app no tiene autenticación (se eliminó el HTTP Basic Auth compartido). Cualquiera que alcance el puerto accede a todo, por lo que debe desplegarse solo en una red de confianza. No asumir usuarios, roles ni sesión en ningún endpoint.
 
-**Seguridad de rutas de archivo**: cualquier endpoint que reciba una ruta relativa del cliente (explorer, pipeline, invoices) debe validarla con `app/paths.py::safe_resolve`/`safe_join` antes de tocar el filesystem — resuelven la ruta y verifican que quede dentro del directorio base, lanzando `ValueError` si escapa (los routers la traducen a `HTTPException(400, ...)`). No reimplementar esta validación inline.
+**Seguridad de rutas de archivo**: cualquier endpoint que reciba una ruta relativa del cliente (explorer, pipeline, invoices) debe validarla con `app/paths.py::safe_resolve(base, target)` antes de tocar el filesystem — resuelven la ruta y verifican que quede dentro del directorio base, lanzando `ValueError` si escapa (los routers la traducen a `HTTPException(400, ...)`). No reimplementar esta validación inline.
 
 **Modo dev vs producción** (dos stacks Docker independientes, pueden correr en paralelo sin conflicto — nombres de proyecto y puertos distintos): `docker-compose.yml` (base de producción: db + backend) con `-f` explícito (siempre en producción); `docker-compose.override.yml` (sobreescrituras dev: puerto de db, Adminer, backend con hot-reload) se aplica automáticamente solo con `docker compose` sin `-f`. Nunca correr `docker compose` sin `-f` en producción.
 

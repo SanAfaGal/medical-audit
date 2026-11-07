@@ -26,7 +26,7 @@ Aplicación web de producción para automatizar la auditoría de documentos de f
 | Base de datos | PostgreSQL 16 |
 | ORM / Migraciones | SQLAlchemy 2.0 (asyncio) + Alembic |
 | Frontend | Jinja2 (templates server-side) |
-| Servidor de app | Uvicorn (2 workers, nativo en host) |
+| Servidor de app | Uvicorn (1 worker, nativo en host o en contenedor) |
 | Contenedores | Docker + Docker Compose |
 | PDF | PyMuPDF, pdfplumber, Ghostscript |
 | Automatización de browser | Playwright (descarga de facturas SIHOS) |
@@ -259,7 +259,7 @@ Ambos stacks pueden correr al mismo tiempo sin conflicto (nombres de proyecto y 
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Runbook de producción: requisitos, rollback, backups, firewall, automatización |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | Migrar el stack completo (DB + PDFs) a otra máquina |
 | [docs/API.md](docs/API.md) | Referencia completa de endpoints REST |
-| [docs/DOMAIN.md](docs/DOMAIN.md) | Modelo de dominio (entidades, estados) y las 22 etapas del pipeline |
+| [docs/DOMAIN.md](docs/DOMAIN.md) | Modelo de dominio (entidades, estados) y las 24 etapas del pipeline |
 
 ---
 
