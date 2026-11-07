@@ -43,6 +43,16 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 - [x] **Fixture `-m db` en Windows.** Arreglado con `NullPool` en `tests/app/repos/conftest.py`; los 37 tests `-m db` pasan en local. Usar una BD aparte con `TEST_DATABASE_URL` (el fixture hace `drop_all`; en dev existe `medical_audit_test`).
 - [ ] Test de integración de extremo a extremo para dos hospitales en paralelo (hoy solo se comprobó a mano con el SIHOS simulado).
 
+## Rendimiento
+
+Medido con 1000 facturas / 6000 PDFs sintéticos en SSD local de 18 núcleos (el PDF dominó el tiempo; recorrer el disco costó < 0,5 s). Ya hecho: `find_unopenable` en una pasada, caché compartida entre VERIFY_INVOICE_CODE y VERIFY_CUFE, y pool de procesos para leer PDFs (`PDF_WORKERS`).
+
+- [ ] **Medir en el servidor real**: núcleos y memoria de producción (cada proceso del pool ocupa ~70 MB; con 8 son ~560 MB). Si el contenedor tiene poca RAM, bajar `PDF_WORKERS` o ponerle un `mem_limit`.
+- [ ] **Calentar el pool al arrancar** (hoy el primer escaneo paga ~1 s de arranque de procesos en Windows).
+- [ ] **No medido todavía**: disco de red (el recorrido de carpetas sí pesaría), PDFs escaneados reales (imágenes grandes), `COMPRESS_AUDIT` (Ghostscript), las consultas SQL con muchas facturas (`filter_invoices`, `get_stats`) y las descargas SIHOS/Drive.
+- [ ] `/api/invoices/ids` y la exportación a Excel cargan todo sin paginar: revisar con períodos grandes.
+- [ ] Guardar el benchmark como script reproducible (hoy vive en el directorio temporal de la sesión).
+
 ## Documentación
 
 - [x] `docs/DOMAIN.md` dice que hay 22 etapas y `CLAUDE.md`/código tienen 24; además describe `COMPRESS_AUDIT` como «comprimir en un ZIP», cuando comprime PDFs con Ghostscript (el ZIP es `EXPORTAR_AUDITADOS`).
