@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-import io
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -12,10 +12,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.paths import is_plain_filename
 from app.repositories.finding_repo import MissingFileRepo
 from app.routers.deps import load_institution, load_period_scope, load_period_scope_by_id
+from app.models.invoice import Invoice
 from app.repositories.invoice_repo import InvoiceRepo
+from app.repositories.rules_repo import RulesRepo
+from app.routers.errors import http_errors
+from app.services import invoice_files
+from app.services.errors import ServiceError
+from app.services.invoice_export import XLSX_MEDIA_TYPE, build_workbook
 from app.schemas.invoice import (
     BatchStatusUpdate,
     InvoiceListItem,
@@ -195,94 +200,16 @@ async def ingest_excel(
 @router.get("/export")
 async def export_invoices(period_id: int, db: AsyncSession = Depends(get_db)):
     """Export all invoices for a period to Excel (.xlsx)."""
-    import openpyxl
-
-    repo = InvoiceRepo(db)
-    invoices = await repo.get_all_for_export(period_id)
-
-    wb = openpyxl.Workbook(write_only=True)
-    ws = wb.create_sheet("Facturas")
-    ws.append(
-        [
-            "Período",
-            "Hospital",
-            "Factura",
-            "Fecha",
-            "Tipo Doc.",
-            "Número Doc.",
-            "Paciente",
-            "Admisión",
-            "Administradora",
-            "Tipo Contrato",
-            "Contrato",
-            "Servicio",
-            "Operación",
-            "Estado",
-            "Hallazgos",
-        ]
-    )
-
-    for inv in invoices:
-        period_label = inv.period.period_label if inv.period else ""
-        hospital = inv.period.institution.display_name if inv.period and inv.period.institution else ""
-        ic = inv.agreement
-        administrator = ""
-        contract_type = ""
-        contract = ""
-        if ic:
-            administrator = ic.administrator.canonical_name or ic.administrator.raw_name if ic.administrator else ""
-            contract_type = ic.contract_type.name if ic.contract_type else ""
-            contract = ic.contract.canonical_name or ic.contract.raw_name if ic.contract else ""
-        service = inv.service_type.display_name if inv.service_type else ""
-        status = inv.folder_status.status if inv.folder_status else ""
-        findings = ", ".join(mf.doc_type.code for mf in inv.missing_files if mf.resolved_at is None and mf.doc_type)
-
-        ws.append(
-            [
-                period_label,
-                hospital,
-                inv.invoice_number,
-                inv.date.isoformat() if inv.date else "",
-                inv.id_type,
-                inv.id_number,
-                inv.patient_name,
-                inv.admission or "",
-                administrator,
-                contract_type,
-                contract,
-                service,
-                inv.employee or "",
-                status,
-                findings,
-            ]
-        )
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    filename = f"facturas_{period_id}.xlsx"
+    invoices = await InvoiceRepo(db).get_all_for_export(period_id)
+    content = await asyncio.to_thread(build_workbook, invoices)
     return Response(
-        content=buf.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="facturas_{period_id}.xlsx"'},
     )
 
 
-def _invoice_folder(sandbox: Path, folder_path: str) -> Path:
-    """Resolve a client-supplied folder inside the period sandbox, at least one level below DRIVE/STAGE/AUDIT.
-
-    Raises ValueError for anything else (escapes, the sandbox itself, a phase folder, empty or ".").
-    """
-    from app.paths import safe_resolve
-
-    folder = safe_resolve(sandbox, folder_path)
-    if len(folder.relative_to(sandbox).parts) < 2:
-        raise ValueError("not an invoice folder")
-    return folder
-
-
-async def _invoice_sandbox(db: AsyncSession, invoice) -> Path:
+async def _invoice_sandbox(db: AsyncSession, invoice: Invoice) -> Path:
     """Sandbox of the period the invoice belongs to (the client cannot choose another one)."""
     scope = await load_period_scope_by_id(db, invoice.audit_period_id)
     return scope.paths.base.resolve()
@@ -295,51 +222,27 @@ class RenameSurplusRequest(BaseModel):
 
 
 @router.post("/{invoice_id}/rename-surplus")
+@http_errors
 async def rename_surplus_file(
     invoice_id: int,
     data: RenameSurplusRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Rename a surplus file to match the required doc-type prefix and resolve the finding."""
-    import os
-
-    from app.repositories.rules_repo import RulesRepo
-
-    repo = InvoiceRepo(db)
-    invoice = await repo.get_by_id(invoice_id)
+    invoice = await InvoiceRepo(db).get_by_id(invoice_id)
     if not invoice:
         raise HTTPException(404, "Factura no encontrada")
+    invoice_files.require_plain_filename(data.old_filename)
+    folder = invoice_files.surplus_folder(await _invoice_sandbox(db, invoice), data.folder_path)
 
-    if not is_plain_filename(data.old_filename):
-        raise HTTPException(400, "Nombre de archivo inválido")
-
-    rules_repo = RulesRepo(db)
-    try:
-        folder = _invoice_folder(await _invoice_sandbox(db, invoice), data.folder_path)
-    except ValueError as exc:
-        raise HTTPException(400, "Ruta fuera del directorio del período") from exc
-
-    if not folder.is_dir():
-        raise HTTPException(400, "Carpeta no encontrada")
-
-    doc_type = await rules_repo.get_doc_type_by_id(data.doc_type_id)
+    doc_type = await RulesRepo(db).get_doc_type_by_id(data.doc_type_id)
     if not doc_type or not doc_type.prefix:
         raise HTTPException(400, "Tipo de documento sin prefijo configurado")
 
-    old_path = folder / data.old_filename
-    if not old_path.exists():
-        raise HTTPException(404, "Archivo no encontrado en disco")
+    new_filename = await asyncio.to_thread(invoice_files.rename_surplus, folder, data.old_filename, doc_type.prefix)
 
-    # Strip the existing wrong prefix (everything before the first "_") and replace it
-    stem = data.old_filename.split("_", 1)[1] if "_" in data.old_filename else data.old_filename
-    new_filename = f"{doc_type.prefix}_{stem}"
-    new_path = folder / new_filename
-    os.rename(old_path, new_path)
-
-    finding_repo = MissingFileRepo(db)
-    await finding_repo.resolve_missing_file(invoice_id, data.doc_type_id)
+    await MissingFileRepo(db).resolve_missing_file(invoice_id, data.doc_type_id)
     await db.commit()
-
     return {"ok": True, "new_filename": new_filename}
 
 
@@ -349,34 +252,20 @@ class DeleteSurplusRequest(BaseModel):
 
 
 @router.post("/{invoice_id}/delete-surplus")
+@http_errors
 async def delete_surplus_file(
     invoice_id: int,
     data: DeleteSurplusRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a surplus file from disk."""
-    import os
-
-    from app.paths import safe_resolve
-
-    repo = InvoiceRepo(db)
-    invoice = await repo.get_by_id(invoice_id)
+    invoice = await InvoiceRepo(db).get_by_id(invoice_id)
     if not invoice:
         raise HTTPException(404, "Factura no encontrada")
+    invoice_files.require_plain_filename(data.filename)
+    folder = invoice_files.invoice_folder(await _invoice_sandbox(db, invoice), data.folder_path)
 
-    if not is_plain_filename(data.filename):
-        raise HTTPException(400, "Nombre de archivo inválido")
-
-    try:
-        folder = _invoice_folder(await _invoice_sandbox(db, invoice), data.folder_path)
-        target = safe_resolve(folder, data.filename)  # also rejects a symlink pointing outside the folder
-    except ValueError as exc:
-        raise HTTPException(400, "Ruta fuera del directorio del período") from exc
-
-    if not target.is_file():
-        raise HTTPException(404, "Archivo no encontrado en disco")
-
-    os.remove(target)
+    await asyncio.to_thread(invoice_files.delete_surplus, folder, data.filename)
     return {"ok": True}
 
 
@@ -405,41 +294,28 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     - Updates the invoice's folder_status to ANULAR in the DB (if invoice_id provided).
     - Deletes the folder and all its contents from disk.
     """
-    import asyncio
-    import shutil
-
     inv_repo = InvoiceRepo(db)
 
     # Scope every deletion to this period's sandbox (audit_root/<institution>/<period>), never the whole root.
     sandbox = (await load_period_scope(db, data.institution_id, data.period_id)).paths.base.resolve()
-
     anular_status = await inv_repo.get_or_create_folder_status("ANULAR")
 
     annulled = 0
     skipped = 0
     errors: list[str] = []
-
     for decision in data.decisions:
         if decision.action != "annul":
             skipped += 1
             continue
-
-        # Security: the folder must be inside the period sandbox and at least one level below a
-        # phase folder (DRIVE/STAGE/AUDIT). Empty, "." or a phase folder itself would wipe far too much.
         try:
-            folder = _invoice_folder(sandbox, decision.folder_path)
-        except ValueError:
+            folder = invoice_files.invoice_folder(sandbox, decision.folder_path)
+        except ServiceError:
             errors.append(f"Ruta fuera del directorio del período: {decision.folder_path}")
             continue
 
-        # Update DB status
         if decision.invoice_id is not None:
             await inv_repo.update_folder_status(decision.invoice_id, anular_status.id)
-
-        # Delete folder from disk
-        if folder.exists() and folder.is_dir():
-            await asyncio.to_thread(shutil.rmtree, folder)
-
+        await asyncio.to_thread(invoice_files.remove_folder, folder)
         annulled += 1
 
     await db.commit()

@@ -29,10 +29,7 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 
 ## Mantenibilidad y modularización
 
-- [ ] **Routers que siguen gordos: `pipeline.py` (~420 líneas) e `invoices.py` (~450).** Mezclan HTTP con lógica de archivos y de negocio. Hacer con ellos lo mismo que con `explorer.py` (servicios que lanzan un error de dominio y router delgado):
-  - `invoices.py`: anular carpetas (`annul-folders`), renombrar/borrar sobrantes, exportar a Excel, ingest del Excel → `services/invoices/`.
-  - `pipeline.py`: `process-non-pdf`, `file-preview`, ZIP de AUDIT, carga del ZIP de Drive y los generadores SSE → `services/pipeline_api/` o similar.
-  - Dejar tests HTTP antes de mover nada (ya existen para facturas; faltan para `process-non-pdf`, `file-preview` y `stream-audit-zip`).
+- [x] **Routers delgados.** La lógica de archivos de `explorer.py`, `pipeline.py` e `invoices.py` vive en `services/explorer/`, `services/period_files.py`, `services/invoice_files.py` y `services/invoice_export.py`; los servicios lanzan `ServiceError` y `routers/errors.py::http_errors` lo traduce. Lo que queda en `pipeline.py` (~280 líneas) es el streaming SSE de las etapas y de las tareas, que es HTTP de verdad.
 - [x] **Consultas directas en routers** movidas a `InstitutionRepo`/`InvoiceRepo` (`institutions.py`, `invoices.py`, `periods.py`); quedan solo los `repo.delete`/`update` ya encapsulados.
 - [x] **Unificar la validación de rutas.** Un único contrato `app/paths.py::safe_resolve(base, target)` (relativo o absoluto); `safe_join` eliminado.
 - [x] **Tipado.** `mypy --strict` en toda la app (solo se relajan `disallow_untyped_defs`/`disallow_incomplete_defs` en `app/routers/*`, y `disallow_untyped_calls` en `core/drive.py` por google-auth). `EventFn`, `ProgressFn` y `ThreadRunner` son Protocols; `type: ignore` 11 → 1 y `noqa: E402` 24 → 9 (los que quedan son los imports diferidos de `models/` contra ciclos).

@@ -7,20 +7,18 @@ hilo, fuera del event loop) y convierte ``ExplorerError`` en ``HTTPException``.
 from __future__ import annotations
 
 import asyncio
-import functools
 import logging
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import ParamSpec, TypeVar
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
 from app.routers.deps import load_period_scope
+from app.routers.errors import http_errors
 from app.routers.responses import content_disposition, temp_file_response
 from app.schemas.explorer import (
     BatchDeleteResult,
@@ -47,22 +45,6 @@ from app.services.explorer.sandbox import resolve_in
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 logger = logging.getLogger(__name__)
 
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def _http_errors(endpoint: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
-    """Answer an ``ExplorerError`` raised by a service with the HTTP error it describes."""
-
-    @functools.wraps(endpoint)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        try:
-            return await endpoint(*args, **kwargs)
-        except ExplorerError as exc:
-            raise HTTPException(exc.status_code, exc.detail) from exc
-
-    return wrapper
-
 
 async def _resolve_sandbox(institution_id: int, period_id: int, db: AsyncSession) -> Path:
     """Devuelve la ruta sandbox: audit_data_root / institution.name / period.period_label."""
@@ -71,7 +53,7 @@ async def _resolve_sandbox(institution_id: int, period_id: int, db: AsyncSession
 
 
 @router.get("/list", response_model=ListResponse)
-@_http_errors
+@http_errors
 async def list_directory(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -94,7 +76,7 @@ async def list_directory(
 
 
 @router.get("/search", response_model=ListResponse)
-@_http_errors
+@http_errors
 async def search_entries(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -116,7 +98,7 @@ async def search_entries(
 
 
 @router.get("/file")
-@_http_errors
+@http_errors
 async def serve_file(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -146,7 +128,7 @@ async def _stream(path: Path):
 
 
 @router.get("/thumbnails")
-@_http_errors
+@http_errors
 async def get_thumbnails(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -160,7 +142,7 @@ async def get_thumbnails(
 
 
 @router.post("/rename", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def rename_entry(body: RenameRequest, db: AsyncSession = Depends(get_db)):
     """Renombra un archivo o carpeta."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -169,7 +151,7 @@ async def rename_entry(body: RenameRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/move", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def move_entry(body: MoveRequest, db: AsyncSession = Depends(get_db)):
     """Mueve un archivo o carpeta a otra carpeta destino."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -178,7 +160,7 @@ async def move_entry(body: MoveRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/copy", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def copy_entry(body: CopyRequest, db: AsyncSession = Depends(get_db)):
     """Copia un archivo o carpeta a otra carpeta destino."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -187,7 +169,7 @@ async def copy_entry(body: CopyRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/delete", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def delete_entry(body: DeleteRequest, db: AsyncSession = Depends(get_db)):
     """Elimina un archivo o carpeta (con todo su contenido si es carpeta)."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -196,7 +178,7 @@ async def delete_entry(body: DeleteRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/delete-batch", response_model=BatchDeleteResult)
-@_http_errors
+@http_errors
 async def delete_batch(body: DeleteBatchRequest, db: AsyncSession = Depends(get_db)):
     """Elimina múltiples archivos o carpetas en una sola operación."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -204,7 +186,7 @@ async def delete_batch(body: DeleteBatchRequest, db: AsyncSession = Depends(get_
 
 
 @router.post("/mkdir", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def make_directory(body: MkdirRequest, db: AsyncSession = Depends(get_db)):
     """Crea una nueva carpeta dentro del sandbox."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -213,7 +195,7 @@ async def make_directory(body: MkdirRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/merge", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def merge_pdfs(body: MergeRequest, db: AsyncSession = Depends(get_db)):
     """Une múltiples PDFs en uno solo."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -222,7 +204,7 @@ async def merge_pdfs(body: MergeRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/split-preview", response_model=SplitPreviewResult)
-@_http_errors
+@http_errors
 async def preview_split(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -237,7 +219,7 @@ async def preview_split(
 
 
 @router.post("/split", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def split_pdf(body: SplitRequest, db: AsyncSession = Depends(get_db)):
     """Divide un PDF por rangos o página a página."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -246,7 +228,7 @@ async def split_pdf(body: SplitRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/reorder", response_model=OperationResult)
-@_http_errors
+@http_errors
 async def reorder_pages(body: ReorderRequest, db: AsyncSession = Depends(get_db)):
     """Reordena las páginas de un PDF y elimina las que no estén en `page_order` (in-place)."""
     sandbox = await _resolve_sandbox(body.institution_id, body.period_id, db)
@@ -259,7 +241,7 @@ async def reorder_pages(body: ReorderRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/upload", response_model=UploadResult)
-@_http_errors
+@http_errors
 async def upload_files(
     institution_id: int = Form(...),
     period_id: int = Form(...),
@@ -274,7 +256,7 @@ async def upload_files(
 
 
 @router.get("/download-file")
-@_http_errors
+@http_errors
 async def download_file(
     institution_id: int = Query(...),
     period_id: int = Query(...),
@@ -295,7 +277,7 @@ async def download_file(
 
 
 @router.get("/download-zip")
-@_http_errors
+@http_errors
 async def download_zip(
     institution_id: int = Query(...),
     period_id: int = Query(...),

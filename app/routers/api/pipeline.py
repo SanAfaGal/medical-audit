@@ -7,7 +7,6 @@ from collections.abc import AsyncGenerator
 import json
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -19,11 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.routers.responses import temp_file_response
-from app.paths import safe_resolve
 from app.routers.deps import PeriodScope, load_period_scope, period_scope
+from app.routers.errors import http_errors
 
+from app.services import period_files
 from app.services import pipeline as pipeline_runner
-from app.services.archive import ArchiveError, ArchiveToolMissing, build_zip_file, extract_archive
 from app.services.stage_events import heartbeat_event, with_heartbeat
 from app.services.task_manager import HEARTBEAT_SECONDS, PipelineRun, PipelineTaskManager, TaskAlreadyRunningError
 
@@ -207,6 +206,7 @@ async def cancel_task(task_id: str, tm: PipelineTaskManager = Depends(get_task_m
 
 
 @router.post("/load-drive-zip")
+@http_errors
 async def load_drive_zip(
     institution_id: int = Form(...),
     period_id: int = Form(...),
@@ -214,26 +214,17 @@ async def load_drive_zip(
     db: AsyncSession = Depends(get_db),
 ):
     """Extract a .zip / .7z / .rar archive into the DRIVE folder of the given period."""
-    drive_path: Path = (await load_period_scope(db, institution_id, period_id)).paths.drive
-    drive_path.mkdir(parents=True, exist_ok=True)
-
+    drive_path = (await load_period_scope(db, institution_id, period_id)).paths.drive
     # Starlette already spooled the upload to disk: hand the file object over, never read it all into memory.
-    if settings.max_archive_bytes and (file.size or 0) > settings.max_archive_bytes:
-        raise HTTPException(413, f"Archivo demasiado grande (máx {settings.max_archive_bytes} bytes)")
-
-    try:
-        # Extraction is blocking disk work: keep it off the event loop.
-        extracted = await asyncio.to_thread(extract_archive, file.file, file.filename or "", drive_path)
-    except ArchiveToolMissing as exc:
-        raise HTTPException(500, str(exc)) from exc
-    except ArchiveError as exc:
-        raise HTTPException(400, str(exc)) from exc
-
-    return {
-        "ok": True,
-        "extracted": len(extracted),
-        "drive_path": str(drive_path),
-    }
+    extracted = await asyncio.to_thread(
+        period_files.extract_drive_archive,
+        drive_path,
+        file.file,
+        file.filename or "",
+        file.size,
+        settings.max_archive_bytes,
+    )
+    return {"ok": True, "extracted": extracted, "drive_path": str(drive_path)}
 
 
 class _NonPdfDecision(BaseModel):
@@ -248,95 +239,33 @@ class _ProcessNonPdfRequest(BaseModel):
 
 
 @router.post("/process-non-pdf")
+@http_errors
 async def process_non_pdf_decisions(
     data: _ProcessNonPdfRequest,
     db: AsyncSession = Depends(get_db),
 ):
     """Apply delete/convert decisions for files found in the REMOVE_NON_PDF scan."""
-    from app.core.ops import IMAGE_EXTENSIONS, convert_image_to_pdf
-
     stage_path = (await load_period_scope(db, data.institution_id, data.period_id)).paths.stage
-    if not stage_path.is_dir():
-        raise HTTPException(400, "Directorio STAGE no existe")
-
-    deleted = 0
-    converted = 0
-    errors: list[str] = []
-    loop = asyncio.get_running_loop()
-
-    for decision in data.decisions:
-        # Security: resolve and verify path is inside stage_path
-        try:
-            abs_path = (stage_path / decision.rel_path).resolve()
-            abs_path.relative_to(stage_path.resolve())
-        except (ValueError, OSError):
-            errors.append(f"Ruta inválida: {decision.rel_path}")
-            continue
-
-        if not abs_path.exists():
-            errors.append(f"Archivo no encontrado: {decision.rel_path}")
-            continue
-
-        if decision.action == "delete":
-            try:
-                abs_path.unlink()
-                deleted += 1
-            except OSError as exc:
-                errors.append(f"No se pudo eliminar {abs_path.name}: {exc}")
-
-        elif decision.action == "convert":
-            ext = abs_path.suffix.lstrip(".").lower()
-            if ext not in IMAGE_EXTENSIONS:
-                errors.append(f"Formato no convertible: {abs_path.name}")
-                continue
-            try:
-                await loop.run_in_executor(None, convert_image_to_pdf, abs_path)
-                converted += 1
-            except Exception as exc:  # noqa: BLE001 - one bad image must not abort the batch
-                errors.append(f"Error convirtiendo {abs_path.name}: {exc}")
-
-    return {"ok": True, "deleted": deleted, "converted": converted, "errors": errors}
+    outcome = await asyncio.to_thread(
+        period_files.apply_non_pdf_decisions, stage_path, [(d.rel_path, d.action) for d in data.decisions]
+    )
+    return {"ok": True, "deleted": outcome.deleted, "converted": outcome.converted, "errors": outcome.errors}
 
 
 @router.get("/stream-audit-zip")
+@http_errors
 async def stream_audit_zip(scope: PeriodScope = Depends(period_scope)):
     """Empaqueta la carpeta AUDIT en un ZIP temporal (en disco, no en memoria) y lo devuelve.
     El ZIP temporal se borra al terminar el envío, así que no hay límite práctico de tamaño.
     """
-    import re
-
-    institution, period = scope.institution, scope.period
-    audit_path = scope.paths.audit
-
-    if not audit_path.is_dir():
-        raise HTTPException(404, "Directorio AUDIT no encontrado")
-
-    all_files = await asyncio.to_thread(lambda: [f for f in audit_path.rglob("*") if f.is_file()])
-    if not all_files:
-        raise HTTPException(404, "No hay archivos en AUDIT")
-
-    zip_path = await asyncio.to_thread(build_zip_file, ((f, f.relative_to(audit_path)) for f in all_files))
-
-    safe_inst = re.sub(r"[^\w]", "_", institution.name)
-    safe_period = re.sub(r"[^\w]", "_", period.period_label)
-    filename = f"{safe_inst}_{safe_period}.zip"
-
+    zip_path, filename = await asyncio.to_thread(
+        period_files.audit_zip, scope.paths.audit, scope.institution.name, scope.period.period_label
+    )
     return temp_file_response(zip_path, filename, "application/zip")
 
 
-_PREVIEW_MIME: dict[str, str] = {
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "png": "image/png",
-    "tiff": "image/tiff",
-    "tif": "image/tiff",
-    "gif": "image/gif",
-    "webp": "image/webp",
-    "bmp": "image/bmp",
-}
-
-
 @router.get("/file-preview")
+@http_errors
 async def file_preview(
     institution_id: int,
     period_id: int,
@@ -344,15 +273,5 @@ async def file_preview(
     scope: PeriodScope = Depends(period_scope),
 ):
     """Serve a non-PDF file from STAGE for in-browser preview."""
-    try:
-        abs_path = safe_resolve(scope.paths.stage, rel_path)
-    except (ValueError, OSError) as exc:
-        raise HTTPException(400, "Ruta inválida") from exc
-
-    if not abs_path.exists() or not abs_path.is_file():
-        raise HTTPException(404, "Archivo no encontrado")
-
-    ext = abs_path.suffix.lstrip(".").lower()
-    media_type = _PREVIEW_MIME.get(ext, "application/octet-stream")
-
-    return FileResponse(str(abs_path), media_type=media_type, filename=abs_path.name)
+    target, media_type = await asyncio.to_thread(period_files.preview_target, scope.paths.stage, rel_path)
+    return FileResponse(str(target), media_type=media_type, filename=target.name)
