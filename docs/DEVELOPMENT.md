@@ -126,6 +126,7 @@ pytest + pytest-asyncio con cobertura mínima de 60% en `app/`.
 @pytest.mark.db       # Requiere PostgreSQL activo (lento, puede modificar DB)
 @pytest.mark.slow     # Tests de larga duración (archivos grandes)
 @pytest.mark.pdf      # Requiere fixtures PDF reales
+@pytest.mark.e2e      # Humo en navegador contra un servidor en marcha (opt-in: E2E_BASE_URL)
 ```
 
 ### Comandos
@@ -140,3 +141,23 @@ uv run pytest --cov=app --cov-report=html   # Con reporte de cobertura HTML
 # Type checking
 uv run mypy app/
 ```
+
+### Tests de base de datos
+
+El fixture de `tests/app/repos/conftest.py` hace `drop_all` + `create_all`: **nunca** apuntarlo a la base de desarrollo. Crea una base aparte y pásala por `TEST_DATABASE_URL`:
+
+```bash
+docker exec medical-audit-dev-db psql -U <POSTGRES_USER> -d postgres -c "CREATE DATABASE medical_audit_test"
+TEST_DATABASE_URL=postgresql+asyncpg://<user>:<pass>@localhost:5432/medical_audit_test uv run pytest -m db
+```
+
+### Tests en navegador (opcionales)
+
+`tests/e2e/` abre las páginas en Chromium headless (Playwright) contra un servidor **en marcha** y comprueba que cargan sus datos y que los fallos de la API llegan al usuario como toasts. No corren en el CI: sin `E2E_BASE_URL` se omiten. Algunos crean y borran un registro temporal, así que usa solo el entorno de desarrollo.
+
+```bash
+uv run python -m playwright install --only-shell chromium   # una vez
+E2E_BASE_URL=http://localhost:8000 uv run pytest tests/e2e -m e2e
+```
+
+`tests/app/test_template_scripts.py` comprueba con `node --check` la sintaxis del JS embebido en las plantillas y que no queden `fetch` directos (la descarga del ZIP es la única excepción). Los tests de `static/js` se corren con `node --test tests/js/*.mjs`.

@@ -55,6 +55,7 @@ markers = [
     "db: tests that require a live PostgreSQL instance",
     "slow: tests that are slow (large file I/O)",
     "pdf: tests that require real PDF fixture files",
+    "e2e: browser smoke tests against a running server (opt-in: set E2E_BASE_URL)",
 ]
 
 [tool.coverage.run]

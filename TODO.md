@@ -15,10 +15,10 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 
 ## Frontend
 
-- [ ] **Probar la UI en un navegador** lo que hoy solo está validado por sintaxis y por API: toasts (ahora todos abajo a la derecha, incluidos los de ajustes), barra de progreso N/total, aviso de «sin líneas nuevas», banner de tarea de otro hospital, reconexión al cerrar y reabrir la pestaña, y trabajar con dos hospitales en dos pestañas.
+- [ ] **Probar la UI en un navegador con clics reales** lo que ya se verificó solo llamando a los métodos de Alpine (`tests/e2e/`): barra de progreso N/total, aviso de «sin líneas nuevas», banner de tarea de otro hospital, reconexión al cerrar y reabrir la pestaña, dos hospitales en dos pestañas, ingest/anular carpetas/sobrantes.
 - [x] **Migrar las llamadas `fetch` directas a `api.*`** (`audit`, `base`, `pipeline`, `settings`): todos los errores (422 en lista, 204, caída de red) se muestran igual. Quedan a propósito `fetch` solo en la descarga de ZIP (blob) y los `EventSource` de SSE. Verificado con Chromium headless contra el servidor de dev (carga, crear/borrar, errores 404/409/500 y red caída).
 - [ ] **Sacar el JS embebido de las plantillas** (`settings` ~2 200 líneas, `pipeline` ~1 800, `base`, `audit`) a `app/static/js/*.js` para poder lintearlo y probarlo.
-- [ ] Un lint/test para el JS de las plantillas (hoy solo hay tests de `api.js` y `toast.js` en `tests/js/`).
+- [x] Test del JS de las plantillas: `tests/app/test_template_scripts.py` (`node --check`) y `tests/e2e/` (humo en navegador, opt-in). Falta un lint (eslint) cuando el JS salga a `static/js/`.
 
 ## Pipeline y progreso
 
