@@ -1568,8 +1568,17 @@ document.addEventListener('alpine:init', () => {
     msg: '', type: 'success', _t: null,
     show(msg, type = 'success') {
       clearTimeout(this._t);
+      // FastAPI 422 devuelve detail como lista [{loc, msg}, ...]
+      if (Array.isArray(msg)) {
+        msg = msg.map(e => {
+          const field = Array.isArray(e.loc) ? e.loc.filter(p => p !== 'body').join('.') : '';
+          return field ? `${field}: ${e.msg}` : e.msg;
+        }).join(' · ');
+      } else if (msg && typeof msg === 'object') {
+        msg = msg.msg || JSON.stringify(msg);
+      }
       this.msg = msg; this.type = type;
-      this._t = setTimeout(() => { this.msg = ''; }, 3500);
+      this._t = setTimeout(() => { this.msg = ''; }, type === 'error' ? 8000 : 3500);
     },
   });
 });

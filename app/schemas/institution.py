@@ -2,7 +2,8 @@
 
 from pydantic import BaseModel, Field
 
-_SAFE_NAME_PATTERN = r"^[A-Za-z0-9_\- ]+$"
+# Letras latinas con tildes/ñ/ü permitidas (nombres en español); sigue bloqueando separadores de ruta y puntos.
+_SAFE_NAME_PATTERN = r"^[A-Za-z0-9_\- áéíóúüñÁÉÍÓÚÜÑ]+$"
 
 
 class InstitutionCreate(BaseModel):
