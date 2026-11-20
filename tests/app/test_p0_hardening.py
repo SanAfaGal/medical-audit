@@ -115,6 +115,7 @@ class _CapturingService:
 class _QueryDrive(DriveSync):
     def __init__(self) -> None:  # noqa: D107 - no credentials needed
         self.service = _CapturingService()
+        self._problems = []
 
 
 class TestDriveQueryEscaping:

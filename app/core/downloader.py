@@ -14,6 +14,7 @@ from playwright.async_api import Page, Route, async_playwright
 
 from app.core.helpers import EventFn, ProgressFn, read_lines_from_file
 from app.core.helpers import emit_event as _emit
+from app.core.reader import DocumentReader
 from app.core.urlcheck import is_blocked_request
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,57 @@ _LOGIN_BUTTON_TEXT: str = "INGRESAR"
 _LOGIN_URL_PATTERN: str = "**/index.php"
 _USERNAME_SELECTOR: str = 'input[name="TxtLogi"]'
 _PASSWORD_SELECTOR: str = 'input[name="TxtPswd"]'
+
+# A PDF is printed from an HTML page, so it can come out blank if the portal is still rendering.
+_MAX_PRINT_ATTEMPTS: int = 3
+_RETRY_DELAYS: tuple[float, ...] = (2.0, 5.0)  # seconds to wait before attempt 2 and 3
+_NETWORK_IDLE_TIMEOUT_MS: int = 8000
+
+
+class PortalResponseError(RuntimeError):
+    """The portal answered with an HTTP error instead of the printable page."""
+
+
+class BlankPdfError(RuntimeError):
+    """The printed PDF had no visible content on every attempt."""
+
+
+async def _print_page_to_pdf(page: Page, url: str, out_path: Path) -> None:
+    """Open ``url`` and save it as a PDF at ``out_path``, retrying when the result is blank.
+
+    Printing goes to a ``.part`` file first, so a previously good ``out_path`` is only replaced by a
+    PDF that has content. Raises :class:`PortalResponseError` on an HTTP error and
+    :class:`BlankPdfError` when every attempt came out blank.
+    """
+    part_path = out_path.with_name(out_path.name + ".part")
+    try:
+        for attempt in range(1, _MAX_PRINT_ATTEMPTS + 1):
+            response = await page.goto(url)
+            if response is not None and not response.ok:
+                raise PortalResponseError(f"El portal respondió HTTP {response.status}")
+            try:
+                # Let late scripts/images finish. Portals that keep polling never go idle: carry on.
+                await page.wait_for_load_state("networkidle", timeout=_NETWORK_IDLE_TIMEOUT_MS)
+            except PlaywrightTimeoutError:
+                pass
+            await page.pdf(path=str(part_path), format=_INVOICE_PAGE_FORMAT, print_background=True)
+            if not DocumentReader.is_blank(part_path):
+                part_path.replace(out_path)
+                if attempt > 1:
+                    logger.info("PDF %s had content on attempt %d", out_path.name, attempt)
+                return
+            logger.warning("Blank PDF for %s (attempt %d/%d)", out_path.name, attempt, _MAX_PRINT_ATTEMPTS)
+            if attempt < _MAX_PRINT_ATTEMPTS:
+                await asyncio.sleep(_RETRY_DELAYS[attempt - 1])
+        raise BlankPdfError(f"PDF en blanco tras {_MAX_PRINT_ATTEMPTS} intentos")
+    finally:
+        part_path.unlink(missing_ok=True)
+
+
+def _report_failures(event_fn: EventFn | None, failed: list[str], total: int) -> None:
+    """Emit one closing warning that names every item that did not end up with a good PDF."""
+    if failed:
+        _emit(event_fn, "warning", detail=f"{len(failed)} de {total} no se descargaron bien: {', '.join(failed)}")
 
 
 def _first_line(exc: Exception, limit: int = 200) -> str:
@@ -213,6 +265,7 @@ class SihosDownloader:
     ) -> None:
         """Async implementation of the browser-based invoice download."""
         total = len(invoice_list)
+        failed: list[str] = []
         async with self._browser_session(event_fn) as session_page:
             page = session_page  # _recover_page may swap it for a fresh one
             for i, invoice_number in enumerate(invoice_list, 1):
@@ -231,16 +284,21 @@ class SihosDownloader:
                     f"{self._invoice_prefix}_{self._hospital_nit}_{self._invoice_id_prefix}{invoice_number}.pdf"
                 )
                 try:
-                    await page.goto(url)
-                    await page.pdf(path=str(out_path), format=_INVOICE_PAGE_FORMAT)
+                    await _print_page_to_pdf(page, url, out_path)
                     logger.info("Downloaded invoice %s to %s", invoice_number, out_path)
                     _emit(event_fn, "item_ok", i, total, invoice_number, "descargada")
+                except (BlankPdfError, PortalResponseError) as exc:
+                    logger.error("Failed to download invoice %s: %s", invoice_number, exc)
+                    failed.append(invoice_number)
+                    _emit(event_fn, "item_error", i, total, invoice_number, str(exc))
                 except (PlaywrightTimeoutError, PlaywrightError) as exc:
                     logger.error("Failed to download invoice %s: %s", invoice_number, exc)
+                    failed.append(invoice_number)
                     _emit(event_fn, "item_error", i, total, invoice_number, _first_line(exc))
                     page = await _recover_page(page)
                 if progress_fn:
                     progress_fn(i, total, invoice_number)
+            _report_failures(event_fn, failed, total)
 
     async def _async_download_medication_sheets(
         self,
@@ -252,6 +310,7 @@ class SihosDownloader:
     ) -> None:
         """Async implementation of medication sheet download."""
         total = len(targets)
+        failed: list[str] = []
         async with self._browser_session(event_fn) as session_page:
             page = session_page  # _recover_page may swap it for a fresh one
             for i, (invoice_number, admission, id_type, id_number) in enumerate(targets, 1):
@@ -270,13 +329,18 @@ class SihosDownloader:
                     f"{file_prefix}_{self._hospital_nit}_{self._invoice_id_prefix}{invoice_number}.pdf"
                 )
                 try:
-                    await page.goto(url)
-                    await page.pdf(path=str(out_path), format=_INVOICE_PAGE_FORMAT)
+                    await _print_page_to_pdf(page, url, out_path)
                     logger.info("Downloaded %s → %s", invoice_number, out_path)
                     _emit(event_fn, "item_ok", i, total, invoice_number, "descargada")
+                except (BlankPdfError, PortalResponseError) as exc:
+                    logger.error("Failed %s: %s", invoice_number, exc)
+                    failed.append(invoice_number)
+                    _emit(event_fn, "item_error", i, total, invoice_number, str(exc))
                 except (PlaywrightTimeoutError, PlaywrightError) as exc:
                     logger.error("Failed %s: %s", invoice_number, exc)
+                    failed.append(invoice_number)
                     _emit(event_fn, "item_error", i, total, invoice_number, _first_line(exc))
                     page = await _recover_page(page)
                 if progress_fn:
                     progress_fn(i, total, invoice_number)
+            _report_failures(event_fn, failed, total)

@@ -302,13 +302,21 @@ async def _download_missing_docs(ctx: StageContext) -> AsyncGenerator[str, None]
 
     yield plog("INFO", f"Buscando {len(download_requests)} documento(s) en Drive...")
     found = not_found = 0
+    bad_docs: list[tuple[str, str]] = []
     total_docs = len(download_requests)
     yield progress_line(0, total_docs, label="Documentos")
     for i, request in enumerate(download_requests, 1):
         f, nf = await executor(drive.download_specific_files, [request])
         found += f
         not_found += nf
+        problems = drive.take_problems()
+        bad_docs.extend(problems)
         status = "✓" if f else "✗ no encontrado"
         yield plog("INFO", f"[{i}/{total_docs}] {request[0]} — {status}")
+        for label, reason in problems:
+            yield plog("WARN", f"{label}: {reason}")
         yield progress_line(i, total_docs, request[0], "Documentos")
     yield plog("INFO", f"Encontrados: {found}, no encontrados: {not_found}")
+    if bad_docs:
+        listed = "; ".join(f"{label} ({reason})" for label, reason in bad_docs)
+        yield plog("WARN", f"{len(bad_docs)} documento(s) descargados con problemas: {listed}")

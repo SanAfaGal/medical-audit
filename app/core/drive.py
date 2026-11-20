@@ -15,6 +15,7 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from app.core.helpers import EventFn
 from app.core.helpers import emit_event as _emit
+from app.core.reader import DocumentReader
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,11 @@ _DRIVE_FILE_BATCH_SIZE: int = 50  # max file names per batched OR-query
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 _MAX_RETRIES: int = 4
 _RETRY_BACKOFF_BASE: float = 2.0  # seconds; doubles on each attempt
+
+# File download attempts: a PDF that arrives corrupt/incomplete is fetched again before giving up.
+_MAX_DOWNLOAD_ATTEMPTS: int = 3
+_DOWNLOAD_RETRY_DELAY: float = 1.0  # seconds, multiplied by the attempt number
+_MAX_LISTED_PROBLEMS: int = 20  # problems named in the closing summary before "... y N más"
 
 
 def _q(value: str) -> str:
@@ -50,6 +56,17 @@ class DriveSync:
     def __init__(self, credentials_dict: dict[str, Any]) -> None:
         self.creds = service_account.Credentials.from_service_account_info(credentials_dict, scopes=_DRIVE_SCOPES)
         self.service = build("drive", "v3", credentials=self.creds)
+        # (label, reason) of files that did not end up as a good copy; see take_problems().
+        self._problems: list[tuple[str, str]] = []
+
+    def take_problems(self) -> list[tuple[str, str]]:
+        """Return the ``(folder/file, reason)`` problems found by downloads so far and forget them."""
+        problems, self._problems = self._problems, []
+        return problems
+
+    def _flag(self, label: str, reason: str) -> None:
+        logger.warning("Drive file problem: %s — %s", label, reason)
+        self._problems.append((label, reason))
 
     def _execute_with_retry(self, request: Any) -> dict[str, Any]:
         """Execute a Drive API request, retrying on transient server errors."""
@@ -72,25 +89,57 @@ class DriveSync:
                 delay *= 2
         raise RuntimeError("unreachable")  # pragma: no cover
 
+    def _fetch_to(self, file_id: str, dest: Path) -> None:
+        """Stream a Drive file into ``dest`` (overwritten)."""
+        request = self.service.files().get_media(fileId=file_id)
+        with io.FileIO(str(dest), "wb") as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _status, done = downloader.next_chunk()
+
     def download_file(self, file_id: str, file_name: str, local_dir: Path) -> None:
-        """Download a single file from Drive to the local filesystem."""
+        """Download a single file from Drive to the local filesystem.
+
+        The file is fetched into a ``.part`` file and only moved into place when complete. A PDF that
+        arrives corrupt or incomplete is fetched again (up to ``_MAX_DOWNLOAD_ATTEMPTS``). A PDF that is
+        well-formed but has no visible content is kept (the blank page is what Drive holds) and
+        reported through :meth:`take_problems`; so is a file that could not be downloaded at all.
+        An already-downloaded PDF that is blank or unreadable is fetched again instead of skipped.
+        """
         local_dir.mkdir(parents=True, exist_ok=True)
         file_path = local_dir / file_name
+        is_pdf = file_name.lower().endswith(".pdf")
+        label = f"{local_dir.name}/{file_name}"
 
         if file_path.exists():
-            logger.info("Skipping already-downloaded file: %s", file_name)
-            return
+            if not is_pdf or not DocumentReader.is_blank(file_path):
+                logger.info("Skipping already-downloaded file: %s", file_name)
+                return
+            logger.info("Fetching %s again: the local copy is blank or unreadable", file_name)
 
+        part_path = file_path.with_name(file_name + ".part")
+        problem = "no se pudo descargar"
         try:
-            request = self.service.files().get_media(fileId=file_id)
-            with io.FileIO(str(file_path), "wb") as fh:
-                downloader = MediaIoBaseDownload(fh, request)
-                done = False
-                while not done:
-                    _status, done = downloader.next_chunk()
-            logger.info("Downloaded file: %s", file_name)
-        except (OSError, HttpError) as exc:
-            logger.error("Failed to download file %s: %s", file_name, exc)
+            for attempt in range(1, _MAX_DOWNLOAD_ATTEMPTS + 1):
+                try:
+                    self._fetch_to(file_id, part_path)
+                except (OSError, HttpError) as exc:
+                    logger.error("Failed to download file %s (attempt %d): %s", file_name, attempt, exc)
+                    problem = "no se pudo descargar"
+                else:
+                    if not is_pdf or DocumentReader.can_open(part_path):
+                        part_path.replace(file_path)
+                        logger.info("Downloaded file: %s", file_name)
+                        if is_pdf and DocumentReader.is_blank(file_path):
+                            self._flag(label, "PDF en blanco en Drive")
+                        return
+                    problem = "PDF corrupto o incompleto"
+                if attempt < _MAX_DOWNLOAD_ATTEMPTS:
+                    time.sleep(_DOWNLOAD_RETRY_DELAY * attempt)
+            self._flag(label, f"{problem} tras {_MAX_DOWNLOAD_ATTEMPTS} intentos")
+        finally:
+            part_path.unlink(missing_ok=True)
 
     def _list_folder_contents(self, folder_id: str, page_token: str | None) -> dict[str, Any]:
         """Fetch one page of a Drive folder's children."""
@@ -253,6 +302,13 @@ class DriveSync:
                 _emit(event_fn, "cancelled", i, total)
                 break
             _emit(event_fn, "item_ok", i, total, folder["name"], f"descargada ({handled} archivo(s))")
+
+        problems = self.take_problems()
+        if problems:
+            listed = "; ".join(f"{label} ({reason})" for label, reason in problems[:_MAX_LISTED_PROBLEMS])
+            extra = len(problems) - _MAX_LISTED_PROBLEMS
+            more = f"; ... y {extra} más" if extra > 0 else ""
+            _emit(event_fn, "warning", detail=f"{len(problems)} archivo(s) con problemas en Drive: {listed}{more}")
 
         logger.info(
             "Drive download complete: %d/%d invoices found",

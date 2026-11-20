@@ -13,10 +13,16 @@ logger = logging.getLogger(__name__)
 _OPEN_CHUNK = 100
 _OCR_CHUNK = 25
 
+# Blank-page detection (see DocumentReader.is_blank): render at 30% (~180x250 px for A4), a pixel darker
+# than 200/255 is "ink", and a page needs at least 0.02% ink (~10 px) to count as having content.
+_BLANK_ZOOM = 0.3
+_BLANK_INK_LEVEL = 200
+_BLANK_INK_RATIO = 0.0002
+
 
 def _can_open_chunk(paths: list[str]) -> list[bool]:
-    """Worker: DocumentReader._can_open over a chunk of paths (module level so it can be pickled)."""
-    return [DocumentReader._can_open(Path(p)) for p in paths]
+    """Worker: DocumentReader.can_open over a chunk of paths (module level so it can be pickled)."""
+    return [DocumentReader.can_open(Path(p)) for p in paths]
 
 
 def _needs_ocr_chunk(paths: list[str]) -> list[bool]:
@@ -38,7 +44,7 @@ class DocumentReader:
     """Provides static helpers for opening and reading PDF documents."""
 
     @staticmethod
-    def _can_open(file_path: Path) -> bool:
+    def can_open(file_path: Path) -> bool:
         """Return True only if the file is a valid, openable PDF.
 
         Fitz soporta múltiples formatos (TIFF, JPEG, etc.) y los abre sin error
@@ -57,6 +63,35 @@ class DocumentReader:
                 return True
         except Exception:  # noqa: BLE001 - fitz raises many types on corrupt files; any failure = unreadable
             return False
+
+    @staticmethod
+    def is_blank(file_path: Path) -> bool:
+        """Return True if the PDF has no visible content on any page (or cannot be opened).
+
+        No OCR: a page with a text layer is not blank; otherwise it is rendered at low resolution
+        in grayscale and counted as blank when almost no pixel is dark. That also catches scanned
+        PDFs whose image is just white paper, which an "is there an image?" check would miss.
+        """
+        import fitz
+
+        matrix = fitz.Matrix(_BLANK_ZOOM, _BLANK_ZOOM)
+        try:
+            with fitz.open(file_path) as doc:
+                if doc.page_count == 0:
+                    return True
+                for page in doc:
+                    if page.get_text().strip():
+                        return False
+                    pix = page.get_pixmap(matrix=matrix, colorspace=fitz.csGRAY, alpha=False)
+                    samples = pix.samples
+                    if not samples:
+                        continue
+                    ink = sum(1 for value in samples if value < _BLANK_INK_LEVEL)
+                    if ink / len(samples) >= _BLANK_INK_RATIO:
+                        return False
+                return True
+        except Exception:  # noqa: BLE001 - fitz raises many types on corrupt files; unreadable counts as blank
+            return True
 
     @staticmethod
     def read_text(file_path: Path) -> str:

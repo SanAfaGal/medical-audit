@@ -182,6 +182,7 @@ class _FakeDrive(DriveSync):
     def __init__(self, found: set[str], folders: list[dict], files_per_folder: int = 3) -> None:  # noqa: D107
         self._found, self._folders, self._files = found, folders, files_per_folder
         self.synced: list[str] = []
+        self._problems = []
 
     def _batch_search_folders(self, invoice_numbers):
         return self._found, self._folders

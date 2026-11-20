@@ -67,3 +67,46 @@ class TestFindUnopenable:
         calls.clear()
         DocumentReader.find_unopenable(files, on_progress=lambda d, t, _n: calls.append((d, t)), cancel_event=cancel)
         assert calls == []
+
+
+def _scan_pdf(path: Path, dark: bool) -> Path:
+    """A PDF whose only content is an image (no text layer): a white sheet or one with a dark block."""
+    width, height = 200, 280
+    pix = fitz.Pixmap(fitz.csGRAY, fitz.IRect(0, 0, width, height), False)
+    pix.set_rect(pix.irect, (255,))
+    if dark:
+        pix.set_rect(fitz.IRect(40, 60, 160, 120), (0,))
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_image(page.rect, pixmap=pix)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+class TestIsBlank:
+    def test_page_with_text_is_not_blank(self, tmp_path: Path):
+        assert DocumentReader.is_blank(_pdf(tmp_path / "text.pdf", "hola")) is False
+
+    def test_empty_page_is_blank(self, tmp_path: Path):
+        assert DocumentReader.is_blank(_pdf(tmp_path / "empty.pdf", None)) is True
+
+    def test_scanned_white_sheet_is_blank(self, tmp_path: Path):
+        assert DocumentReader.is_blank(_scan_pdf(tmp_path / "white.pdf", dark=False)) is True
+
+    def test_scanned_page_with_content_is_not_blank(self, tmp_path: Path):
+        assert DocumentReader.is_blank(_scan_pdf(tmp_path / "scan.pdf", dark=True)) is False
+
+    def test_one_page_with_content_is_enough(self, tmp_path: Path):
+        doc = fitz.open()
+        doc.new_page()
+        doc.new_page().insert_text((72, 72), "pagina dos")
+        path = tmp_path / "two.pdf"
+        doc.save(str(path))
+        doc.close()
+        assert DocumentReader.is_blank(path) is False
+
+    def test_corrupt_file_counts_as_blank(self, tmp_path: Path):
+        path = tmp_path / "bad.pdf"
+        path.write_bytes(b"not a pdf")
+        assert DocumentReader.is_blank(path) is True
