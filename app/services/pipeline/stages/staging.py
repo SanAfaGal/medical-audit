@@ -286,6 +286,42 @@ async def _list_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None]:
 _BLANK_QUARANTINE = "_CUARENTENA_EN_BLANCO"
 
 
+class _Quarantine:
+    """Moves files to ``STAGE/<root_name>/<carpeta>/<archivo>`` (reversible) and logs each move.
+
+    ``async for line in quarantine.move(files)`` yields the progress and log lines; afterwards ``moved`` holds how
+    many files went through. A file that cannot be moved is an ``[ERROR]`` line and the rest carry on.
+    """
+
+    def __init__(self, stage_path: Path, root_name: str) -> None:
+        self._stage_path = stage_path
+        self._root = stage_path / root_name
+        self.moved = 0
+
+    def _move_one(self, f: Path) -> Path:
+        dest_dir = self._root / f.parent.name
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f.name
+        shutil.move(str(f), str(dest))
+        return dest
+
+    async def move(self, files: list[Path]) -> AsyncGenerator[str, None]:
+        executor = get_executor()
+        for index, f in enumerate(files, 1):
+            yield progress_line(index - 1, len(files), f.name, "PDFs")
+            try:
+                dest = await executor(self._move_one, f)
+            except OSError as exc:
+                yield plog("ERROR", f"No se pudo mover a cuarentena {f.name}: {exc}", folder=f.parent.name)
+                continue
+            self.moved += 1
+            yield plog(
+                "INFO",
+                f"Movido a cuarentena: {f.name} → {dest.relative_to(self._stage_path)}",
+                folder=f.parent.name,
+            )
+
+
 def _stage_pdfs(stage_path: Path) -> list[Path]:
     """Every PDF under STAGE except the ones already moved to a ``_CUARENTENA*`` folder."""
     from app.core.scanner import DocumentScanner
@@ -366,25 +402,10 @@ async def _detect_blank_docs(ctx: StageContext) -> AsyncGenerator[str, None]:
         await db.commit()
         yield plog("INFO", f"Hallazgos registrados: {len(findings)} (facturas marcadas PENDIENTE: {updated})")
 
-    quarantine_root = stage_path / _BLANK_QUARANTINE
-
-    def _quarantine(f: Path) -> Path:
-        dest_dir = quarantine_root / f.parent.name
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / f.name
-        shutil.move(str(f), str(dest))
-        return dest
-
-    moved = 0
-    for index, f in enumerate(blanks, 1):
-        yield progress_line(index - 1, len(blanks), f.name, "PDFs")
-        try:
-            dest = await executor(_quarantine, f)
-            moved += 1
-            yield plog("INFO", f"Movido a cuarentena: {f.name} → {dest.relative_to(stage_path)}", folder=f.parent.name)
-        except OSError as exc:
-            yield plog("ERROR", f"No se pudo mover a cuarentena {f.name}: {exc}", folder=f.parent.name)
-    yield plog("INFO", f"PDFs en blanco: {len(blanks)}, movidos a cuarentena: {moved}")
+    quarantine = _Quarantine(stage_path, _BLANK_QUARANTINE)
+    async for line in quarantine.move(blanks):
+        yield line
+    yield plog("INFO", f"PDFs en blanco: {len(blanks)}, movidos a cuarentena: {quarantine.moved}")
 
 
 @stage("DELETE_UNREADABLE_PDFS", requires="stage")
@@ -398,7 +419,6 @@ async def _delete_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None
     """
     from app.core.reader import DocumentReader
 
-    executor = get_executor()
     stage_path: Path = ctx["stage_path"]
 
     invoices = await invoice_pdfs(ctx)
@@ -413,22 +433,7 @@ async def _delete_unreadable_pdfs(ctx: StageContext) -> AsyncGenerator[str, None
     no_text = job.result
     yield plog("INFO", f"PDFs sin texto a mover a cuarentena: {len(no_text)}")
 
-    quarantine_root = stage_path / "_CUARENTENA_SIN_TEXTO"
-
-    def _quarantine(f: Path) -> Path:
-        dest_dir = quarantine_root / f.parent.name
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / f.name
-        shutil.move(str(f), str(dest))
-        return dest
-
-    moved = 0
-    for index, f in enumerate(no_text, 1):
-        yield progress_line(index - 1, len(no_text), f.name, "PDFs")
-        try:
-            dest = await executor(_quarantine, f)
-            moved += 1
-            yield plog("INFO", f"Movido a cuarentena: {f.name} → {dest.relative_to(stage_path)}", folder=f.parent.name)
-        except OSError as exc:
-            yield plog("ERROR", f"No se pudo mover a cuarentena {f.name}: {exc}", folder=f.parent.name)
-    yield plog("INFO", f"Total movidos a cuarentena: {moved}")
+    quarantine = _Quarantine(stage_path, "_CUARENTENA_SIN_TEXTO")
+    async for line in quarantine.move(no_text):
+        yield line
+    yield plog("INFO", f"Total movidos a cuarentena: {quarantine.moved}")
