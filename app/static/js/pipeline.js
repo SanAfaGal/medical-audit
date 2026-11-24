@@ -59,9 +59,11 @@ function pipeline() {
 
       // ── 3. CALIDAD DE PDFs ───────────────────────────────────────────────
       { type:'phase', label:'Calidad de PDFs', color:'#4338ca', icon:'fa-solid fa-file-pdf' },
+      // En blanco va antes que "Eliminar ilegibles": esa mueve también los blancos (sin capa de texto) a otra
+      // cuarentena sin registrar hallazgo, y entonces esta ya no los vería.
+      { type:'stage', id:'DETECT_BLANK_DOCS', label:'Detectar PDFs en blanco', icon:'fa-regular fa-file', phaseColor:'#dc2626' },
       { type:'stage', id:'LIST_UNREADABLE_PDFS', label:'Detectar PDFs ilegibles', icon:'fa-solid fa-list-check', phaseColor:'#4338ca' },
       { type:'stage', id:'DELETE_UNREADABLE_PDFS', label:'Eliminar PDFs ilegibles',   icon:'fa-solid fa-file-circle-minus',    phaseColor:'#dc2626' },
-      { type:'stage', id:'DETECT_BLANK_DOCS', label:'Detectar PDFs en blanco', icon:'fa-regular fa-file', phaseColor:'#dc2626' },
 
       // ── 4. AUDITORÍA ─────────────────────────────────────────────────────
       { type:'phase', label:'Auditoría', color:'#b45309', icon:'fa-solid fa-magnifying-glass-chart' },

@@ -16,9 +16,9 @@ El pipeline está compuesto por etapas secuenciales. Cada etapa se activa indivi
 | 4 | `CHECK_NESTED_FOLDERS` | Detectar carpetas en STAGE que contienen subcarpetas anidadas — requieren aplanamiento manual. |
 | 5 | `REMOVE_NON_PDF` | Eliminar archivos no-PDF y PDFs corruptos de STAGE. |
 | 6 | `NORMALIZE_FILES` | Aplicar reglas de `PrefixCorrection` + estandarización genérica de nombres de archivo. |
-| 7 | `LIST_UNREADABLE_PDFS` | Identificar PDFs de factura sin capa de texto (escaneados). |
-| 8 | `DELETE_UNREADABLE_PDFS` | Mover a cuarentena los PDFs de factura que no se pueden leer. |
-| 9 | `DETECT_BLANK_DOCS` | Detectar PDFs en blanco de cualquier tipo de documento en STAGE, moverlos a `_CUARENTENA_EN_BLANCO` y registrar un hallazgo (la factura queda `PENDIENTE` y el documento se vuelve a descargar). Los PDFs corruptos no cuentan como blancos. |
+| 7 | `DETECT_BLANK_DOCS` | Detectar PDFs en blanco de cualquier tipo de documento en STAGE, moverlos a `_CUARENTENA_EN_BLANCO` y registrar un hallazgo (la factura queda `PENDIENTE` y el documento se vuelve a descargar). Los PDFs corruptos no cuentan como blancos. Va antes de `DELETE_UNREADABLE_PDFS`: esa también mueve los blancos (no tienen capa de texto) y sin hallazgo. |
+| 8 | `LIST_UNREADABLE_PDFS` | Identificar PDFs de factura sin capa de texto (escaneados). |
+| 9 | `DELETE_UNREADABLE_PDFS` | Mover a cuarentena los PDFs de factura que no se pueden leer. |
 | 10 | `DOWNLOAD_INVOICES_FROM_SIHOS` | Descargar facturas faltantes desde SIHOS vía automatización Playwright. |
 | 11 | `DOWNLOAD_MEDICATION_SHEETS` | Descargar hojas de medicamentos/servicios específicos desde SIHOS. |
 | 12 | `VERIFY_INVOICE_CODE` | Confirmar que cada PDF de factura contiene su propio número de factura en el texto extraído. |
