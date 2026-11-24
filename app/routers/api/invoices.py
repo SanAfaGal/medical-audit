@@ -211,8 +211,7 @@ async def export_invoices(period_id: int, db: AsyncSession = Depends(get_db)):
 
 async def _invoice_sandbox(db: AsyncSession, invoice: Invoice) -> Path:
     """Sandbox of the period the invoice belongs to (the client cannot choose another one)."""
-    scope = await load_period_scope_by_id(db, invoice.audit_period_id)
-    return scope.paths.base.resolve()
+    return (await load_period_scope_by_id(db, invoice.audit_period_id)).sandbox
 
 
 class RenameSurplusRequest(BaseModel):
@@ -297,7 +296,7 @@ async def annul_folders(data: BulkAnnulRequest, db: AsyncSession = Depends(get_d
     inv_repo = InvoiceRepo(db)
 
     # Scope every deletion to this period's sandbox (audit_root/<institution>/<period>), never the whole root.
-    sandbox = (await load_period_scope(db, data.institution_id, data.period_id)).paths.base.resolve()
+    sandbox = (await load_period_scope(db, data.institution_id, data.period_id)).sandbox
     anular_status = await inv_repo.get_or_create_folder_status("ANULAR")
 
     annulled = 0

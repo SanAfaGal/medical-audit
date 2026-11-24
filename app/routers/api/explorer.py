@@ -48,8 +48,7 @@ logger = logging.getLogger(__name__)
 
 async def _resolve_sandbox(institution_id: int, period_id: int, db: AsyncSession) -> Path:
     """Devuelve la ruta sandbox: audit_data_root / institution.name / period.period_label."""
-    scope = await load_period_scope(db, institution_id, period_id)
-    return scope.paths.base.resolve()
+    return (await load_period_scope(db, institution_id, period_id)).sandbox
 
 
 @router.get("/list", response_model=ListResponse)

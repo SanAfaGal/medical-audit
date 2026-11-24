@@ -7,6 +7,7 @@ form or a JSON body call the plain ``load_*`` functions instead.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,11 @@ class PeriodScope:
     @property
     def paths(self) -> PeriodPaths:
         return period_paths(self.institution.name, self.period.period_label)
+
+    @property
+    def sandbox(self) -> Path:
+        """The resolved period folder: every client-supplied relative path must stay inside it."""
+        return self.paths.base.resolve()
 
 
 async def load_institution(
