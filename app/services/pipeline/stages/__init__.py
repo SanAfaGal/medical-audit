@@ -7,7 +7,8 @@ from app.services.pipeline.stages import (
     ingest,
     invoice_checks,
     packaging,
+    pdf_quality,
     staging,
 )
 
-__all__ = ["downloads", "findings", "folder_checks", "ingest", "invoice_checks", "packaging", "staging"]
+__all__ = ["downloads", "findings", "folder_checks", "ingest", "invoice_checks", "packaging", "pdf_quality", "staging"]
