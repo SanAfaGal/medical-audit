@@ -24,7 +24,7 @@ Marca cada punto al terminarlo. Lo ya hecho está en el historial de git (`git l
 
 - [x] **Barra N/total en las etapas que procesan archivos locales.** Hecho con `run_with_progress` (`stage_events.py`) y callbacks `on_progress`/`cancel_event` en `app/core` (validator, reader, standardizer, inspector). Falta probarla en el navegador (ver Frontend).
 - [x] **`verification.py` partido** en `invoice_checks.py`, `folder_checks.py` y `findings.py`; la lógica de sobrantes y de documentos requeridos salió a `services/pipeline/surplus.py` y `required_docs.py` (puras y con tests).
-- [ ] **Duplicación entre las etapas SIHOS** (`DOWNLOAD_INVOICES_FROM_SIHOS` y `DOWNLOAD_MEDICATION_SHEETS`): extraer la construcción del `SihosDownloader` y las comprobaciones previas.
+- [x] **Duplicación entre las etapas SIHOS** (`DOWNLOAD_INVOICES_FROM_SIHOS` y `DOWNLOAD_MEDICATION_SHEETS`): comprobaciones previas, consulta de hallazgos y construcción del `SihosDownloader` compartidas en `stages/downloads.py`; cubiertas por `tests/app/test_stages_downloads_integration.py`.
 - [ ] Estado de tareas en memoria: un reinicio del backend pierde las tareas en curso (la UI ya lo detecta con `/api/pipeline/status`). Persistirlas solo si se necesita sobrevivir a reinicios.
 
 ## Mantenibilidad y modularización

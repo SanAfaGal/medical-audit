@@ -6,7 +6,10 @@ import threading
 
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 import json
+
+from sqlalchemy import Row
 
 from app.core.helpers import EventFn
 from app.services.pipeline.context import StageContext
@@ -15,78 +18,97 @@ from app.services.pipeline.logfmt import plog
 from app.services.pipeline.registry import stage
 from app.services.stage_events import progress_line, run_with_events
 
+if TYPE_CHECKING:
+    from app.core.downloader import SihosDownloader
+    from app.models.rules import DocType
 
-@stage("DOWNLOAD_INVOICES_FROM_SIHOS")
-async def _download_invoices_from_sihos(ctx: StageContext) -> AsyncGenerator[str, None]:
-    """Download the factura PDF from SIHOS for PENDIENTE invoices with an unresolved finding of the chosen doc type."""
+
+async def _sihos_doc_type(ctx: StageContext) -> tuple[DocType | None, str | None]:
+    """The document type picked in the panel, or the reason a SIHOS stage cannot run: ``(doc_type, error)``."""
     from sqlalchemy import select
 
-    from app.core.downloader import SihosDownloader
-
-    from app.crypto import decrypt
-    from app.models.finding import MissingFile
-    from app.models.invoice import Invoice
-    from app.models.rules import DocType, FolderStatus
+    from app.models.rules import DocType
 
     institution = ctx["institution"]
-    stage_path: Path = ctx["stage_path"]
-    db = ctx["db"]
-    period = ctx["period"]
     doc_type_id: int = ctx.get("doc_type_id", 0)
-
     if not doc_type_id:
-        yield plog(
-            "ERROR", "No se seleccionó un tipo de documento. Elige uno en el panel antes de ejecutar esta etapa."
-        )
-        return
-
+        return None, "No se seleccionó un tipo de documento. Elige uno en el panel antes de ejecutar esta etapa."
     if not institution.sihos_user or not institution.sihos_password:
-        yield plog("ERROR", "Credenciales SIHOS no configuradas en la institución.")
-        return
-
+        return None, "Credenciales SIHOS no configuradas en la institución."
     if url_error := sihos_url_error(institution):
-        yield plog("ERROR", url_error)
-        return
+        return None, url_error
+    doc_type = (await ctx["db"].execute(select(DocType).where(DocType.id == doc_type_id))).scalar_one_or_none()
+    if doc_type is None:
+        return None, f"Tipo de documento con id={doc_type_id} no encontrado."
+    return doc_type, None
 
-    doc_type_result = await db.execute(select(DocType).where(DocType.id == doc_type_id))
-    doc_type = doc_type_result.scalar_one_or_none()
-    if not doc_type:
-        yield plog("ERROR", f"Tipo de documento con id={doc_type_id} no encontrado.")
-        return
 
-    yield plog("INFO", f"Tipo de documento: {doc_type.code} — prefijo {doc_type.prefix or '(sin prefijo)'}")
+async def _pending_findings(
+    ctx: StageContext, doc_type_id: int, *columns: Any, with_admission: bool = False
+) -> list[Row[Any]]:
+    """``columns`` of the PENDIENTE invoices with an unresolved finding of the document type (distinct rows)."""
+    from sqlalchemy import select
+
+    from app.models.finding import MissingFile
+    from app.models.invoice import Invoice
+    from app.models.rules import FolderStatus
 
     stmt = (
-        select(Invoice.invoice_number)
+        select(*columns)
         .join(FolderStatus, Invoice.folder_status_id == FolderStatus.id)
         .join(MissingFile, MissingFile.invoice_id == Invoice.id)
-        .where(Invoice.audit_period_id == period.id)
+        .where(Invoice.audit_period_id == ctx["period"].id)
         .where(FolderStatus.status == "PENDIENTE")
         .where(MissingFile.doc_type_id == doc_type_id)
         .where(MissingFile.resolved_at.is_(None))
         .distinct()
     )
-    result = await db.execute(stmt)
-    invoice_numbers = [row.invoice_number for row in result.all()]
+    if with_admission:
+        stmt = stmt.where(Invoice.admission.isnot(None))
+    return list((await ctx["db"].execute(stmt)).all())
 
+
+def _sihos_downloader(ctx: StageContext, *, invoice_prefix: str) -> SihosDownloader:
+    """The browser downloader of the institution; ``invoice_prefix`` names the files it saves."""
+    from app.core.downloader import SihosDownloader
+    from app.crypto import decrypt
+
+    institution = ctx["institution"]
+    if not institution.sihos_user or not institution.sihos_password:  # _sihos_doc_type already checked
+        raise ValueError("Credenciales SIHOS no configuradas en la institución.")
+    return SihosDownloader(
+        user=institution.sihos_user,
+        password=decrypt(institution.sihos_password),
+        base_url=institution.sihos_base_url or "",
+        hospital_nit=institution.nit,
+        invoice_prefix=invoice_prefix,
+        invoice_id_prefix=institution.invoice_id_prefix or "",
+        invoice_doc_code=institution.sihos_doc_code or "",
+        output_dir=ctx["stage_path"],
+    )
+
+
+@stage("DOWNLOAD_INVOICES_FROM_SIHOS")
+async def _download_invoices_from_sihos(ctx: StageContext) -> AsyncGenerator[str, None]:
+    """Download the factura PDF from SIHOS for PENDIENTE invoices with an unresolved finding of the chosen doc type."""
+    from app.models.invoice import Invoice
+
+    doc_type, error = await _sihos_doc_type(ctx)
+    if doc_type is None:
+        yield plog("ERROR", error or "")
+        return
+
+    yield plog("INFO", f"Tipo de documento: {doc_type.code} — prefijo {doc_type.prefix or '(sin prefijo)'}")
+
+    rows = await _pending_findings(ctx, doc_type.id, Invoice.invoice_number)
+    invoice_numbers = [row.invoice_number for row in rows]
     if not invoice_numbers:
         yield plog("INFO", f"No hay facturas PENDIENTE con hallazgo {doc_type.code} sin resolver.")
         return
 
     yield plog("INFO", f"Descargando {len(invoice_numbers)} factura(s) desde SIHOS...")
 
-    password = decrypt(institution.sihos_password)
-    downloader = SihosDownloader(
-        user=institution.sihos_user,
-        password=password,
-        base_url=institution.sihos_base_url or "",
-        hospital_nit=institution.nit,
-        invoice_prefix=doc_type.prefix or "",
-        invoice_id_prefix=institution.invoice_id_prefix or "",
-        invoice_doc_code=institution.sihos_doc_code or "",
-        output_dir=stage_path,
-    )
-
+    downloader = _sihos_downloader(ctx, invoice_prefix=doc_type.prefix or "")
     yield progress_line(0, len(invoice_numbers), label="Facturas")
     async for line in run_with_events(
         lambda event_fn, cancel_event: downloader.run_from_list(
@@ -104,77 +126,35 @@ async def _download_invoices_from_sihos(ctx: StageContext) -> AsyncGenerator[str
 @stage("DOWNLOAD_MEDICATION_SHEETS")
 async def _download_medication_sheets(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Download PDFs for PENDIENTE invoices with an unresolved finding of the chosen doc type."""
-    from sqlalchemy import select
-
-    from app.core.downloader import SihosDownloader
-
-    from app.crypto import decrypt
-    from app.models.finding import MissingFile
     from app.models.invoice import Invoice
-    from app.models.rules import DocType, FolderStatus
 
-    institution = ctx["institution"]
-    stage_path: Path = ctx["stage_path"]
-    db = ctx["db"]
-    period = ctx["period"]
-    doc_type_id: int = ctx.get("doc_type_id", 0)
-
-    if not doc_type_id:
-        yield plog(
-            "ERROR", "No se seleccionó un tipo de documento. Elige uno en el panel antes de ejecutar esta etapa."
-        )
-        return
-
-    if not institution.sihos_user or not institution.sihos_password:
-        yield plog("ERROR", "Credenciales SIHOS no configuradas en la institución.")
-        return
-
-    if url_error := sihos_url_error(institution):
-        yield plog("ERROR", url_error)
-        return
-
-    doc_type_result = await db.execute(select(DocType).where(DocType.id == doc_type_id))
-    doc_type = doc_type_result.scalar_one_or_none()
-    if not doc_type:
-        yield plog("ERROR", f"Tipo de documento con id={doc_type_id} no encontrado.")
+    doc_type, error = await _sihos_doc_type(ctx)
+    if doc_type is None:
+        yield plog("ERROR", error or "")
         return
 
     yield plog("INFO", f"Tipo de documento seleccionado: {doc_type.code} — {doc_type.description}")
 
-    stmt = (
-        select(Invoice.invoice_number, Invoice.admission, Invoice.id_type, Invoice.id_number)
-        .join(FolderStatus, Invoice.folder_status_id == FolderStatus.id)
-        .join(MissingFile, MissingFile.invoice_id == Invoice.id)
-        .where(Invoice.audit_period_id == period.id)
-        .where(Invoice.admission.isnot(None))
-        .where(FolderStatus.status == "PENDIENTE")
-        .where(MissingFile.doc_type_id == doc_type_id)
-        .where(MissingFile.resolved_at.is_(None))
-        .distinct()
+    rows = await _pending_findings(
+        ctx,
+        doc_type.id,
+        Invoice.invoice_number,
+        Invoice.admission,
+        Invoice.id_type,
+        Invoice.id_number,
+        with_admission=True,
     )
-    result = await db.execute(stmt)
     targets: list[tuple[str, str, str, str]] = [
-        (row.invoice_number, row.admission, row.id_type, row.id_number) for row in result.all()
+        (row.invoice_number, row.admission, row.id_type, row.id_number) for row in rows
     ]
-
     if not targets:
         yield plog("INFO", f"No hay facturas PENDIENTE con hallazgo {doc_type.code} sin resolver y número de admisión.")
         return
 
     yield plog("INFO", f"Descargando {len(targets)} factura(s) desde SIHOS...")
 
-    password = decrypt(institution.sihos_password)
-    downloader = SihosDownloader(
-        user=institution.sihos_user,
-        password=password,
-        base_url=institution.sihos_base_url or "",
-        hospital_nit=institution.nit,
-        invoice_prefix="",
-        invoice_id_prefix=institution.invoice_id_prefix or "",
-        invoice_doc_code=institution.sihos_doc_code or "",
-        output_dir=stage_path,
-    )
-
+    # The sheet prefix travels with the call, so the downloader itself gets no invoice prefix.
+    downloader = _sihos_downloader(ctx, invoice_prefix="")
     file_prefix = doc_type.prefix or doc_type.code
     yield progress_line(0, len(targets), label="Facturas")
     async for line in run_with_events(
