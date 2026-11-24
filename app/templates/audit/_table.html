@@ -1,0 +1,162 @@
+    <!-- ── Table panel ── -->
+    <div class="flex-1 min-w-0 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+
+      <!-- Table toolbar -->
+      <div class="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap bg-gray-50/60">
+        <div class="flex items-center gap-3 flex-wrap">
+          <span class="text-xs text-gray-500">
+            <template x-if="total > 0">
+              <span class="font-semibold text-gray-700" x-text="total"></span>
+            </template>
+            <template x-if="total === 0"><span class="text-gray-400">Sin resultados</span></template>
+            <template x-if="total > 0"><span class="text-gray-400"> facturas</span></template>
+          </span>
+          <!-- Page selection count -->
+          <template x-if="selectedIds.size > 0">
+            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+              <i class="fa-solid fa-square-check text-xs"></i>
+              <span x-text="selectedIds.size + ' seleccionadas'"></span>
+            </span>
+          </template>
+        </div>
+
+        <!-- Pagination -->
+        <div class="flex items-center gap-1.5 text-xs text-gray-500" x-show="total > pageSize">
+          <button @click="prevPage()" :disabled="page <= 1"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            <i class="fa-solid fa-chevron-left text-[10px]"></i>
+          </button>
+          <span class="px-2 font-medium">
+            <span x-text="page"></span> / <span x-text="Math.ceil(total/pageSize) || 1"></span>
+          </span>
+          <button @click="nextPage()" :disabled="page * pageSize >= total"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            <i class="fa-solid fa-chevron-right text-[10px]"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Select-all-filter banner -->
+      <template x-if="pageAllSelected && total > pageSize && !allFilterSelected">
+        <div class="select-banner px-4 py-2.5 bg-teal-50 border-b border-teal-100 flex items-center justify-between gap-3 text-xs">
+          <span class="text-teal-800">
+            Las <strong x-text="invoices.length"></strong> facturas de esta página están seleccionadas.
+          </span>
+          <button @click="selectAllFilter()"
+                  class="font-semibold text-teal-700 hover:text-teal-900 underline underline-offset-2 whitespace-nowrap">
+            Seleccionar las <span x-text="total"></span> facturas del filtro actual →
+          </button>
+        </div>
+      </template>
+
+      <!-- All-filter selected banner -->
+      <template x-if="allFilterSelected">
+        <div class="select-banner px-4 py-2.5 bg-teal-100 border-b border-teal-200 flex items-center justify-between gap-3 text-xs">
+          <span class="text-teal-900 font-semibold">
+            <i class="fa-solid fa-square-check mr-1.5"></i>
+            Todas las <span x-text="selectedIds.size"></span> facturas del filtro están seleccionadas.
+          </span>
+          <button @click="clearSelection()"
+                  class="text-teal-700 hover:text-teal-900 underline underline-offset-2">
+            Cancelar selección
+          </button>
+        </div>
+      </template>
+
+      <div class="table-scroll">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="bg-gray-50 border-b border-gray-100">
+              <th class="px-3 py-1.5 w-9 text-center">
+                <input type="checkbox"
+                  :checked="pageAllSelected"
+                  :indeterminate="somethingSelected && !pageAllSelected"
+                  @change="togglePageSelection($event)"
+                  class="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer w-3.5 h-3.5" />
+              </th>
+              <th class="text-left px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Factura</th>
+              <th class="text-left px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider">Paciente</th>
+              <th class="text-left px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider hidden xl:table-cell whitespace-nowrap">Admisión</th>
+              <th class="text-left px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Administradora</th>
+              <th class="text-left px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Contrato</th>
+              <th class="text-left px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Servicio</th>
+              <th class="text-left px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Estado</th>
+              <th class="text-center px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wider">Hall.</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            <template x-for="inv in invoices" :key="inv.id">
+              <tr class="group transition-colors cursor-pointer"
+                  :class="[
+                    'row-' + inv.folder_status,
+                    selectedInvoice && selectedInvoice.id === inv.id
+                      ? 'bg-teal-50'
+                      : selectedIds.has(inv.id)
+                        ? 'bg-teal-50/50'
+                        : 'hover:bg-gray-50/80'
+                  ]"
+                  @click="selectInvoice(inv)">
+
+                <!-- Checkbox — click doesn't open detail -->
+                <td class="px-3 py-1.5 text-center" @click.stop>
+                  <input type="checkbox"
+                    :checked="selectedIds.has(inv.id)"
+                    @change="toggleSelection(inv.id)"
+                    class="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer w-3.5 h-3.5" />
+                </td>
+
+                <td class="px-3 py-1.5 whitespace-nowrap">
+                  <span class="font-mono font-semibold text-teal-700 text-xs" x-text="inv.invoice_number"></span>
+                </td>
+                <td class="px-3 py-1.5 max-w-[180px]">
+                  <span class="truncate block text-xs text-gray-700" x-text="inv.patient_name || '—'"></span>
+                </td>
+                <td class="px-3 py-1.5 hidden xl:table-cell whitespace-nowrap">
+                  <span class="font-mono text-xs text-gray-500" x-text="inv.admission || '—'"></span>
+                </td>
+                <td class="px-3 py-1.5 hidden md:table-cell max-w-[180px]">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="truncate text-xs text-gray-600" x-text="inv.admin_canonical || '—'"></span>
+                    <template x-if="inv.admin_type">
+                      <span class="shrink-0 px-1.5 py-px rounded text-[9px] font-semibold bg-sky-100 text-sky-700"
+                            x-text="inv.admin_type"></span>
+                    </template>
+                  </div>
+                </td>
+                <td class="px-3 py-1.5 hidden lg:table-cell max-w-[140px]">
+                  <span class="truncate block text-xs text-gray-500" x-text="inv.contract_canonical || '—'"></span>
+                </td>
+                <td class="px-3 py-1.5 text-xs text-gray-500 hidden lg:table-cell whitespace-nowrap" x-text="inv.service_type_code || '—'"></td>
+                <td class="px-3 py-1.5">
+                  <span class="inline-block px-2 py-px rounded-full text-[10px] font-semibold whitespace-nowrap"
+                        :class="statusBadgeClass(inv.folder_status)"
+                        x-text="inv.folder_status"></span>
+                </td>
+                <td class="px-3 py-1.5 text-center">
+                  <template x-if="inv.missing_file_count > 0">
+                    <span class="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[10px] font-semibold bg-red-100 text-red-700">
+                      <i class="fa-solid fa-triangle-exclamation text-[9px]"></i>
+                      <span x-text="inv.missing_file_count"></span>
+                    </span>
+                  </template>
+                  <template x-if="inv.folder_status === 'PRESENTE'">
+                    <i class="fa-solid fa-circle-check text-emerald-400 text-xs"></i>
+                  </template>
+                </td>
+              </tr>
+            </template>
+
+            <!-- Empty state inside table -->
+            <template x-if="invoices.length === 0 && $store.ctx.periodId">
+              <tr>
+                <td colspan="9" class="py-16 text-center text-gray-400 text-sm">
+                  <i class="fa-regular fa-folder-open text-3xl mb-3 block opacity-30"></i>
+                  No se encontraron facturas
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- ── /Table panel ── -->

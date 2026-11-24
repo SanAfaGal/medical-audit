@@ -1,0 +1,106 @@
+  <!-- ════════════════════════════════════════════════════
+       BATCH ACTION BAR — command dock, slides up on selection
+       ════════════════════════════════════════════════════ -->
+  <div class="batch-bar fixed bottom-0 left-64 right-0 z-50 pb-5 flex justify-center pointer-events-none"
+       :class="selectedIds.size > 0 ? 'batch-bar-visible' : 'batch-bar-hidden'">
+
+    <div class="cmd-dock pointer-events-auto relative flex items-center rounded-2xl overflow-hidden transition-all duration-200"
+         :class="{
+           'cmd-dock-confirm-findings': confirmBatchDelete,
+           'cmd-dock-confirm-invoices': confirmBatchDeleteInvoices
+         }">
+
+      <!-- Left teal accent bar -->
+      <div class="absolute left-0 top-0 bottom-0 w-[3px]"
+           :class="confirmBatchDelete ? 'bg-gradient-to-b from-amber-400 to-amber-600' : confirmBatchDeleteInvoices ? 'bg-gradient-to-b from-red-400 to-red-600' : 'bg-gradient-to-b from-teal-400 to-teal-600'"></div>
+
+      <!-- Count badge -->
+      <div class="flex items-center gap-2.5 pl-6 pr-4 py-3 border-r border-white/[0.07] shrink-0">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+             :class="confirmBatchDelete ? 'bg-amber-500/15 border border-amber-500/25' : confirmBatchDeleteInvoices ? 'bg-red-500/15 border border-red-500/25' : 'bg-teal-500/15 border border-teal-500/20'">
+          <i class="text-[10px] transition-colors"
+             :class="confirmBatchDelete ? 'fa-solid fa-triangle-exclamation text-amber-400' : confirmBatchDeleteInvoices ? 'fa-solid fa-radiation text-red-400' : 'fa-solid fa-layer-group text-teal-400'"></i>
+        </div>
+        <div>
+          <div class="text-[9px] uppercase tracking-[0.12em] font-bold leading-none mb-[3px] transition-colors"
+               :class="confirmBatchDelete ? 'text-amber-500/70' : confirmBatchDeleteInvoices ? 'text-red-500/70' : 'text-slate-500'">Facturas</div>
+          <div class="text-[20px] font-bold text-white leading-none tabular-nums" x-text="selectedIds.size"></div>
+        </div>
+      </div>
+
+      <!-- Normal actions (hidden during confirmation) -->
+      <div x-show="!confirmBatchDelete && !confirmBatchDeleteInvoices"
+           class="flex items-center gap-1 px-3 py-2.5">
+
+        <!-- Status change -->
+        <select x-model="batchStatusId" class="dock-select">
+          <option value="">Estado…</option>
+          <template x-for="fs in folderStatuses" :key="fs.id">
+            <option :value="fs.id" x-text="fs.status"></option>
+          </template>
+        </select>
+        <button @click="applyBatchStatus()" :disabled="!batchStatusId" class="dock-btn dock-btn-teal">
+          <i class="fa-solid fa-bolt text-[9px]"></i>Aplicar
+        </button>
+
+        <div class="dock-divider"></div>
+
+        <!-- Delete findings -->
+        <button @click="confirmBatchDelete = true" class="dock-btn dock-btn-amber">
+          <i class="fa-solid fa-triangle-exclamation text-[9px]"></i>Borrar hallazgos
+        </button>
+
+        <div class="dock-divider"></div>
+
+        <!-- Delete invoices -->
+        <button @click="confirmBatchDeleteInvoices = true" class="dock-btn dock-btn-red">
+          <i class="fa-solid fa-file-circle-xmark text-[9px]"></i>Eliminar facturas
+        </button>
+      </div>
+
+      <!-- Confirm: delete findings -->
+      <div x-show="confirmBatchDelete"
+           class="flex items-center gap-2.5 px-4 py-2.5">
+        <span class="text-[11px] text-amber-300/80 font-medium">
+          ¿Borrar hallazgos de
+          <strong class="text-amber-200 font-bold tabular-nums" x-text="selectedIds.size"></strong>
+          facturas?
+        </span>
+        <button @click="doBatchDeleteFindings()"
+                class="dock-btn" style="background:rgba(245,158,11,0.9);color:#0f172a;border-color:transparent;">
+          <i class="fa-solid fa-check text-[9px]"></i>Confirmar
+        </button>
+        <button @click="confirmBatchDelete = false"
+                class="dock-btn" style="color:rgba(148,163,184,0.8);border-color:rgba(255,255,255,0.1);">
+          Cancelar
+        </button>
+      </div>
+
+      <!-- Confirm: delete invoices -->
+      <div x-show="confirmBatchDeleteInvoices"
+           class="flex items-center gap-2.5 px-4 py-2.5">
+        <span class="text-[11px] text-red-300/80 font-medium">
+          ¿Eliminar
+          <strong class="text-red-200 font-bold tabular-nums" x-text="selectedIds.size"></strong>
+          facturas definitivamente?
+        </span>
+        <button @click="doBatchDeleteInvoices()"
+                class="dock-btn" style="background:rgba(220,38,38,0.9);color:#fff;border-color:transparent;">
+          <i class="fa-solid fa-check text-[9px]"></i>Confirmar
+        </button>
+        <button @click="confirmBatchDeleteInvoices = false"
+                class="dock-btn" style="color:rgba(148,163,184,0.8);border-color:rgba(255,255,255,0.1);">
+          Cancelar
+        </button>
+      </div>
+
+      <!-- Close button -->
+      <div class="border-l border-white/[0.07] px-2 py-2.5 shrink-0">
+        <button @click="clearSelection()" title="Cancelar selección"
+                class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:bg-white/8 hover:text-slate-300 transition-colors">
+          <i class="fa-solid fa-xmark text-[11px]"></i>
+        </button>
+      </div>
+    </div>
+
+  </div>

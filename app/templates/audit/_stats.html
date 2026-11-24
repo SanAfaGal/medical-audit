@@ -1,0 +1,96 @@
+  <!-- ── Stats + findings compact strip ── -->
+  <section x-show="$store.ctx.periodId" x-cloak
+           class="bg-white rounded-xl border border-gray-200 shadow-sm">
+
+    <!-- Stats row -->
+    <div class="px-3 py-2.5 flex items-center gap-1.5 flex-wrap"
+         style="border-bottom:1px solid var(--border-soft)">
+
+      <!-- Total (non-clickable) -->
+      <div class="stat-pill" style="cursor:default;pointer-events:none">
+        <span class="slbl">Total</span>
+        <span class="snum" style="color:var(--text-1)" x-text="stats.total ?? '—'"></span>
+      </div>
+
+      <div class="w-px self-stretch mx-1" style="background:var(--border)"></div>
+
+      <!-- Per-status pills (clickable filters) -->
+      <template x-for="s in statCards" :key="s.status">
+        <button class="stat-pill"
+                :class="filterStatusId == s.id ? 'active' : ''"
+                :style="filterStatusId == s.id
+                  ? `border-color:${s.rawColor};background:${s.rawBg};`
+                  : ''"
+                @click="filterStatusId = (filterStatusId == s.id ? '' : s.id); page=1; loadInvoices()">
+          <span class="slbl" :style="filterStatusId==s.id ? `color:${s.rawColor}` : ''" x-text="s.status"></span>
+          <span class="snum"
+                :style="`color:${filterStatusId==s.id ? s.rawColor : 'var(--text-1)'}`"
+                x-text="(stats.by_status && stats.by_status[s.status] !== undefined) ? stats.by_status[s.status] : 0"></span>
+          <i class="fa-solid fa-xmark text-[8px] ml-0.5" x-show="filterStatusId == s.id"
+             :style="`color:${s.rawColor}`"></i>
+        </button>
+      </template>
+
+      <div class="w-px self-stretch mx-1" style="background:var(--border)"></div>
+
+      <!-- Hallazgos total (non-clickable) -->
+      <div class="stat-pill" style="cursor:default;pointer-events:none"
+           :style="(stats.total_findings||0)>0
+             ? 'border-color:var(--red-border);background:var(--red-soft)'
+             : 'border-color:var(--emerald-border);background:var(--emerald-soft)'">
+        <i class="fa-solid text-[9px]"
+           :class="(stats.total_findings||0)>0 ? 'fa-triangle-exclamation' : 'fa-circle-check'"
+           :style="(stats.total_findings||0)>0 ? 'color:var(--red)' : 'color:var(--emerald)'"></i>
+        <span class="slbl"
+              :style="(stats.total_findings||0)>0 ? 'color:var(--red)' : 'color:var(--emerald)'">Hallazgos</span>
+        <span class="snum"
+              :style="(stats.total_findings||0)>0 ? 'color:var(--red)' : 'color:var(--emerald)'"
+              x-text="stats.total_findings ?? 0"></span>
+      </div>
+    </div>
+
+    <!-- Findings chips row -->
+    <div class="px-3 py-2 flex items-center gap-1.5 flex-wrap min-h-[36px]">
+
+      <!-- All-good state -->
+      <template x-if="findingsSummary.length === 0 && stats.total_findings === 0">
+        <span class="text-[10.5px] font-medium flex items-center gap-1.5" style="color:var(--emerald)">
+          <i class="fa-solid fa-circle-check text-xs"></i>Sin hallazgos pendientes
+        </span>
+      </template>
+
+      <!-- Loading / empty -->
+      <template x-if="findingsSummary.length === 0 && stats.total_findings > 0">
+        <span class="text-[10.5px]" style="color:var(--text-3)">Cargando hallazgos…</span>
+      </template>
+
+      <!-- Label -->
+      <template x-if="findingsSummary.length > 0">
+        <span class="text-[9.5px] font-bold uppercase tracking-wider shrink-0 mr-0.5"
+              style="color:var(--text-3)">Por tipo:</span>
+      </template>
+
+      <!-- One chip per finding type -->
+      <template x-for="(item, idx) in findingsSummary" :key="item.doc_type_id">
+        <button class="fchip"
+                :class="filterFindingDocTypeId === item.doc_type_id ? 'active' : ''"
+                @click="toggleFindingFilter(item.doc_type_id)">
+          <span class="font-mono" x-text="item.code"></span>
+          <span class="badge" x-text="item.count"></span>
+          <i class="fa-solid fa-xmark text-[8px] ml-0.5 opacity-60"
+             x-show="filterFindingDocTypeId === item.doc_type_id"></i>
+        </button>
+      </template>
+
+      <!-- Clear filter link -->
+      <template x-if="filterFindingDocTypeId">
+        <button @click="filterFindingDocTypeId=null; page=1; loadInvoices()"
+                class="text-[10px] font-medium ml-1 transition-colors"
+                style="color:var(--text-3)"
+                onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text-3)'">
+          Quitar filtro
+        </button>
+      </template>
+    </div>
+
+  </section>
