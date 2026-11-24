@@ -15,7 +15,7 @@ from app.services.pipeline.registry import stage
 
 @stage("LOAD_AND_PROCESS")
 async def _load_and_process(ctx: StageContext) -> AsyncGenerator[str, None]:
-    """Load SIHOS Excel and upsert invoices. Requires ctx['file_bytes'] and ctx['period_code']."""
+    """Load SIHOS Excel and upsert invoices. Requires ctx['file_bytes']."""
     from app.services.billing import ingest
 
     file_bytes: bytes | None = ctx.get("file_bytes")

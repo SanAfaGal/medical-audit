@@ -7,42 +7,8 @@ from pathlib import Path
 
 from app.core.helpers import (
     read_lines_from_file,
-    remove_accents,
     safe_move,
 )
-
-
-# ---------------------------------------------------------------------------
-# remove_accents
-# ---------------------------------------------------------------------------
-
-
-class TestRemoveAccents:
-    def test_accented_spanish(self):
-        assert remove_accents("Ñoño") == "Nono"
-
-    def test_all_accents(self):
-        assert remove_accents("áéíóúüÁÉÍÓÚÜ") == "aeiouuAEIOUU"
-
-    def test_already_clean(self):
-        assert remove_accents("Hello World") == "Hello World"
-
-    def test_none_returns_empty(self):
-        assert remove_accents(None) == ""
-
-    def test_int_returns_empty(self):
-        assert remove_accents(42) == ""
-
-    def test_float_nan_returns_empty(self):
-        import math
-
-        assert remove_accents(math.nan) == ""
-
-    def test_empty_string(self):
-        assert remove_accents("") == ""
-
-    def test_numbers_in_string(self):
-        assert remove_accents("Factura 123") == "Factura 123"
 
 
 # ---------------------------------------------------------------------------

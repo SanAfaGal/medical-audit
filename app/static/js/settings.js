@@ -200,10 +200,6 @@ function settingsApp() {
       const st = this.serviceTypes.find(s => s.id === id || s.id === parseInt(id));
       return st ? st.display_name : `#${id}`;
     },
-    dtName(id) {
-      const dt = this.docTypes.find(d => d.id === id || d.id === parseInt(id));
-      return dt ? `${dt.code} — ${dt.description}` : `#${id}`;
-    },
     dtCode(id) {
       const dt = this.docTypes.find(d => d.id === id || d.id === parseInt(id));
       return dt ? dt.code : `#${id}`;
@@ -390,12 +386,6 @@ function settingsApp() {
       } else {
         this.showToast(res.error, 'error');
       }
-    },
-
-    ctName(id) {
-      if (!id) return null;
-      const ct = this.contractTypes.find(c => c.id === id || c.id === parseInt(id));
-      return ct ? ct.name : `#${id}`;
     },
 
     // ---- MAPEOS ----

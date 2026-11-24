@@ -194,15 +194,6 @@ function pipeline() {
       ['pipeline_logLines','pipeline_currentStageLabel','pipeline_stageStatuses','pipeline_stageResults'].forEach(k => sessionStorage.removeItem(k));
     },
 
-    // Stages that must run synchronously (require user interaction or file upload)
-    _isSyncStage(stageId) {
-      return stageId === 'LOAD_AND_PROCESS'
-          || stageId === 'LOAD_DRIVE_ZIP'
-          || stageId === 'REVISAR_SOBRANTES'
-          || stageId === 'REMOVE_NON_PDF'
-          || stageId === 'CHECK_FOLDERS_WITH_EXTRA_TEXT';
-    },
-
     async _runBackgroundStage(stageId, institutionId, periodId) {
       const params = new URLSearchParams({ institution_id: institutionId, period_id: periodId });
       if (stageId === 'DOWNLOAD_INVOICES_FROM_SIHOS' && this.invoiceDocTypeId)

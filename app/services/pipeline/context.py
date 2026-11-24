@@ -25,7 +25,6 @@ class StageContext(TypedDict, total=False):
     audit_path: Path
     # Optional extras passed by the caller (router / task manager)
     file_bytes: bytes  # LOAD_AND_PROCESS: uploaded SIHOS Excel
-    period_code: str  # LOAD_AND_PROCESS
     invoice_numbers: list[str]  # DOWNLOAD_DRIVE: manual list
     doc_type_id: int  # SIHOS download stages
     cancel_event: Any  # threading.Event set when the task is cancelled

@@ -64,12 +64,12 @@ async def is_blocked_request(url: str, cache: dict[str, bool]) -> bool:
     stopped too. Resolution here and the browser's own lookup are separate, so a hostile DNS server
     that changes its answer between them (DNS rebinding) is not fully covered.
     """
+    if is_blocked_url(url):
+        return True
     parts = urlsplit(url)
     host = parts.hostname
     if parts.scheme not in ("http", "https") or not host:
         return False
-    if _blocked_host(host):
-        return True
     if _parse_ip(host) is not None:
         return False  # public IP literal, already checked above
     if host in cache:

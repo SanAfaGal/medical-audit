@@ -2,7 +2,6 @@
 
 import logging
 import shutil
-import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
@@ -11,23 +10,6 @@ logger = logging.getLogger(__name__)
 
 #: ``on_progress(done, total, item)`` callback accepted by long-running scans (called from worker threads).
 ProgressFn = Callable[[int, int, str], None]
-
-
-def remove_accents(text: str | object) -> str:
-    """Strip accent marks and normalise text to plain ASCII-equivalent.
-
-    Safe for non-string inputs such as ``None``, ``float`` (NaN), or ``int``.
-
-    Args:
-        text: Input value to normalise.
-
-    Returns:
-        Accent-free string, or an empty string for non-string inputs.
-    """
-    if not isinstance(text, str):
-        return ""
-    normalised = unicodedata.normalize("NFD", text)
-    return "".join(c for c in normalised if unicodedata.category(c) != "Mn")
 
 
 def safe_move(src: Path, dest: Path) -> bool:

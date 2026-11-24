@@ -84,13 +84,6 @@ class InvoiceValidator:
             return None
         return (str(path), stat.st_mtime_ns, stat.st_size, self._id_prefix)
 
-    def extract_cufe_code(self, text: str) -> str | None:
-        """Extract and normalise a CUFE code from invoice text."""
-        match = _RE_CUFE.search(text)
-        if match:
-            return match.group(1).strip().lower()
-        return None
-
     def validate_invoice_files(
         self,
         file_paths: list[Path],

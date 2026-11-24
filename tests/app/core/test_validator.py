@@ -25,31 +25,6 @@ class TestCollapseInlineWhitespace:
         assert _collapse_inline_whitespace("") == ""
 
 
-class TestExtractCufeCode:
-    _VALID_CUFE = "a" * 64  # 64-char string
-
-    def test_extracts_valid_cufe(self):
-        v = InvoiceValidator(Path("."))
-        text = f"CUFE: {self._VALID_CUFE}\n"
-        assert v.extract_cufe_code(text) == self._VALID_CUFE
-
-    def test_returns_none_when_absent(self):
-        v = InvoiceValidator(Path("."))
-        assert v.extract_cufe_code("No CUFE here") is None
-
-    def test_case_insensitive_cufe_label(self):
-        v = InvoiceValidator(Path("."))
-        text = f"cufe: {self._VALID_CUFE}\n"
-        result = v.extract_cufe_code(text)
-        assert result is not None
-
-    def test_strips_whitespace_from_value(self):
-        v = InvoiceValidator(Path("."))
-        text = f"CUFE:   {self._VALID_CUFE}   \n"
-        result = v.extract_cufe_code(text)
-        assert result == self._VALID_CUFE
-
-
 # ---------------------------------------------------------------------------
 # Tests with injected reader (no real PDFs needed)
 # ---------------------------------------------------------------------------
