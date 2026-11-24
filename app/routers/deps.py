@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,16 @@ from app.models.period import AuditPeriod
 from app.paths import PeriodPaths, period_paths
 from app.repositories.institution_repo import InstitutionRepo
 from app.repositories.invoice_repo import InvoiceRepo
+
+
+T = TypeVar("T")
+
+
+def found(value: T | None, detail: str) -> T:
+    """``value`` if the lookup/update/delete found something (truthy), otherwise a 404 with ``detail``."""
+    if not value:
+        raise HTTPException(404, detail)
+    return value
 
 
 @dataclass(frozen=True)

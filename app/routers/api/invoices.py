@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.repositories.finding_repo import MissingFileRepo
-from app.routers.deps import load_institution, load_period_scope, load_period_scope_by_id
+from app.routers.deps import found, load_institution, load_period_scope, load_period_scope_by_id
 from app.models.invoice import Invoice
 from app.repositories.invoice_repo import InvoiceRepo
 from app.repositories.rules_repo import RulesRepo
@@ -137,9 +137,7 @@ async def update_status(
     db: AsyncSession = Depends(get_db),
 ):
     repo = InvoiceRepo(db)
-    invoice = await repo.get_by_id(invoice_id)
-    if not invoice:
-        raise HTTPException(404, "Factura no encontrada")
+    invoice = found(await repo.get_by_id(invoice_id), "Factura no encontrada")
     await repo.update_folder_status(invoice_id, data.folder_status_id)
     await db.commit()
     await db.refresh(invoice)
@@ -165,9 +163,7 @@ async def batch_delete_invoices(data: BatchDeleteRequest, db: AsyncSession = Dep
 @router.delete("/{invoice_id}", status_code=204)
 async def delete_invoice(invoice_id: int, db: AsyncSession = Depends(get_db)):
     repo = InvoiceRepo(db)
-    deleted = await repo.delete_invoice(invoice_id)
-    if not deleted:
-        raise HTTPException(404, "Factura no encontrada")
+    found(await repo.delete_invoice(invoice_id), "Factura no encontrada")
     await db.commit()
 
 
@@ -228,9 +224,7 @@ async def rename_surplus_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Rename a surplus file to match the required doc-type prefix and resolve the finding."""
-    invoice = await InvoiceRepo(db).get_by_id(invoice_id)
-    if not invoice:
-        raise HTTPException(404, "Factura no encontrada")
+    invoice = found(await InvoiceRepo(db).get_by_id(invoice_id), "Factura no encontrada")
     invoice_files.require_plain_filename(data.old_filename)
     folder = invoice_files.surplus_folder(await _invoice_sandbox(db, invoice), data.folder_path)
 
@@ -258,9 +252,7 @@ async def delete_surplus_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a surplus file from disk."""
-    invoice = await InvoiceRepo(db).get_by_id(invoice_id)
-    if not invoice:
-        raise HTTPException(404, "Factura no encontrada")
+    invoice = found(await InvoiceRepo(db).get_by_id(invoice_id), "Factura no encontrada")
     invoice_files.require_plain_filename(data.filename)
     folder = invoice_files.invoice_folder(await _invoice_sandbox(db, invoice), data.folder_path)
 

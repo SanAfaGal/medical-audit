@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.routers.responses import temp_file_response
-from app.routers.deps import PeriodScope, load_period_scope, period_scope
+from app.routers.deps import found, load_period_scope, period_scope, PeriodScope
 from app.routers.errors import http_errors
 
 from app.services import period_files
@@ -133,9 +133,7 @@ async def stream_task_logs(
     tm: PipelineTaskManager = Depends(get_task_manager),
 ):
     """SSE stream of log lines for a background task, with replay from a cursor."""
-    run = tm.get_run(task_id)
-    if not run:
-        raise HTTPException(404, "Tarea no encontrada")
+    run = found(tm.get_run(task_id), "Tarea no encontrada")
 
     async def event_gen() -> AsyncGenerator[str, None]:
         async for idx, line in tm.stream_from(task_id, from_):
@@ -190,18 +188,14 @@ async def list_active(
 @router.get("/status/{task_id}")
 async def task_status(task_id: str, tm: PipelineTaskManager = Depends(get_task_manager)):
     """Lightweight status probe (running or finished). 404 if the server no longer knows the task."""
-    run = tm.get_run(task_id)
-    if not run:
-        raise HTTPException(404, "Tarea no encontrada")
+    run = found(tm.get_run(task_id), "Tarea no encontrada")
     return _run_summary(run)
 
 
 @router.delete("/{task_id}", status_code=200)
 async def cancel_task(task_id: str, tm: PipelineTaskManager = Depends(get_task_manager)):
     """Cancel a running background pipeline task."""
-    cancelled = await tm.cancel(task_id)
-    if not cancelled:
-        raise HTTPException(404, "Tarea no encontrada o ya finalizada")
+    found(await tm.cancel(task_id), "Tarea no encontrada o ya finalizada")
     return {"ok": True}
 
 

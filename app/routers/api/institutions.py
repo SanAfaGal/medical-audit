@@ -12,7 +12,7 @@ from app import crypto
 from app.database import get_db
 from app.models.institution import Institution
 from app.repositories.institution_repo import InstitutionRepo
-from app.routers.deps import institution_or_404, load_institution
+from app.routers.deps import found, institution_or_404, load_institution
 from app.schemas.institution import (
     AdministratorCreate,
     AdministratorOut,
@@ -171,9 +171,7 @@ async def create_contract_type(data: ContractTypeCreate, db: AsyncSession = Depe
 @router.patch("/contract-types/{ct_id}", response_model=ContractTypeOut)
 async def update_contract_type(ct_id: int, data: ContractTypeUpdate, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    ct = await repo.update_contract_type(ct_id, data.name, data.description)
-    if not ct:
-        raise HTTPException(404, "Tipo de contrato no encontrado")
+    ct = found(await repo.update_contract_type(ct_id, data.name, data.description), "Tipo de contrato no encontrado")
     await db.commit()
     return ct
 
@@ -181,9 +179,7 @@ async def update_contract_type(ct_id: int, data: ContractTypeUpdate, db: AsyncSe
 @router.delete("/contract-types/{ct_id}", status_code=204)
 async def delete_contract_type(ct_id: int, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    deleted = await repo.delete_contract_type(ct_id)
-    if not deleted:
-        raise HTTPException(404, "Tipo de contrato no encontrado")
+    found(await repo.delete_contract_type(ct_id), "Tipo de contrato no encontrado")
     await db.commit()
 
 
@@ -213,18 +209,14 @@ async def update_administrator(administrator_id: int, data: AdministratorUpdate,
     repo = InstitutionRepo(db)
     await repo.set_administrator_canonical(administrator_id, data.canonical_name)
     await db.commit()
-    admin = await repo.get_administrator(administrator_id)
-    if not admin:
-        raise HTTPException(404, "Administradora no encontrada")
+    admin = found(await repo.get_administrator(administrator_id), "Administradora no encontrada")
     return admin
 
 
 @router.delete("/administrators/{administrator_id}", status_code=204)
 async def delete_administrator(administrator_id: int, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    deleted = await repo.delete_administrator(administrator_id)
-    if not deleted:
-        raise HTTPException(404, "Administradora no encontrada")
+    found(await repo.delete_administrator(administrator_id), "Administradora no encontrada")
     await db.commit()
 
 
@@ -254,18 +246,14 @@ async def update_contract(contract_id: int, data: ContractUpdate, db: AsyncSessi
     repo = InstitutionRepo(db)
     await repo.set_contract_canonical(contract_id, data.canonical_name)
     await db.commit()
-    contract = await repo.get_contract(contract_id)
-    if not contract:
-        raise HTTPException(404, "Contrato no encontrado")
+    contract = found(await repo.get_contract(contract_id), "Contrato no encontrado")
     return contract
 
 
 @router.delete("/contracts/{contract_id}", status_code=204)
 async def delete_contract(contract_id: int, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    deleted = await repo.delete_contract(contract_id)
-    if not deleted:
-        raise HTTPException(404, "Contrato no encontrado")
+    found(await repo.delete_contract(contract_id), "Contrato no encontrado")
     await db.commit()
 
 
@@ -304,18 +292,14 @@ async def update_agreement(agreement_id: int, data: AgreementUpdate, db: AsyncSe
     repo = InstitutionRepo(db)
     await repo.set_agreement_contract_type(agreement_id, data.contract_type_id)
     await db.commit()
-    ag = await repo.get_agreement(agreement_id)
-    if not ag:
-        raise HTTPException(404, "Acuerdo no encontrado")
+    ag = found(await repo.get_agreement(agreement_id), "Acuerdo no encontrado")
     return ag
 
 
 @router.delete("/agreements/{agreement_id}", status_code=204)
 async def delete_agreement(agreement_id: int, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    deleted = await repo.delete_agreement(agreement_id)
-    if not deleted:
-        raise HTTPException(404, "Acuerdo no encontrado")
+    found(await repo.delete_agreement(agreement_id), "Acuerdo no encontrado")
     await db.commit()
 
 
@@ -334,9 +318,7 @@ async def update_service(service_id: int, data: ServiceUpdate, db: AsyncSession 
     repo = InstitutionRepo(db)
     await repo.set_service_type(service_id, data.service_type_id)
     await db.commit()
-    service = await repo.get_service(service_id)
-    if not service:
-        raise HTTPException(404, "Servicio no encontrado")
+    service = found(await repo.get_service(service_id), "Servicio no encontrado")
     return service
 
 
@@ -415,9 +397,7 @@ async def copy_mappings(institution_id: int, data: MappingsCopyRequest, db: Asyn
 @router.delete("/services/{service_id}", status_code=204)
 async def delete_service(service_id: int, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    deleted = await repo.delete_service(service_id)
-    if not deleted:
-        raise HTTPException(404, "Servicio no encontrado")
+    found(await repo.delete_service(service_id), "Servicio no encontrado")
     await db.commit()
 
 
@@ -435,9 +415,7 @@ async def get_institution(institution: Institution = Depends(institution_or_404)
 async def update_institution(institution_id: int, data: InstitutionUpdate, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
     obj = _encrypt_sensitive(data.model_dump(exclude_none=True))
-    updated = await repo.update(institution_id, obj)
-    if not updated:
-        raise HTTPException(404, "Institución no encontrada")
+    updated = found(await repo.update(institution_id, obj), "Institución no encontrada")
     await db.commit()
     return _institution_out(updated)
 
@@ -445,7 +423,5 @@ async def update_institution(institution_id: int, data: InstitutionUpdate, db: A
 @router.delete("/{institution_id}", status_code=204)
 async def delete_institution(institution_id: int, db: AsyncSession = Depends(get_db)):
     repo = InstitutionRepo(db)
-    deleted = await repo.delete_institution(institution_id)
-    if not deleted:
-        raise HTTPException(404, "Institución no encontrada")
+    found(await repo.delete_institution(institution_id), "Institución no encontrada")
     await db.commit()

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.routers.deps import found
 from app.repositories.finding_repo import MissingFileRepo
 from app.schemas.finding import MissingFileCreate, MissingFileOut, MissingFileResolve
 
@@ -42,9 +43,7 @@ async def resolve_missing_file(
     await repo.resolve_missing_file(invoice_id, doc_type_id)
     await db.commit()
     files = await repo.get_for_invoice(invoice_id)
-    resolved = next((f for f in files if f.doc_type_id == doc_type_id), None)
-    if not resolved:
-        raise HTTPException(404, "Archivo no encontrado")
+    resolved = found(next((f for f in files if f.doc_type_id == doc_type_id), None), "Archivo no encontrado")
     return MissingFileOut.model_validate(resolved)
 
 

@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.routers.deps import found
 from app.repositories.rules_repo import RulesRepo
 from app.schemas.rules import (
     DocTypeCreate,
@@ -63,9 +64,10 @@ async def create_service_type(data: ServiceTypeCreate, db: AsyncSession = Depend
 @router.patch("/service-types/{service_type_id}", response_model=ServiceTypeOut)
 async def update_service_type(service_type_id: int, data: ServiceTypeUpdate, db: AsyncSession = Depends(get_db)):
     repo = RulesRepo(db)
-    obj = await repo.update_service_type(service_type_id, data.model_dump(exclude_none=True))
-    if not obj:
-        raise HTTPException(404, "Tipo de servicio no encontrado")
+    obj = found(
+        await repo.update_service_type(service_type_id, data.model_dump(exclude_none=True)),
+        "Tipo de servicio no encontrado",
+    )
     await db.commit()
     return obj
 
@@ -91,9 +93,9 @@ async def create_doc_type(data: DocTypeCreate, db: AsyncSession = Depends(get_db
 @router.patch("/doc-types/{doc_type_id}", response_model=DocTypeOut)
 async def update_doc_type(doc_type_id: int, data: DocTypeUpdate, db: AsyncSession = Depends(get_db)):
     repo = RulesRepo(db)
-    obj = await repo.update_doc_type(doc_type_id, data.model_dump(exclude_none=True))
-    if not obj:
-        raise HTTPException(404, "Tipo de documento no encontrado")
+    obj = found(
+        await repo.update_doc_type(doc_type_id, data.model_dump(exclude_none=True)), "Tipo de documento no encontrado"
+    )
     await db.commit()
     return obj
 
@@ -152,9 +154,7 @@ async def create_folder_status(data: FolderStatusCreate, db: AsyncSession = Depe
 
 @router.patch("/folder-statuses/{fs_id}", response_model=FolderStatusOut)
 async def update_folder_status(fs_id: int, data: FolderStatusUpdate, db: AsyncSession = Depends(get_db)):
-    obj = await RulesRepo(db).update_folder_status_obj(fs_id, data.status)
-    if not obj:
-        raise HTTPException(404, "Estado no encontrado")
+    obj = found(await RulesRepo(db).update_folder_status_obj(fs_id, data.status), "Estado no encontrado")
     await db.commit()
     return obj
 
@@ -190,16 +190,15 @@ async def create_prefix_correction(data: PrefixCorrectionCreate, db: AsyncSessio
 async def update_prefix_correction(
     correction_id: int, data: PrefixCorrectionUpdate, db: AsyncSession = Depends(get_db)
 ):
-    obj = await RulesRepo(db).update_prefix_correction(correction_id, data.model_dump(exclude_none=True))
-    if not obj:
-        raise HTTPException(404, "Corrección no encontrada")
+    obj = found(
+        await RulesRepo(db).update_prefix_correction(correction_id, data.model_dump(exclude_none=True)),
+        "Corrección no encontrada",
+    )
     await db.commit()
     return obj
 
 
 @router.delete("/prefix-corrections/{correction_id}", status_code=204)
 async def delete_prefix_correction(correction_id: int, db: AsyncSession = Depends(get_db)):
-    deleted = await RulesRepo(db).delete_prefix_correction(correction_id)
-    if not deleted:
-        raise HTTPException(404, "Corrección no encontrada")
+    found(await RulesRepo(db).delete_prefix_correction(correction_id), "Corrección no encontrada")
     await db.commit()
