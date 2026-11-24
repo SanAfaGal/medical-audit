@@ -1,0 +1,157 @@
+    <!-- ══════════════════════════════════════════════════════
+         TAB: PERÍODOS
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'periodos'" class="space-y-4">
+
+      <template x-if="!$store.ctx.institutionId">
+        <div class="no-inst-banner">
+          <i class="fa-solid fa-triangle-exclamation shrink-0"></i>
+          <span>Selecciona una institución en el menú lateral para gestionar períodos.</span>
+        </div>
+      </template>
+
+      <div x-show="$store.ctx.institutionId" class="cfg-card overflow-hidden">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-calendar-days" style="color:var(--sky)"></i>
+          Períodos de auditoría
+        </div>
+
+        <div>
+          <template x-for="p in periods" :key="p.id">
+            <div style="border-bottom:1px solid var(--border-soft)">
+
+              <!-- Fila principal -->
+              <div class="flex items-center justify-between px-5 py-3">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-semibold" style="color:var(--text-1)" x-text="p.period_label"></div>
+                  <div class="text-xs mt-0.5" style="color:var(--text-3)">
+                    <span x-text="p.date_from"></span> → <span x-text="p.date_to"></span>
+                  </div>
+                </div>
+
+                <!-- Tamaño en disco -->
+                <div class="flex items-center gap-2 mx-4">
+                  <template x-if="!diskUsage[p.id]">
+                    <button @click="loadDiskUsage(p.id)"
+                            class="text-[10px] px-2 py-0.5 rounded transition-colors"
+                            style="color:var(--text-3);border:1px solid var(--border);background:var(--bg-subtle)"
+                            title="Ver uso de disco">
+                      <i class="fa-solid fa-hard-drive mr-1 text-[9px]"></i>Ver disco
+                    </button>
+                  </template>
+                  <template x-if="diskUsage[p.id]?.loading">
+                    <span class="text-[10px]" style="color:var(--text-3)">
+                      <i class="fa-solid fa-spinner fa-spin text-[9px] mr-1"></i>Calculando…
+                    </span>
+                  </template>
+                  <template x-if="diskUsage[p.id] && !diskUsage[p.id].loading && !diskUsage[p.id].error">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-[11px] font-semibold tabular-nums" style="color:var(--text-2)"
+                            x-text="formatBytes(diskUsage[p.id].total_bytes)"></span>
+                      <button @click="purgeDisk(p.id)"
+                              :disabled="purgingPeriodId === p.id || !diskUsage[p.id]?.exists"
+                              class="text-[10px] px-2 py-0.5 rounded transition-colors disabled:opacity-40"
+                              style="color:var(--amber);border:1px solid var(--amber-border);background:var(--amber-soft)"
+                              title="Eliminar archivos del disco (mantiene registros en BD)">
+                        <i class="fa-solid fa-broom text-[9px] mr-1"
+                           :class="purgingPeriodId === p.id ? 'fa-spinner fa-spin' : ''"></i>Limpiar
+                      </button>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Eliminar período completo -->
+                <template x-if="confirmDeletePeriodId !== p.id">
+                  <button @click="confirmDeletePeriod(p.id)" class="cfg-btn-sm cfg-btn-red" title="Eliminar período">
+                    <i class="fa-solid fa-trash text-xs"></i>
+                  </button>
+                </template>
+                <template x-if="confirmDeletePeriodId === p.id">
+                  <button @click="confirmDeletePeriodId = null" class="cfg-btn-sm" title="Cancelar">
+                    <i class="fa-solid fa-xmark text-xs"></i>
+                  </button>
+                </template>
+              </div>
+
+              <!-- Panel de confirmación de eliminación -->
+              <template x-if="confirmDeletePeriodId === p.id">
+                <div class="px-5 pb-4">
+                  <div class="rounded-lg px-4 py-3" style="background:var(--red-soft);border:1px solid var(--red-border)">
+                    <div class="flex items-start gap-2 mb-2.5">
+                      <i class="fa-solid fa-triangle-exclamation mt-0.5 shrink-0" style="color:var(--red)"></i>
+                      <div>
+                        <div class="text-[12px] font-semibold mb-0.5" style="color:var(--red)">
+                          ¿Eliminar período "<span x-text="p.period_label"></span>"?
+                        </div>
+                        <div class="text-[11px] leading-relaxed" style="color:var(--red)">
+                          Se borrarán permanentemente todos los registros de BD (facturas, hallazgos) y las carpetas en disco. <strong>No se puede deshacer.</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Desglose de disco -->
+                    <template x-if="diskUsage[p.id] && !diskUsage[p.id].loading && !diskUsage[p.id].error">
+                      <div class="flex items-center gap-3 mb-3 text-[10px] tabular-nums"
+                           style="color:var(--red);opacity:0.85">
+                        <i class="fa-solid fa-hard-drive text-[9px]"></i>
+                        <span>DRIVE <strong x-text="formatBytes(diskUsage[p.id].drive_bytes)"></strong></span>
+                        <span>·</span>
+                        <span>STAGE <strong x-text="formatBytes(diskUsage[p.id].stage_bytes)"></strong></span>
+                        <span>·</span>
+                        <span>AUDIT <strong x-text="formatBytes(diskUsage[p.id].audit_bytes)"></strong></span>
+                        <span>·</span>
+                        <span class="font-bold">Total <span x-text="formatBytes(diskUsage[p.id].total_bytes)"></span></span>
+                      </div>
+                    </template>
+                    <template x-if="diskUsage[p.id]?.loading">
+                      <div class="mb-3 text-[10px]" style="color:var(--red);opacity:0.7">
+                        <i class="fa-solid fa-spinner fa-spin mr-1"></i>Calculando uso de disco…
+                      </div>
+                    </template>
+
+                    <div class="flex gap-2">
+                      <button @click="deletePeriod(p.id)" class="cfg-btn-sm cfg-btn-confirm">
+                        <i class="fa-solid fa-trash text-[10px] mr-1"></i>Sí, eliminar todo
+                      </button>
+                      <button @click="confirmDeletePeriodId = null" class="cfg-btn-sm">Cancelar</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+            </div>
+          </template>
+          <template x-if="periods.length === 0">
+            <div class="text-sm text-center py-8" style="color:var(--text-3)">
+              <i class="fa-solid fa-calendar text-xl mb-2 block"></i>
+              No hay períodos registrados
+            </div>
+          </template>
+        </div>
+
+        <!-- Add form -->
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <div class="text-xs font-semibold mb-3" style="color:var(--text-2)">Agregar período</div>
+          <div class="flex gap-3 flex-wrap items-end">
+            <div>
+              <label class="block text-xs mb-1" style="color:var(--text-3)">Etiqueta *</label>
+              <input type="text" x-model="newPeriod.period_label" placeholder="2024-01"
+                     class="cfg-input" style="width:8rem" />
+            </div>
+            <div>
+              <label class="block text-xs mb-1" style="color:var(--text-3)">Fecha inicio *</label>
+              <input type="date" x-model="newPeriod.date_from" class="cfg-input" />
+            </div>
+            <div>
+              <label class="block text-xs mb-1" style="color:var(--text-3)">Fecha fin *</label>
+              <input type="date" x-model="newPeriod.date_to" class="cfg-input" />
+            </div>
+            <button @click="addPeriod()"
+                    :disabled="!newPeriod.period_label.trim() || !newPeriod.date_from || !newPeriod.date_to"
+                    class="cfg-btn-primary">
+              <i class="fa-solid fa-plus"></i>Agregar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>

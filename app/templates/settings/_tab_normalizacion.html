@@ -1,0 +1,399 @@
+    <!-- ══════════════════════════════════════════════════════
+         TAB: NORMALIZACIÓN
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'normalizacion'" class="space-y-4">
+
+      <!-- ── Flujo informativo ─────────────────────────────── -->
+      <div class="rounded-xl p-4" style="border:1px solid var(--sky-border);background:var(--sky-soft)">
+        <div class="flex items-start gap-3">
+          <div class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mt-0.5" style="background:var(--sky);color:#fff">
+            <i class="fa-solid fa-circle-info text-xs"></i>
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold mb-1" style="color:var(--sky)">¿Qué es la normalización?</p>
+            <p class="text-xs leading-relaxed mb-3" style="color:var(--text-2)">
+              Las facturas importadas desde SIHOS traen los nombres de administradoras y contratos tal como están en el sistema fuente —con abreviaciones, tildes o variaciones inconsistentes.
+              La normalización mapea esos <strong>valores raw</strong> a <strong>nombres canónicos</strong> estandarizados que se usan en todos los reportes.
+            </p>
+            <!-- Flow diagram -->
+            <div class="flex items-center gap-1 flex-wrap">
+              <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                   style="background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)">
+                <i class="fa-solid fa-database text-[10px]" style="color:var(--text-3)"></i>
+                SIHOS raw
+              </div>
+              <i class="fa-solid fa-arrow-right text-[10px]" style="color:var(--text-3)"></i>
+              <button @click="normSubTab = 'admins'"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      :style="normSubTab === 'admins'
+                        ? 'background:var(--sky);color:#fff;border:1px solid var(--sky)'
+                        : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)'">
+                <i class="fa-solid fa-user-shield text-[10px]"></i>
+                Administradoras
+              </button>
+              <i class="fa-solid fa-plus text-[10px]" style="color:var(--text-3)"></i>
+              <button @click="normSubTab = 'contracts'"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      :style="normSubTab === 'contracts'
+                        ? 'background:var(--sky);color:#fff;border:1px solid var(--sky)'
+                        : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)'">
+                <i class="fa-solid fa-file-contract text-[10px]"></i>
+                Contratos
+              </button>
+              <i class="fa-solid fa-arrow-right text-[10px]" style="color:var(--text-3)"></i>
+              <button @click="normSubTab = 'agreements'"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+                      :style="normSubTab === 'agreements'
+                        ? 'background:var(--sky);color:#fff;border:1px solid var(--sky)'
+                        : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-1)'">
+                <i class="fa-solid fa-handshake text-[10px]"></i>
+                Convenios (Admin + Contrato)
+              </button>
+              <i class="fa-solid fa-arrow-right text-[10px]" style="color:var(--text-3)"></i>
+              <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium"
+                   style="background:var(--emerald-soft);border:1px solid var(--emerald-border);color:var(--emerald)">
+                <i class="fa-solid fa-circle-check text-[10px]"></i>
+                Facturas normalizadas
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cfg-card">
+        <!-- Sub-tabs -->
+        <div class="flex" style="border-bottom:1px solid var(--border);background:var(--bg-subtle)">
+          <template x-for="st in [
+            {id:'admins',    icon:'fa-user-shield',   label:'Administradoras'},
+            {id:'contracts', icon:'fa-file-contract', label:'Contratos'},
+            {id:'agreements',icon:'fa-handshake',     label:'Convenios'}
+          ]" :key="st.id">
+            <button @click="normSubTab = st.id"
+                    class="px-4 py-2.5 text-xs font-medium transition-colors"
+                    :style="normSubTab === st.id
+                      ? 'border-bottom:2px solid var(--sky);color:var(--sky);margin-bottom:-1px;background:var(--bg-surface)'
+                      : 'color:var(--text-2);border-bottom:2px solid transparent'">
+              <i :class="'fa-solid ' + st.icon + ' mr-1.5'"></i>
+              <span x-text="st.label"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- Admins — crudPanel -->
+        <div x-show="normSubTab === 'admins'"
+             x-data="crudPanel({apiBase:'/api/institutions/administrators', label:'Administradora', icon:'fa-user-shield'})">
+          <!-- Context banner -->
+          <div class="px-4 py-3 flex items-start gap-2.5" style="background:var(--bg-subtle);border-bottom:1px solid var(--border-soft)">
+            <i class="fa-solid fa-lightbulb text-[11px] mt-0.5 shrink-0" style="color:var(--amber)"></i>
+            <p class="text-[11px] leading-relaxed" style="color:var(--text-2)">
+              Cada administradora aparece aquí con el <strong style="color:var(--text-1)">nombre raw</strong> tal como lo envía SIHOS.
+              Asigna un <strong style="color:var(--text-1)">nombre canónico</strong> para estandarizarlo en reportes y filtros.
+              Las entradas sin mapear (<span style="color:var(--amber)">sin mapear</span>) se usarán tal cual hasta que definas su canónico.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 px-4 py-2.5 flex-wrap" style="border-bottom:1px solid var(--border)">
+            <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)" x-text="totalCount + ' total'"></span>
+            <span x-show="pendingCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)" x-text="pendingCount + ' sin mapear'"></span>
+            <span x-show="pendingCount === 0 && totalCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)"><i class="fa-solid fa-circle-check mr-1"></i>Todo mapeado</span>
+            <input type="text" x-model="search" placeholder="Buscar..." class="cfg-input-sm ml-auto" style="width:11rem" />
+            <button @click="openCreate()" class="cfg-btn-sm cfg-btn-sky">
+              <i class="fa-solid fa-plus text-xs"></i>Nueva
+            </button>
+          </div>
+          <div x-show="loading" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-spinner fa-spin text-xl mb-2 block"></i>Cargando…
+          </div>
+          <div x-show="!loading && items.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-inbox text-xl mb-2 block"></i>No hay administradoras registradas
+          </div>
+          <div x-show="!loading && items.length > 0 && filtered.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-magnifying-glass text-xl mb-2 block"></i>Sin resultados para "<span x-text="search"></span>"
+          </div>
+          <table class="cfg-table w-full" x-show="!loading && filtered.length > 0">
+            <thead><tr><th>Raw</th><th>Nombre Canónico</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="item in filtered" :key="item.id">
+                <tr>
+                  <td class="font-mono text-xs max-w-[200px] truncate" style="color:var(--text-2)" x-text="item.raw_name"></td>
+                  <td x-text="item.canonical_name || '—'"></td>
+                  <td>
+                    <span x-show="item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">Mapeado</span>
+                    <span x-show="!item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">Sin mapear</span>
+                  </td>
+                  <td>
+                    <div class="flex items-center justify-end gap-1">
+                      <button @click="openEdit(item)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                      <button @click="confirmDelete(item)" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="closeModal()">
+            <div class="cfg-card w-full max-w-md mx-4" @keydown.escape.window="closeModal()" @keydown.enter.window="saveModal()">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-user-shield" style="color:var(--sky)"></i>
+                <span x-text="modalMode === 'create' ? 'Nueva administradora' : 'Editar administradora'"></span>
+              </div>
+              <div class="p-5 space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Valor raw *</label>
+                  <input type="text" x-model="modalForm.raw_name" :readonly="modalMode === 'edit'"
+                         :style="modalMode === 'edit' ? 'opacity:.6;cursor:default' : ''"
+                         class="cfg-input" placeholder="Nombre tal como aparece en datos" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre canónico</label>
+                  <input type="text" x-model="modalForm.canonical_name" class="cfg-input" placeholder="Nombre estandarizado (opcional)" />
+                </div>
+                <div class="flex gap-2 pt-2" style="border-top:1px solid var(--border-soft)">
+                  <button @click="saveModal()" :disabled="saving || (modalMode==='create' && !modalForm.raw_name.trim())" class="cfg-btn-primary">
+                    <i x-show="!saving" class="fa-solid fa-floppy-disk"></i>
+                    <i x-show="saving" class="fa-solid fa-spinner fa-spin"></i>
+                    <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+                  </button>
+                  <button @click="closeModal()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div x-show="deleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="cancelDelete()">
+            <div class="cfg-card w-full max-w-sm mx-4">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-triangle-exclamation" style="color:var(--red)"></i>
+                Confirmar eliminación
+              </div>
+              <div class="p-5 space-y-3">
+                <p class="text-sm" style="color:var(--text-1)">¿Eliminar <code class="px-1.5 py-0.5 rounded text-xs font-mono" style="background:var(--bg-subtle);border:1px solid var(--border)" x-text="deleteTargetName"></code>?</p>
+                <div class="flex gap-2">
+                  <button @click="executeDelete()" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                  <button @click="cancelDelete()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contratos — crudPanel -->
+        <div x-show="normSubTab === 'contracts'"
+             x-data="crudPanel({apiBase:'/api/institutions/contracts', label:'Contrato', icon:'fa-file-contract'})">
+          <!-- Context banner -->
+          <div class="px-4 py-3 flex items-start gap-2.5" style="background:var(--bg-subtle);border-bottom:1px solid var(--border-soft)">
+            <i class="fa-solid fa-lightbulb text-[11px] mt-0.5 shrink-0" style="color:var(--amber)"></i>
+            <p class="text-[11px] leading-relaxed" style="color:var(--text-2)">
+              Los contratos son los nombres de modalidad de contratación que envía SIHOS (p.ej. <code style="background:var(--bg-surface);padding:0 3px;border-radius:3px;border:1px solid var(--border)">CAPITA PLENA</code>).
+              Define un <strong style="color:var(--text-1)">nombre canónico</strong> para agruparlos correctamente en los convenios y reportes.
+            </p>
+          </div>
+          <div class="flex items-center gap-2 px-4 py-2.5 flex-wrap" style="border-bottom:1px solid var(--border)">
+            <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)" x-text="totalCount + ' total'"></span>
+            <span x-show="pendingCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)" x-text="pendingCount + ' sin mapear'"></span>
+            <span x-show="pendingCount === 0 && totalCount > 0" class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)"><i class="fa-solid fa-circle-check mr-1"></i>Todo mapeado</span>
+            <input type="text" x-model="search" placeholder="Buscar..." class="cfg-input-sm ml-auto" style="width:11rem" />
+            <button @click="openCreate()" class="cfg-btn-sm cfg-btn-sky">
+              <i class="fa-solid fa-plus text-xs"></i>Nuevo
+            </button>
+          </div>
+          <div x-show="loading" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-spinner fa-spin text-xl mb-2 block"></i>Cargando…
+          </div>
+          <div x-show="!loading && items.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-inbox text-xl mb-2 block"></i>No hay contratos registrados
+          </div>
+          <div x-show="!loading && items.length > 0 && filtered.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-magnifying-glass text-xl mb-2 block"></i>Sin resultados para "<span x-text="search"></span>"
+          </div>
+          <table class="cfg-table w-full" x-show="!loading && filtered.length > 0">
+            <thead><tr><th>Raw</th><th>Nombre Canónico</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="item in filtered" :key="item.id">
+                <tr>
+                  <td class="font-mono text-xs max-w-[220px] truncate" style="color:var(--text-2)" x-text="item.raw_name"></td>
+                  <td x-text="item.canonical_name || '—'"></td>
+                  <td>
+                    <span x-show="item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">Mapeado</span>
+                    <span x-show="!item.canonical_name" class="text-[11px] font-semibold px-2 py-0.5 rounded-full" style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">Sin mapear</span>
+                  </td>
+                  <td>
+                    <div class="flex items-center justify-end gap-1">
+                      <button @click="openEdit(item)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                      <button @click="confirmDelete(item)" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="modalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="closeModal()">
+            <div class="cfg-card w-full max-w-md mx-4" @keydown.escape.window="closeModal()" @keydown.enter.window="saveModal()">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-file-contract" style="color:var(--sky)"></i>
+                <span x-text="modalMode === 'create' ? 'Nuevo contrato' : 'Editar contrato'"></span>
+              </div>
+              <div class="p-5 space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Valor raw *</label>
+                  <input type="text" x-model="modalForm.raw_name" :readonly="modalMode === 'edit'"
+                         :style="modalMode === 'edit' ? 'opacity:.6;cursor:default' : ''"
+                         class="cfg-input" placeholder="Nombre tal como aparece en datos" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre canónico</label>
+                  <input type="text" x-model="modalForm.canonical_name" class="cfg-input" placeholder="Nombre estandarizado (opcional)" />
+                </div>
+                <div class="flex gap-2 pt-2" style="border-top:1px solid var(--border-soft)">
+                  <button @click="saveModal()" :disabled="saving || (modalMode==='create' && !modalForm.raw_name.trim())" class="cfg-btn-primary">
+                    <i x-show="!saving" class="fa-solid fa-floppy-disk"></i>
+                    <i x-show="saving" class="fa-solid fa-spinner fa-spin"></i>
+                    <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+                  </button>
+                  <button @click="closeModal()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div x-show="deleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.45);display:none" @click.self="cancelDelete()">
+            <div class="cfg-card w-full max-w-sm mx-4">
+              <div class="cfg-card-header">
+                <i class="fa-solid fa-triangle-exclamation" style="color:var(--red)"></i>
+                Confirmar eliminación
+              </div>
+              <div class="p-5 space-y-3">
+                <p class="text-sm" style="color:var(--text-1)">¿Eliminar <code class="px-1.5 py-0.5 rounded text-xs font-mono" style="background:var(--bg-subtle);border:1px solid var(--border)" x-text="deleteTargetName"></code>?</p>
+                <div class="flex gap-2">
+                  <button @click="executeDelete()" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                  <button @click="cancelDelete()" class="cfg-btn-sm">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Convenios -->
+        <div x-show="normSubTab === 'agreements'" class="p-0">
+          <!-- Context banner -->
+          <div class="px-4 py-3 flex items-start gap-2.5" style="background:var(--bg-subtle);border-bottom:1px solid var(--border-soft)">
+            <i class="fa-solid fa-lightbulb text-[11px] mt-0.5 shrink-0" style="color:var(--amber)"></i>
+            <p class="text-[11px] leading-relaxed" style="color:var(--text-2)">
+              Cada convenio es una combinación única de <strong style="color:var(--text-1)">Administradora + Contrato</strong> encontrada en las facturas importadas.
+              Se crean automáticamente — aquí solo asignas el <strong style="color:var(--text-1)">tipo de convenio</strong> (ej. Capitación, Evento) para que el pipeline sepa qué documentos exigir.
+            </p>
+          </div>
+          <!-- Header bar -->
+          <div class="flex items-center gap-2 px-4 py-2.5 flex-wrap" style="border-bottom:1px solid var(--border)">
+            <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)"
+                  x-text="agreements.length + ' total'"></span>
+            <template x-if="agreements.filter(a => !a.contract_type_id).length > 0">
+              <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                    style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)"
+                    x-text="agreements.filter(a => !a.contract_type_id).length + ' sin tipo'"></span>
+            </template>
+            <template x-if="agreements.length > 0 && agreements.filter(a => !a.contract_type_id).length === 0">
+              <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                    style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                <i class="fa-solid fa-circle-check mr-1"></i>Todo asignado
+              </span>
+            </template>
+            <input type="text" x-model="agreementsSearch" placeholder="Buscar convenio..." class="cfg-input-sm ml-auto" style="width:13rem" />
+            <label class="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" x-model="normPendingOnly" class="w-3.5 h-3.5 rounded cursor-pointer" style="accent-color:var(--amber)" />
+              <span class="text-xs" style="color:var(--text-2)">Solo pendientes</span>
+            </label>
+            <button @click="consolidateAgreements()"
+                    class="cfg-btn-sm flex items-center gap-1"
+                    title="Fusiona convenios con el mismo nombre canónico">
+              <i class="fa-solid fa-compress-arrows-alt text-xs"></i>
+              Consolidar duplicados
+            </button>
+          </div>
+          <!-- Empty state -->
+          <div x-show="agreements.length === 0" class="py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-handshake text-xl mb-2 block"></i>No hay convenios registrados aún.<br>
+            <span class="text-xs mt-1 block">Se crean automáticamente al ingestar facturas del SIHOS.</span>
+          </div>
+          <div x-show="agreements.length > 0 && filteredAgreements.length === 0" class="py-10 text-center" style="color:var(--text-3)">
+            <div class="inline-flex flex-col items-center gap-2">
+              <template x-if="agreementsSearch.trim()">
+                <div class="inline-flex flex-col items-center gap-2">
+                  <i class="fa-solid fa-magnifying-glass text-xl mb-1"></i>
+                  <p class="text-sm">Sin resultados para "<span x-text="agreementsSearch"></span>"</p>
+                </div>
+              </template>
+              <template x-if="!agreementsSearch.trim()">
+                <div class="inline-flex flex-col items-center gap-2">
+                  <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background:var(--emerald-soft)">
+                    <i class="fa-solid fa-circle-check text-lg" style="color:var(--emerald)"></i>
+                  </div>
+                  <p class="text-sm font-medium" style="color:var(--emerald)">Todos los convenios tienen tipo asignado</p>
+                  <p class="text-xs" style="color:var(--text-3)">Desactiva el filtro para verlos todos</p>
+                </div>
+              </template>
+            </div>
+          </div>
+          <!-- Grouped list -->
+          <div x-show="filteredAgreements.length > 0">
+            <template x-for="group in groupedAgreements" :key="group.label">
+              <div>
+                <!-- Group header with progress -->
+                <div class="px-4 py-2.5 sticky top-0 z-10"
+                     style="background:var(--bg-subtle);border-bottom:1px solid var(--border);border-top:1px solid var(--border)">
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <i class="fa-solid fa-user-shield text-[10px]" style="color:var(--sky)"></i>
+                    <span class="text-xs font-bold" style="color:var(--text-1)" x-text="group.label"></span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-full ml-auto font-semibold"
+                          :style="group.items.filter(i => i.primaryAg.contract_type_id).length === group.items.length
+                            ? 'background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)'
+                            : 'background:var(--bg-surface);border:1px solid var(--border);color:var(--text-3)'"
+                          x-text="group.items.filter(i => i.primaryAg.contract_type_id).length + '/' + group.items.length + ' asignados'"></span>
+                  </div>
+                  <!-- Progress bar -->
+                  <div class="h-1 rounded-full overflow-hidden" style="background:var(--border)">
+                    <div class="h-full rounded-full transition-all duration-300"
+                         :style="'width:' + (group.items.filter(i => i.primaryAg.contract_type_id).length / group.items.length * 100) + '%;background:' + (group.items.filter(i => i.primaryAg.contract_type_id).length === group.items.length ? 'var(--emerald)' : 'var(--sky)')"></div>
+                  </div>
+                </div>
+                <!-- Agreement rows -->
+                <div>
+                  <template x-for="item in group.items" :key="item.label">
+                    <div class="flex items-center gap-3 px-4 py-2.5"
+                         style="border-bottom:1px solid var(--border-soft)">
+                      <!-- Status dot -->
+                      <div class="w-1.5 h-1.5 rounded-full shrink-0 mt-0.5"
+                           :style="item.primaryAg.contract_type_id ? 'background:var(--emerald)' : 'background:var(--amber)'"></div>
+                      <!-- Contract name -->
+                      <div class="flex-1 min-w-0">
+                        <div class="text-xs font-medium truncate" style="color:var(--text-1)"
+                             x-text="item.label"></div>
+                        <div x-show="item.primaryAg.contract?.canonical_name && item.primaryAg.contract?.raw_name !== item.primaryAg.contract?.canonical_name"
+                             class="font-mono text-[10px] mt-0.5 truncate"
+                             style="color:var(--text-3)" x-text="item.primaryAg.contract?.raw_name"></div>
+                      </div>
+                      <!-- Type selector -->
+                      <div class="flex items-center gap-1.5 shrink-0">
+                        <select
+                          @change="setAgreementType(item.allIds, $event.target.value || null)"
+                          :disabled="savingAgreementId === item.allIds[0]"
+                          class="cfg-input-sm"
+                          style="min-width:140px"
+                          :class="savingAgreementId === item.allIds[0] ? 'opacity-50' : ''"
+                          :style="!item.primaryAg.contract_type_id ? 'border-color:var(--amber-border)' : 'border-color:var(--emerald-border)'">
+                          <option value="" :selected="!item.primaryAg.contract_type_id" style="color:var(--text-3)">— Sin tipo —</option>
+                          <template x-for="ct in contractTypes" :key="ct.id">
+                            <option :value="ct.id" :selected="ct.id === item.primaryAg.contract_type_id" x-text="ct.name"></option>
+                          </template>
+                        </select>
+                        <i x-show="savingAgreementId === item.allIds[0]" class="fa-solid fa-spinner fa-spin text-[10px]" style="color:var(--text-3);width:12px"></i>
+                        <i x-show="item.primaryAg.contract_type_id && savingAgreementId !== item.allIds[0]" class="fa-solid fa-circle-check text-[10px]" style="color:var(--emerald);width:12px"></i>
+                        <span x-show="!item.primaryAg.contract_type_id && savingAgreementId !== item.allIds[0]" style="width:12px"></span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+    </div>

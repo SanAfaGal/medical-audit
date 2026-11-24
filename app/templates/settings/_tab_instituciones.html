@@ -1,0 +1,326 @@
+    <!-- ══════════════════════════════════════════════════════
+         TAB: INSTITUCIONES
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'instituciones'" class="space-y-4">
+
+      <!-- Form card -->
+      <div class="cfg-card">
+
+        <!-- Header: modo edición vs. creación -->
+        <div class="cfg-card-header">
+          <template x-if="editingId">
+            <span class="flex items-center gap-2 min-w-0">
+              <span class="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+                    style="background:var(--sky-soft);border:1px solid var(--sky-border)">
+                <i class="fa-solid fa-pen text-[10px]" style="color:var(--sky)"></i>
+              </span>
+              <span style="color:var(--text-2)">Editando</span>
+              <span class="font-bold truncate" style="color:var(--text-1)" x-text="editingName"></span>
+            </span>
+          </template>
+          <template x-if="!editingId">
+            <span class="flex items-center gap-2">
+              <span class="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+                    style="background:var(--emerald-soft);border:1px solid var(--emerald-border)">
+                <i class="fa-solid fa-plus text-[10px]" style="color:var(--emerald)"></i>
+              </span>
+              <span style="color:var(--text-1)">Nueva institución</span>
+            </span>
+          </template>
+        </div>
+
+        <form @submit.prevent="saveInstitution()" class="p-5 space-y-5">
+
+          <!-- Logo identity row (solo en modo edición) -->
+          <template x-if="editingId">
+            <div class="flex items-center gap-4 pb-4" style="border-bottom:1px solid var(--border-soft)">
+              <button type="button" @click="$refs.logoFileInput.click()" title="Cambiar logo"
+                      class="w-14 h-14 rounded-xl flex items-center justify-center shrink-0 overflow-hidden transition-opacity hover:opacity-75"
+                      style="border:1px solid var(--border);background:var(--bg-subtle)">
+                <template x-if="editingInstitution && editingInstitution.logo_url">
+                  <img :src="editingInstitution.logo_url" class="w-full h-full object-contain p-1">
+                </template>
+                <template x-if="!(editingInstitution && editingInstitution.logo_url)">
+                  <i class="fa-solid fa-hospital text-xl" style="color:var(--text-3)"></i>
+                </template>
+              </button>
+              <input type="file" accept="image/*" x-ref="logoFileInput" class="hidden"
+                     @change="uploadLogo(editingId, $event.target.files[0]); $event.target.value=''">
+              <div>
+                <div class="text-base font-bold leading-tight" style="color:var(--text-1)" x-text="editingName"></div>
+                <div class="text-xs font-mono mt-0.5" style="color:var(--text-3)" x-text="form.name"></div>
+                <button type="button" @click="$refs.logoFileInput.click()"
+                        class="cfg-btn-sm mt-2" style="font-size:0.7rem">
+                  <i class="fa-solid fa-image text-[10px]"></i>Cambiar logo
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <!-- Fila 1: datos básicos -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre interno *</label>
+              <input type="text" x-model="form.name" required placeholder="SANTA_LUCIA"
+                     :readonly="!!editingId" class="cfg-input"
+                     :style="editingId ? 'opacity:.6;cursor:default' : ''" />
+              <p class="text-[11px] mt-1" style="color:var(--text-3)">Identificador único. No se puede cambiar después.</p>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Nombre para mostrar *</label>
+              <input type="text" x-model="form.display_name" required placeholder="Hospital Santa Lucía" class="cfg-input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">NIT *</label>
+              <input type="text" x-model="form.nit" required placeholder="900123456-1" class="cfg-input" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Prefijo de factura</label>
+              <input type="text" x-model="form.invoice_id_prefix" placeholder="FE (opcional)" class="cfg-input" />
+            </div>
+          </div>
+
+          <!-- Sección SIHOS -->
+          <div class="rounded-lg overflow-hidden" style="border:1px solid var(--border)">
+            <!-- Sub-header SIHOS -->
+            <div class="flex items-center justify-between px-4 py-2.5"
+                 style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-hospital text-[11px]" style="color:var(--sky)"></i>
+                <span class="text-xs font-semibold" style="color:var(--text-1)">Credenciales SIHOS</span>
+              </div>
+              <!-- Badge estado SIHOS -->
+              <template x-if="editingId && currentInstHasSihosPassword">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                  <i class="fa-solid fa-circle-check text-[10px]"></i> Configuradas
+                </span>
+              </template>
+              <template x-if="!(editingId && currentInstHasSihosPassword)">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                  <i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Sin configurar
+                </span>
+              </template>
+            </div>
+            <div class="p-4 grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">URL portal SIHOS</label>
+                <input type="text" x-model="form.sihos_base_url" class="cfg-input" placeholder="https://..." />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Código SIHOS</label>
+                <input type="text" x-model="form.sihos_doc_code" class="cfg-input" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Usuario SIHOS</label>
+                <input type="text" x-model="form.sihos_user" autocomplete="username" class="cfg-input" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-2)">Contraseña SIHOS</label>
+                <input type="password" x-model="form.sihos_password" autocomplete="new-password"
+                       :placeholder="editingId && currentInstHasSihosPassword ? 'Vacío = conservar actual' : 'Contraseña'"
+                       class="cfg-input" />
+                <div class="flex items-center gap-2 mt-1">
+                  <template x-if="editingId && currentInstHasSihosPassword && form.sihos_password">
+                    <span class="flex items-center gap-1 text-[11px] font-medium" style="color:var(--amber)">
+                      <i class="fa-solid fa-pen"></i> Se reemplazará al guardar
+                    </span>
+                  </template>
+                  <template x-if="!(editingId && currentInstHasSihosPassword && form.sihos_password)">
+                    <p class="text-[11px]" style="color:var(--text-3)">Cifrada con AES-256 antes de guardarse.</p>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sección Drive -->
+          <div class="rounded-lg overflow-hidden" style="border:1px solid var(--border)">
+            <div class="flex items-center justify-between px-4 py-2.5"
+                 style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+              <div class="flex items-center gap-2">
+                <i class="fa-brands fa-google-drive text-[11px]" style="color:var(--sky)"></i>
+                <span class="text-xs font-semibold" style="color:var(--text-1)">Credenciales Google Drive</span>
+              </div>
+              <template x-if="editingId && currentInstHasDriveCreds">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                  <i class="fa-solid fa-circle-check text-[10px]"></i> Configuradas
+                </span>
+              </template>
+              <template x-if="!(editingId && currentInstHasDriveCreds)">
+                <span class="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full"
+                      style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                  <i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Sin configurar
+                </span>
+              </template>
+            </div>
+            <div class="p-4">
+              <div class="flex items-center gap-3">
+                <button type="button" @click="$refs.driveJsonInput.click()"
+                        :disabled="!editingId"
+                        class="cfg-btn-sm cfg-btn-sky"
+                        :title="editingId ? 'Subir service_account.json' : 'Guarda la institución primero'">
+                  <i class="fa-solid fa-file-arrow-up"></i>Subir .json
+                </button>
+                <input type="file" accept=".json,application/json" x-ref="driveJsonInput" class="hidden"
+                       @change="uploadDriveCredentials(editingId, $event.target.files[0]); $event.target.value=''">
+                <span x-show="driveCredsStatus === 'ok'" class="flex items-center gap-1 text-xs font-medium" style="color:var(--emerald)">
+                  <i class="fa-solid fa-circle-check"></i> Guardadas correctamente
+                </span>
+                <span x-show="driveCredsStatus === 'error'" class="text-xs font-medium" style="color:var(--red)" x-text="driveCredsError"></span>
+              </div>
+              <p class="text-[11px] mt-2" style="color:var(--text-3)">
+                <template x-if="editingId && currentInstHasDriveCreds">
+                  <span style="color:var(--emerald)"><i class="fa-solid fa-lock mr-0.5"></i>Almacenadas y cifradas. Sube nuevo archivo para reemplazar.</span>
+                </template>
+                <template x-if="!(editingId && currentInstHasDriveCreds)">
+                  <span>Sube el archivo <code style="background:var(--bg-subtle);padding:0 3px;border-radius:3px">service_account.json</code> de Google Cloud. Requiere guardar primero.</span>
+                </template>
+              </p>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-2 pt-1" style="border-top:1px solid var(--border-soft)">
+            <button type="submit" class="cfg-btn-primary">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span x-text="editingId ? 'Guardar cambios' : 'Crear institución'"></span>
+            </button>
+            <button type="button" @click="resetInstForm()" class="cfg-btn-sm"
+                    x-show="editingId">
+              Cancelar edición
+            </button>
+          </div>
+
+          <!-- Zona de riesgo (solo en modo edición) -->
+          <template x-if="editingId">
+            <div class="pt-3" style="border-top:1px solid var(--red-border)">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold flex items-center gap-1.5" style="color:var(--text-3)">
+                  <i class="fa-solid fa-triangle-exclamation text-[10px]" style="color:var(--red)"></i>
+                  Zona de riesgo
+                </span>
+                <template x-if="confirmDeleteInstId !== editingId">
+                  <button type="button" @click="confirmDeleteInstId = editingId"
+                          class="cfg-btn-sm cfg-btn-red">
+                    <i class="fa-solid fa-trash text-xs"></i>Eliminar institución
+                  </button>
+                </template>
+                <template x-if="confirmDeleteInstId === editingId">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs" style="color:var(--text-2)">¿Confirmar eliminación?</span>
+                    <button type="button" @click="deleteInstitution(editingId)"
+                            class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    <button type="button" @click="confirmDeleteInstId = null"
+                            class="cfg-btn-sm">Cancelar</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+        </form>
+      </div>
+
+      <!-- Picker card -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-hospital" style="color:var(--text-3)"></i>
+          Todas las instituciones
+          <span class="ml-1 text-xs font-normal" style="color:var(--text-3)"
+                x-text="'(' + institutions.length + ')'"></span>
+        </div>
+        <div class="p-3">
+          <div class="flex gap-2 overflow-x-auto pb-1" style="scrollbar-width:thin">
+
+            <!-- Tarjeta por institución -->
+            <template x-for="h in institutions" :key="h.id">
+              <button type="button"
+                      @click="$store.ctx.selectInstitution(h.id)"
+                      class="shrink-0 flex flex-col gap-2 p-3 rounded-xl text-left transition-all relative"
+                      style="width:172px;border:1px solid var(--border);background:var(--bg-subtle)"
+                      :style="h.id === $store.ctx.institutionId
+                        ? 'border-color:var(--sky);background:var(--sky-soft);'
+                        : 'hover:border-color:var(--sky)'">
+
+                <!-- Badge activo -->
+                <template x-if="h.id === $store.ctx.institutionId">
+                  <span class="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center"
+                        style="background:var(--sky);color:#fff">
+                    <i class="fa-solid fa-check" style="font-size:7px"></i>
+                  </span>
+                </template>
+
+                <!-- Logo + nombre -->
+                <div class="flex items-center gap-2">
+                  <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden"
+                       style="border:1px solid var(--border);background:var(--bg-surface)">
+                    <template x-if="h.logo_url">
+                      <img :src="h.logo_url" class="w-full h-full object-contain p-0.5" :alt="h.display_name">
+                    </template>
+                    <template x-if="!h.logo_url">
+                      <i class="fa-solid fa-hospital text-xs" style="color:var(--text-3)"></i>
+                    </template>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="text-xs font-semibold leading-tight truncate" style="color:var(--text-1)"
+                         x-text="h.display_name"></div>
+                    <div class="text-[10px] font-mono truncate mt-0.5" style="color:var(--text-3)"
+                         x-text="h.name.replace(/_/g, ' ')"></div>
+                  </div>
+                </div>
+
+                <!-- Badges credenciales -->
+                <div class="flex gap-1 flex-wrap">
+                  <template x-if="h.has_sihos_password">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          style="background:var(--sky-soft);color:var(--sky);border:1px solid var(--sky-border)">
+                      <i class="fa-solid fa-key" style="font-size:8px"></i>SIHOS
+                    </span>
+                  </template>
+                  <template x-if="h.has_drive_credentials">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                      <i class="fa-brands fa-google-drive" style="font-size:8px"></i>Drive
+                    </span>
+                  </template>
+                  <template x-if="!h.has_sihos_password && !h.has_drive_credentials">
+                    <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                      <i class="fa-solid fa-triangle-exclamation" style="font-size:8px"></i>Sin config.
+                    </span>
+                  </template>
+                </div>
+              </button>
+            </template>
+
+            <!-- Tarjeta "Nueva institución" -->
+            <button type="button"
+                    @click="resetInstForm(); $el.closest('.space-y-4').scrollIntoView({behavior:'smooth'})"
+                    class="shrink-0 flex flex-col items-center justify-center gap-2 p-3 rounded-xl transition-all"
+                    style="width:172px;border:1.5px dashed var(--border);color:var(--text-3)"
+                    :style="!editingId
+                      ? 'border-color:var(--emerald-border);color:var(--emerald);background:var(--emerald-soft)'
+                      : 'background:transparent'">
+              <div class="w-9 h-9 rounded-lg flex items-center justify-center"
+                   style="background:var(--emerald-soft);border:1px solid var(--emerald-border)">
+                <i class="fa-solid fa-plus" style="color:var(--emerald);font-size:0.875rem"></i>
+              </div>
+              <span class="text-xs font-semibold">Nueva institución</span>
+            </button>
+
+            <!-- Empty state (sin instituciones) -->
+            <template x-if="institutions.length === 0">
+              <div class="flex flex-col items-center justify-center gap-2 py-6 px-4 w-full"
+                   style="color:var(--text-3)">
+                <i class="fa-solid fa-hospital text-2xl"></i>
+                <span class="text-sm">No hay instituciones registradas</span>
+              </div>
+            </template>
+
+          </div>
+        </div>
+      </div>
+    </div>

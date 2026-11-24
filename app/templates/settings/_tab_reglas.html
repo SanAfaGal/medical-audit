@@ -1,0 +1,334 @@
+    <!-- ══════════════════════════════════════════════════════
+         TAB: REGLAS (tipos de servicio + tipos de doc + estados + prefijos)
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'reglas'" class="space-y-4">
+
+      <!-- Service Types -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-tags" style="color:var(--sky)"></i>
+          Tipos de servicio
+        </div>
+        <table class="cfg-table w-full">
+          <thead><tr><th>Código</th><th>Nombre</th><th>Prioridad</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="st in serviceTypes" :key="st.id">
+              <tr>
+                <td class="font-mono text-xs">
+                  <template x-if="editingSTId !== st.id">
+                    <span style="color:var(--text-2)" x-text="st.code"></span>
+                  </template>
+                  <template x-if="editingSTId === st.id">
+                    <input type="text" x-model="editingST.code" class="cfg-input-sm editing w-24 font-mono uppercase"
+                           @input="editingST.code = editingST.code.toUpperCase()" />
+                  </template>
+                </td>
+                <td>
+                  <template x-if="editingSTId !== st.id">
+                    <span x-text="st.display_name"></span>
+                  </template>
+                  <template x-if="editingSTId === st.id">
+                    <input type="text" x-model="editingST.display_name" class="cfg-input-sm editing w-full" />
+                  </template>
+                </td>
+                <td style="width:6rem">
+                  <template x-if="editingSTId !== st.id">
+                    <span style="color:var(--text-3)" x-text="st.priority"></span>
+                  </template>
+                  <template x-if="editingSTId === st.id">
+                    <input type="number" x-model="editingST.priority" class="cfg-input-sm editing w-16" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingSTId !== st.id">
+                      <button @click="startEditST(st)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingSTId === st.id">
+                      <button @click="saveSTEdit(st.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingSTId === st.id">
+                      <button @click="editingSTId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteSTId !== st.id && editingSTId !== st.id">
+                      <button @click="confirmDeleteSTId = st.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteSTId === st.id">
+                      <button @click="deleteServiceType(st.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeleteSTId === st.id">
+                      <button @click="confirmDeleteSTId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex gap-2 px-4 py-3" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <input type="text" x-model="newST.code" placeholder="Código" class="cfg-input font-mono uppercase"
+                 style="flex:0 0 7rem;width:7rem"
+                 @input="newST.code = newST.code.toUpperCase()" />
+          <input type="text" x-model="newST.display_name" placeholder="Nombre" class="cfg-input flex-1" />
+          <input type="number" x-model="newST.priority" placeholder="Prioridad" class="cfg-input"
+                 style="flex:0 0 6rem;width:6rem" />
+          <button @click="addServiceType()" :disabled="!newST.code.trim() || !newST.display_name.trim()" class="cfg-btn-primary">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Doc Types -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-file-lines" style="color:var(--sky)"></i>
+          Tipos de documento
+        </div>
+        <table class="cfg-table w-full">
+          <thead><tr><th>Código</th><th>Descripción</th><th>Prefijo</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="dt in docTypes" :key="dt.id">
+              <tr>
+                <td class="font-mono text-xs">
+                  <template x-if="editingDTId !== dt.id">
+                    <span style="color:var(--text-2)" x-text="dt.code"></span>
+                  </template>
+                  <template x-if="editingDTId === dt.id">
+                    <input type="text" x-model="editingDT.code" class="cfg-input-sm editing w-24 font-mono uppercase"
+                           @input="editingDT.code = editingDT.code.toUpperCase()" />
+                  </template>
+                </td>
+                <td>
+                  <template x-if="editingDTId !== dt.id">
+                    <span x-text="dt.description"></span>
+                  </template>
+                  <template x-if="editingDTId === dt.id">
+                    <input type="text" x-model="editingDT.description" class="cfg-input-sm editing w-full" />
+                  </template>
+                </td>
+                <td class="font-mono text-xs" style="width:6rem">
+                  <template x-if="editingDTId !== dt.id">
+                    <span style="color:var(--text-3)" x-text="dt.prefix || '—'"></span>
+                  </template>
+                  <template x-if="editingDTId === dt.id">
+                    <input type="text" x-model="editingDT.prefix" class="cfg-input-sm editing w-20 font-mono" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingDTId !== dt.id">
+                      <button @click="startEditDT(dt)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingDTId === dt.id">
+                      <button @click="saveDTEdit(dt.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingDTId === dt.id">
+                      <button @click="editingDTId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteDTId !== dt.id && editingDTId !== dt.id">
+                      <button @click="confirmDeleteDTId = dt.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteDTId === dt.id">
+                      <button @click="deleteDocType(dt.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeleteDTId === dt.id">
+                      <button @click="confirmDeleteDTId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex gap-2 px-4 py-3" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <input type="text" x-model="newDT.code" placeholder="Código" class="cfg-input font-mono uppercase"
+                 style="flex:0 0 7rem;width:7rem"
+                 @input="newDT.code = newDT.code.toUpperCase()" />
+          <input type="text" x-model="newDT.description" placeholder="Descripción" class="cfg-input flex-1" />
+          <input type="text" x-model="newDT.prefix" placeholder="Prefijo" class="cfg-input font-mono"
+                 style="flex:0 0 6rem;width:6rem" />
+          <button @click="addDocType()" :disabled="!newDT.code.trim() || !newDT.description.trim()" class="cfg-btn-primary">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Folder Statuses -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-folder" style="color:var(--sky)"></i>
+          Estados de carpeta
+        </div>
+        <table class="cfg-table w-full">
+          <thead><tr><th style="width:3rem">ID</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            <template x-for="fs in folderStatuses" :key="fs.id">
+              <tr>
+                <td class="text-xs" style="color:var(--text-3)" x-text="fs.id"></td>
+                <td>
+                  <template x-if="editingFSId !== fs.id">
+                    <span class="font-mono text-xs" x-text="fs.status"></span>
+                  </template>
+                  <template x-if="editingFSId === fs.id">
+                    <input type="text" x-model="editingFSVal" class="cfg-input-sm editing w-36 font-mono" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingFSId !== fs.id">
+                      <button @click="startEditFS(fs)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingFSId === fs.id">
+                      <button @click="saveFSEdit(fs.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingFSId === fs.id">
+                      <button @click="editingFSId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteFSId !== fs.id && editingFSId !== fs.id">
+                      <button @click="confirmDeleteFSId = fs.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeleteFSId === fs.id">
+                      <button @click="deleteFolderStatus(fs.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeleteFSId === fs.id">
+                      <button @click="confirmDeleteFSId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div class="flex gap-2 px-4 py-3" style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <input type="text" x-model="newFS.status" placeholder="Código del estado (ej. AUDITADA)"
+                 class="cfg-input flex-1 font-mono uppercase"
+                 @input="newFS.status = newFS.status.toUpperCase()" />
+          <button @click="addFolderStatus()" :disabled="!newFS.status.trim()" class="cfg-btn-primary">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Prefix Corrections (formerly "Prefijos" tab) -->
+      <div class="cfg-card">
+        <div class="cfg-card-header">
+          <i class="fa-solid fa-tag" style="color:var(--violet)"></i>
+          Correcciones de prefijos
+          <span class="ml-auto text-xs font-normal font-mono" style="color:var(--text-3)"
+                x-text="prefixCorrections.length + ' regla(s)'"></span>
+        </div>
+
+        <!-- Explanation -->
+        <div class="px-5 py-3 text-xs" style="border-bottom:1px solid var(--border);background:var(--bg-subtle);color:var(--text-2)">
+          Define prefijos incorrectos y su forma correcta. La etapa
+          <code style="background:var(--bg-surface);border:1px solid var(--border);padding:1px 4px;border-radius:4px;font-size:11px">NORMALIZE_FILES</code>
+          aplicará estos renombrados automáticamente.
+        </div>
+
+        <!-- Add form -->
+        <div class="px-5 py-4" style="border-bottom:1px solid var(--border)">
+          <div class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2">
+              <input type="text" x-model="newPC.wrong_prefix"
+                     @input="newPC.wrong_prefix = newPC.wrong_prefix.toUpperCase()"
+                     placeholder="INCORRECTO" maxlength="20"
+                     class="cfg-input w-32 font-mono uppercase text-center"
+                     style="border-color:var(--red-border);background:var(--red-soft);color:var(--red)" />
+              <div class="flex items-center gap-1" style="color:var(--text-3)">
+                <div style="width:1.5rem;height:1px;background:var(--border)"></div>
+                <i class="fa-solid fa-arrow-right text-xs"></i>
+                <div style="width:1.5rem;height:1px;background:var(--border)"></div>
+              </div>
+              <input type="text" x-model="newPC.correct_prefix"
+                     @input="newPC.correct_prefix = newPC.correct_prefix.toUpperCase()"
+                     placeholder="CORRECTO" maxlength="20"
+                     class="cfg-input w-32 font-mono uppercase text-center"
+                     style="border-color:var(--emerald-border);background:var(--emerald-soft);color:var(--emerald)" />
+            </div>
+            <input type="text" x-model="newPC.notes" placeholder="Nota (opcional)"
+                   class="cfg-input flex-1 min-w-[10rem]" />
+            <button @click="addPrefixCorrection()"
+                    :disabled="!newPC.wrong_prefix.trim() || !newPC.correct_prefix.trim()"
+                    class="cfg-btn-primary shrink-0"
+                    style="background:var(--violet)">
+              <i class="fa-solid fa-plus"></i>Agregar
+            </button>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <template x-if="prefixCorrections.length === 0">
+          <div class="px-5 py-10 text-center text-sm" style="color:var(--text-3)">
+            <i class="fa-solid fa-tags text-2xl mb-3 block"></i>
+            No hay correcciones configuradas aún.
+          </div>
+        </template>
+
+        <table class="cfg-table w-full" x-show="prefixCorrections.length > 0">
+          <thead><tr>
+            <th>Incorrecto</th>
+            <th style="width:2rem"></th>
+            <th>Correcto</th>
+            <th>Nota</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            <template x-for="pc in prefixCorrections" :key="pc.id">
+              <tr>
+                <td>
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-semibold"
+                        style="background:var(--red-soft);color:var(--red);border:1px solid var(--red-border)"
+                        x-text="pc.wrong_prefix"></span>
+                </td>
+                <td class="text-center" style="color:var(--text-3)">
+                  <i class="fa-solid fa-arrow-right text-xs"></i>
+                </td>
+                <td>
+                  <template x-if="editingPCId !== pc.id">
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-semibold"
+                          style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)"
+                          x-text="pc.correct_prefix"></span>
+                  </template>
+                  <template x-if="editingPCId === pc.id">
+                    <input type="text" x-model="editingPC.correct_prefix"
+                           @input="editingPC.correct_prefix = editingPC.correct_prefix.toUpperCase()"
+                           maxlength="20" class="cfg-input-sm editing w-28 font-mono uppercase"
+                           style="border-color:var(--emerald-border);color:var(--emerald)" />
+                  </template>
+                </td>
+                <td class="text-xs max-w-[200px] truncate" style="color:var(--text-3)">
+                  <template x-if="editingPCId !== pc.id">
+                    <span x-text="pc.notes || '—'"></span>
+                  </template>
+                  <template x-if="editingPCId === pc.id">
+                    <input type="text" x-model="editingPC.notes" class="cfg-input-sm editing w-full" />
+                  </template>
+                </td>
+                <td>
+                  <div class="flex items-center justify-end gap-1">
+                    <template x-if="editingPCId !== pc.id">
+                      <button @click="startEditPC(pc)" class="cfg-btn-sm cfg-btn-violet"><i class="fa-solid fa-pen text-xs"></i></button>
+                    </template>
+                    <template x-if="editingPCId === pc.id">
+                      <button @click="savePCEdit(pc.id)" class="cfg-btn-sm" style="background:var(--violet);color:#fff;border-color:var(--violet)"><i class="fa-solid fa-check text-xs"></i></button>
+                    </template>
+                    <template x-if="editingPCId === pc.id">
+                      <button @click="editingPCId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeletePCId !== pc.id && editingPCId !== pc.id">
+                      <button @click="confirmDeletePCId = pc.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </template>
+                    <template x-if="confirmDeletePCId === pc.id">
+                      <button @click="deletePrefixCorrection(pc.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                    </template>
+                    <template x-if="confirmDeletePCId === pc.id">
+                      <button @click="confirmDeletePCId = null" class="cfg-btn-sm">Cancelar</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>

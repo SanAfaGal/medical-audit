@@ -1,0 +1,177 @@
+    <!-- ══════════════════════════════════════════════════════
+         TAB: MAPEOS
+    ══════════════════════════════════════════════════════════ -->
+    <div x-show="tab === 'mapeos'" class="space-y-4">
+
+      <!-- No institution selected -->
+      <template x-if="!$store.ctx.institutionId">
+        <div class="no-inst-banner">
+          <i class="fa-solid fa-triangle-exclamation shrink-0"></i>
+          <span>Selecciona una institución en el menú lateral para ver Servicios y Docs × Servicio.</span>
+        </div>
+      </template>
+
+      <!-- Copy mappings from a reference institution -->
+      <template x-if="$store.ctx.institutionId">
+        <div class="cfg-card p-4 space-y-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <i class="fa-solid fa-copy text-xs" style="color:var(--text-3)"></i>
+            <span class="text-xs font-medium" style="color:var(--text-2)">Copiar mapeos desde un hospital referente</span>
+            <select x-model="copySourceId" class="cfg-input" style="max-width:260px" @change="copyConfirm = false">
+              <option value="">Seleccionar hospital…</option>
+              <template x-for="i in institutions.filter(i => i.id !== $store.ctx.institutionId)" :key="i.id">
+                <option :value="i.id" x-text="i.display_name"></option>
+              </template>
+            </select>
+            <button type="button" class="cfg-btn-sm cfg-btn-sky" :disabled="!copySourceId || copyBusy"
+                    x-show="!copyConfirm" @click="copyConfirm = true">Copiar</button>
+          </div>
+          <div x-show="copyConfirm" class="flex flex-wrap items-center gap-2 text-xs" style="color:var(--red)">
+            <span>Esto reemplazará los <b x-text="allServices.length"></b> servicios y <b x-text="serviceTypeDocs.length"></b> documentos actuales de <b x-text="$store.ctx.institution?.display_name"></b>. No se puede deshacer.</span>
+            <button type="button" class="cfg-btn-sm cfg-btn-red" :disabled="copyBusy" @click="copyMappings()">Sí, reemplazar</button>
+            <button type="button" class="cfg-btn-sm" @click="copyConfirm = false">Cancelar</button>
+          </div>
+        </div>
+      </template>
+
+      <div class="cfg-card">
+        <!-- Sub-tabs -->
+        <div class="flex" style="border-bottom:1px solid var(--border);background:var(--bg-subtle)">
+          <template x-for="st in [{id:'services',icon:'fa-briefcase-medical',label:'Servicios'},{id:'stdocs',icon:'fa-file-circle-check',label:'Docs × Servicio'}]" :key="st.id">
+            <button @click="mapSubTab = st.id"
+                    class="px-4 py-2.5 text-xs font-medium transition-colors"
+                    :style="mapSubTab === st.id
+                      ? 'border-bottom:2px solid var(--sky);color:var(--sky);margin-bottom:-1px;background:var(--bg-surface)'
+                      : 'color:var(--text-2);border-bottom:2px solid transparent'">
+              <i :class="'fa-solid ' + st.icon + ' mr-1.5'"></i>
+              <span x-text="st.label"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- Services -->
+        <div x-show="mapSubTab === 'services'" class="p-4 space-y-3">
+          <table class="cfg-table w-full">
+            <thead><tr><th>Servicio raw</th><th>Tipo de servicio</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="s in allServices" :key="s.id">
+                <tr>
+                  <td class="font-mono text-xs max-w-[220px] truncate" style="color:var(--text-2)" x-text="s.raw_service"></td>
+                  <td>
+                    <template x-if="editingServiceId !== s.id">
+                      <span class="text-xs" :style="s.service_type_id ? '' : 'color:var(--amber);font-style:italic'"
+                            x-text="stName(s.service_type_id)"></span>
+                    </template>
+                    <template x-if="editingServiceId === s.id">
+                      <select x-model="editingServiceTypeId" class="cfg-input-sm editing">
+                        <template x-for="st in serviceTypes" :key="st.id">
+                          <option :value="st.id" x-text="st.display_name"></option>
+                        </template>
+                      </select>
+                    </template>
+                  </td>
+                  <td>
+                    <div class="flex items-center justify-end gap-1">
+                      <template x-if="editingServiceId !== s.id">
+                        <button @click="startEditService(s)" class="cfg-btn-sm cfg-btn-sky"><i class="fa-solid fa-pen text-xs"></i></button>
+                      </template>
+                      <template x-if="editingServiceId === s.id">
+                        <button @click="saveServiceEdit(s.id)" class="cfg-btn-sm" style="background:var(--sky);color:#fff;border-color:var(--sky)"><i class="fa-solid fa-check text-xs"></i></button>
+                      </template>
+                      <template x-if="editingServiceId === s.id">
+                        <button @click="editingServiceId = null" class="cfg-btn-sm"><i class="fa-solid fa-xmark text-xs"></i></button>
+                      </template>
+                      <template x-if="confirmDeleteServiceId !== s.id && editingServiceId !== s.id">
+                        <button @click="confirmDeleteServiceId = s.id" class="cfg-btn-sm cfg-btn-red"><i class="fa-solid fa-trash text-xs"></i></button>
+                      </template>
+                      <template x-if="confirmDeleteServiceId === s.id">
+                        <button @click="deleteService(s.id)" class="cfg-btn-sm cfg-btn-confirm">Eliminar</button>
+                      </template>
+                      <template x-if="confirmDeleteServiceId === s.id">
+                        <button @click="confirmDeleteServiceId = null" class="cfg-btn-sm">Cancelar</button>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div class="flex gap-2 pt-2" style="border-top:1px solid var(--border-soft)">
+            <input type="text" x-model="newService.raw_service" placeholder="Servicio raw" class="cfg-input flex-1" />
+            <select x-model="newService.service_type_id" class="cfg-input" style="flex:0 0 12rem;width:12rem">
+              <option value="">Tipo de servicio</option>
+              <template x-for="st in serviceTypes" :key="st.id">
+                <option :value="st.id" x-text="st.display_name"></option>
+              </template>
+            </select>
+            <button @click="addService()" :disabled="!newService.raw_service.trim() || !newService.service_type_id" class="cfg-btn-primary">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Docs por Servicio -->
+        <div x-show="mapSubTab === 'stdocs'" class="p-4">
+          <p class="text-xs mb-3" style="color:var(--text-3)">Marque los documentos requeridos por tipo de servicio. Los cambios se aplican de inmediato.</p>
+          <div class="overflow-x-auto">
+            <table class="text-xs border-collapse">
+              <thead>
+                <tr>
+                  <th class="sticky left-0 z-10 min-w-[160px] pr-3 pb-2 text-left font-semibold"
+                      style="color:var(--text-3);border-bottom:1px solid var(--border);background:var(--bg-surface)"></th>
+                  <template x-for="dt in docTypes" :key="dt.id">
+                    <th class="pb-2 px-2 font-mono font-semibold whitespace-nowrap"
+                        style="border-bottom:1px solid var(--border);color:var(--text-2)" x-text="dt.code"></th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="st in serviceTypes" :key="st.id">
+                  <tr>
+                    <td class="sticky left-0 pr-4 py-2 font-medium whitespace-nowrap"
+                        style="border-bottom:1px solid var(--border-soft);background:var(--bg-surface);color:var(--text-1)"
+                        x-text="st.display_name"></td>
+                    <template x-for="dt in docTypes" :key="dt.id">
+                      <td class="px-2 py-2 text-center" style="border-bottom:1px solid var(--border-soft)">
+                        <input type="checkbox"
+                               :checked="stdHas(st.id, dt.id)"
+                               @change="toggleSTD(st.id, dt.id, $event.target.checked)"
+                               :disabled="stdPending[st.id + '-' + dt.id] === true"
+                               class="w-4 h-4 rounded cursor-pointer disabled:opacity-40 disabled:cursor-wait"
+                               style="accent-color:var(--sky)" />
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <!-- Summary -->
+          <div class="mt-5 space-y-2" style="border-top:1px solid var(--border-soft);padding-top:1rem">
+            <p class="text-[11px] font-bold uppercase tracking-wider mb-2" style="color:var(--text-3)">Resumen</p>
+            <template x-for="st in serviceTypes" :key="st.id">
+              <div x-data="{ get docs() { return serviceTypeDocs.filter(d => d.service_type_id === st.id); } }"
+                   class="flex items-start gap-3 py-2 px-3 rounded-lg"
+                   :style="docs.length > 0 ? 'background:var(--sky-soft);border:1px solid var(--sky-border)' : 'background:var(--bg-subtle);border:1px solid var(--border)'">
+                <div class="flex items-center gap-2 min-w-[160px]">
+                  <span class="text-sm font-medium" style="color:var(--text-1)" x-text="st.display_name"></span>
+                  <span class="text-[11px] font-bold px-1.5 py-0.5 rounded-full"
+                        :style="docs.length > 0 ? 'background:var(--sky-border);color:var(--sky)' : 'background:var(--border);color:var(--text-3)'"
+                        x-text="docs.length"></span>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-if="docs.length === 0">
+                    <span class="text-xs italic" style="color:var(--text-3)">Sin documentos requeridos</span>
+                  </template>
+                  <template x-for="d in docs" :key="d.id">
+                    <span class="text-[11px] font-mono px-2 py-0.5 rounded-full"
+                          style="background:var(--bg-surface);border:1px solid var(--sky-border);color:var(--sky)"
+                          x-text="dtCode(d.doc_type_id)"></span>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
