@@ -1,0 +1,143 @@
+  <!-- ── Guide: Descargar reporte ─────────────────────────── -->
+  <div class="guide-article" x-show="guide === 'download'" x-cloak>
+
+    <div class="guide-banner">
+      <div class="guide-banner-eyebrow">
+        <i class="fa-solid fa-download"></i> Tutorial · SIHOS
+      </div>
+      <h1>Descargar el reporte de SIHOS</h1>
+      <p>Cómo exportar el reporte de liquidación desde el portal SIHOS con los campos y filtros exactos que requiere el sistema.</p>
+      <div class="guide-banner-meta">
+        <span class="guide-badge violet"><i class="fa-solid fa-list-check"></i> 4 pasos</span>
+        <span class="guide-badge sky"><i class="fa-solid fa-globe"></i> Requiere acceso a SIHOS</span>
+      </div>
+    </div>
+
+    <div class="prereq">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <div>
+        <strong style="color:var(--amber)">Antes de comenzar:</strong> debes haber iniciado sesión en el portal SIHOS
+        correspondiente al hospital que estás auditando. Si aún no lo has hecho, autentica tu cuenta antes de seguir estos pasos.
+      </div>
+    </div>
+
+    <div class="steps-container">
+
+      <!-- Step 1 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">1</div>
+          <div class="step-title-block">
+            <h2>Navegar al reporte de liquidación</h2>
+            <p>Ubicar la sección correcta dentro del portal SIHOS</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Dentro del portal SIHOS, navega a la siguiente ruta:</p>
+          <div class="nav-path">
+            <span class="crumb"><i class="fa-solid fa-chart-bar" style="color:var(--violet);font-size:0.7rem"></i>Reportes</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Liquidación de servicios</span>
+            <i class="fa-solid fa-chevron-right"></i>
+            <span class="crumb">Liquidación</span>
+          </div>
+          <div class="callout info">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>El menú de <strong>Reportes</strong> suele estar en la barra de navegación superior o en el menú lateral del portal.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">2</div>
+          <div class="step-title-block">
+            <h2>Seleccionar los campos del reporte</h2>
+            <p>Marcar exactamente los campos requeridos — ni más, ni menos</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>En la sección de <strong>campos</strong> o <strong>columnas</strong>, selecciona únicamente los siguientes:</p>
+          <div class="field-tags">
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Administradora</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Tipo Usuario</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Tipo Servicio</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Actividad / Suministro</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Operario</span>
+            <span class="field-tag"><i class="fa-solid fa-circle-dot"></i>Paciente</span>
+          </div>
+          <div class="callout warn">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span>No selecciones más campos de los indicados. El script de preparación espera exactamente estas columnas y fallará si encuentra columnas adicionales o faltantes.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">3</div>
+          <div class="step-title-block">
+            <h2>Configurar los filtros del reporte</h2>
+            <p>Estado, tipo de liquidación, rango de fechas y formato de salida</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <p>Configura los filtros con los siguientes valores exactos:</p>
+          <table class="config-table">
+            <tr><td>Estado</td><td><code class="ic">Confirmado</code></td></tr>
+            <tr><td>Liquidación generada</td><td><code class="ic">Entidad</code></td></tr>
+            <tr><td>Fecha y hora inicial</td><td>Primer día del período a auditar</td></tr>
+            <tr><td>Fecha y hora final</td><td>Último día del período a auditar</td></tr>
+            <tr><td>Reporte</td><td><code class="ic">Horizontal</code></td></tr>
+            <tr><td>Opción seleccionada</td><td><code class="ic">Facturadas</code></td></tr>
+          </table>
+          <div class="callout info">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>El rango de fechas debe coincidir exactamente con el período de auditoría configurado en la aplicación.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step-section">
+        <div class="step-header">
+          <div class="step-num-large">4</div>
+          <div class="step-title-block">
+            <h2>Generar y exportar el reporte</h2>
+            <p>Aceptar, esperar la carga y exportar a Excel</p>
+          </div>
+        </div>
+        <div class="step-body">
+          <ol>
+            <li>Haz clic en <strong>Aceptar</strong> para generar el reporte.</li>
+            <li>Espera a que la tabla cargue con los datos del período.</li>
+            <li>Busca el botón <strong>Exportar a Excel</strong> y haz clic en él.</li>
+            <li>El archivo <code class="ic">.xls</code> se descargará automáticamente a tu carpeta de Descargas.</li>
+          </ol>
+          <div class="callout ok">
+            <i class="fa-solid fa-circle-check"></i>
+            <span>El archivo se guardará con extensión <strong>.xls</strong> (no .xlsx). Esto es normal — lo convertiremos en el siguiente tutorial al preparar el archivo.</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /steps -->
+
+    <!-- Next guide CTA -->
+    <div style="margin-top:1.75rem;padding:1.125rem 1.375rem;border-radius:0.75rem;border:1px solid var(--border);background:var(--bg-surface);display:flex;align-items:center;gap:1rem">
+      <div style="width:2.25rem;height:2.25rem;border-radius:50%;background:var(--violet-soft);border:1px solid var(--violet-border);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="fa-solid fa-arrow-right" style="color:var(--violet);font-size:0.75rem"></i>
+      </div>
+      <div style="flex:1">
+        <p style="font-size:0.875rem;font-weight:700;color:var(--text-1);margin-bottom:0.125rem">Continúa con el siguiente paso</p>
+        <p style="font-size:0.8rem;color:var(--text-2)">Una vez descargado el reporte, sigue el tutorial de <strong>Preparar archivo</strong> para procesarlo y subirlo.</p>
+      </div>
+      <button @click="guide = 'prepare'"
+              style="flex-shrink:0;display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 1rem;border-radius:0.5rem;background:var(--violet);color:#fff;font-size:0.8125rem;font-weight:600;border:none;cursor:pointer">
+        Preparar archivo <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+  </div><!-- /download guide -->

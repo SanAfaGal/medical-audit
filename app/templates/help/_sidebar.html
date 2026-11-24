@@ -1,0 +1,38 @@
+  <!-- ── Sidebar ──────────────────────────────────────────── -->
+  <nav class="guide-nav">
+    <div class="guide-nav-header">
+      <p>Tutoriales</p>
+    </div>
+    <div style="padding: 0.375rem 0; border-bottom: 1px solid var(--border)">
+      <div class="guide-nav-section-label">SIHOS</div>
+      <div class="guide-nav-group">
+        <button class="nav-guide-btn" :class="guide === 'download' && 'active'"
+                @click="guide = 'download'">
+          <span class="nav-guide-icon"><i class="fa-solid fa-download"></i></span>
+          <span>Descargar reporte</span>
+        </button>
+        <button class="nav-guide-btn" :class="guide === 'prepare' && 'active'"
+                @click="guide = 'prepare'">
+          <span class="nav-guide-icon"><i class="fa-solid fa-file-excel"></i></span>
+          <span>Preparar archivo</span>
+        </button>
+      </div>
+    </div>
+    <div style="padding: 0.375rem 0; border-bottom: 1px solid var(--border)">
+      <div class="guide-nav-section-label">Google Drive</div>
+      <div class="guide-nav-group">
+        <button class="nav-guide-btn" :class="guide === 'drive-setup' && 'active'"
+                @click="guide = 'drive-setup'">
+          <span class="nav-guide-icon"><i class="fa-brands fa-google-drive"></i></span>
+          <span>Cuenta de servicio</span>
+        </button>
+      </div>
+    </div>
+    <div style="padding: 0.375rem 0">
+      <div class="guide-nav-section-label">Próximamente</div>
+      <div class="guide-nav-group">
+        <div class="nav-coming"><span class="nav-guide-icon"><i class="fa-solid fa-folder-open"></i></span> Organizar carpetas</div>
+        <div class="nav-coming"><span class="nav-guide-icon"><i class="fa-solid fa-pills"></i></span> Hojas de medicamentos</div>
+      </div>
+    </div>
+  </nav>
