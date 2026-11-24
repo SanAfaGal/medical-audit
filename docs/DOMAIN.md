@@ -18,21 +18,22 @@ El pipeline está compuesto por etapas secuenciales. Cada etapa se activa indivi
 | 6 | `NORMALIZE_FILES` | Aplicar reglas de `PrefixCorrection` + estandarización genérica de nombres de archivo. |
 | 7 | `LIST_UNREADABLE_PDFS` | Identificar PDFs de factura sin capa de texto (escaneados). |
 | 8 | `DELETE_UNREADABLE_PDFS` | Mover a cuarentena los PDFs de factura que no se pueden leer. |
-| 9 | `DOWNLOAD_INVOICES_FROM_SIHOS` | Descargar facturas faltantes desde SIHOS vía automatización Playwright. |
-| 10 | `DOWNLOAD_MEDICATION_SHEETS` | Descargar hojas de medicamentos/servicios específicos desde SIHOS. |
-| 11 | `VERIFY_INVOICE_CODE` | Confirmar que cada PDF de factura contiene su propio número de factura en el texto extraído. |
-| 12 | `CHECK_INVOICE_NUMBER_ON_FILES` | Verificar que los archivos dentro de cada carpeta corresponden al número de factura de esa carpeta. |
-| 13 | `CHECK_FOLDERS_WITH_EXTRA_TEXT` | Detectar carpetas con texto adicional pegado al nombre canónico. |
-| 14 | `NORMALIZE_DIR_NAMES` | Renombrar carpetas malformadas al ID canónico de factura. |
-| 15 | `CHECK_DIRS` | Reconciliar facturas en DB vs. carpetas en disco; marcar faltantes como `FALTANTE`. |
-| 16 | `MARK_UNKNOWN_DIRS` | Renombrar con prefijo `(DESCONOCIDO)` las carpetas de STAGE que tienen forma de factura pero no existen en DB. |
-| 17 | `CHECK_REQUIRED_DOCS` | Validar documentos requeridos por tipo de servicio; registrar hallazgos; marcar `PENDIENTE`. |
-| 18 | `REVISAR_SOBRANTES` | Revisar archivos cuyos nombres no coinciden con ningún prefijo requerido. Para cada sobrante, sugiere el tipo de documento faltante más probable (1:1 → alta confianza; N:M vía similitud `difflib` → baja confianza). El panel interactivo permite confirmar o corregir la sugerencia para renombrar el archivo en disco y resolver el hallazgo, o eliminar el archivo. |
-| 19 | `VERIFY_CUFE` | Verificar el código CUFE (64+ caracteres) de factura electrónica colombiana en los PDFs. |
-| 20 | `ORGANIZE` | Mover facturas elegibles (`PRESENTE`, sin hallazgos) al destino de auditoría; marcar `AUDITADA`. |
-| 21 | `DOWNLOAD_DRIVE` | Sincronizar carpetas `FALTANTE` desde Google Drive; actualizar estado a `PRESENTE`. |
-| 22 | `DOWNLOAD_MISSING_DOCS` | Descargar documentos faltantes específicos desde Drive para facturas con hallazgos abiertos. |
-| 23 | `COMPRESS_AUDIT` | Comprimir el directorio de auditoría en un archivo ZIP. |
+| 9 | `DETECT_BLANK_DOCS` | Detectar PDFs en blanco de cualquier tipo de documento en STAGE, moverlos a `_CUARENTENA_EN_BLANCO` y registrar un hallazgo (la factura queda `PENDIENTE` y el documento se vuelve a descargar). Los PDFs corruptos no cuentan como blancos. |
+| 10 | `DOWNLOAD_INVOICES_FROM_SIHOS` | Descargar facturas faltantes desde SIHOS vía automatización Playwright. |
+| 11 | `DOWNLOAD_MEDICATION_SHEETS` | Descargar hojas de medicamentos/servicios específicos desde SIHOS. |
+| 12 | `VERIFY_INVOICE_CODE` | Confirmar que cada PDF de factura contiene su propio número de factura en el texto extraído. |
+| 13 | `CHECK_INVOICE_NUMBER_ON_FILES` | Verificar que los archivos dentro de cada carpeta corresponden al número de factura de esa carpeta. |
+| 14 | `CHECK_FOLDERS_WITH_EXTRA_TEXT` | Detectar carpetas con texto adicional pegado al nombre canónico. |
+| 15 | `NORMALIZE_DIR_NAMES` | Renombrar carpetas malformadas al ID canónico de factura. |
+| 16 | `CHECK_DIRS` | Reconciliar facturas en DB vs. carpetas en disco; marcar faltantes como `FALTANTE`. |
+| 17 | `MARK_UNKNOWN_DIRS` | Renombrar con prefijo `(DESCONOCIDO)` las carpetas de STAGE que tienen forma de factura pero no existen en DB. |
+| 18 | `CHECK_REQUIRED_DOCS` | Validar documentos requeridos por tipo de servicio; registrar hallazgos; marcar `PENDIENTE`. |
+| 19 | `REVISAR_SOBRANTES` | Revisar archivos cuyos nombres no coinciden con ningún prefijo requerido. Para cada sobrante, sugiere el tipo de documento faltante más probable (1:1 → alta confianza; N:M vía similitud `difflib` → baja confianza). El panel interactivo permite confirmar o corregir la sugerencia para renombrar el archivo en disco y resolver el hallazgo, o eliminar el archivo. |
+| 20 | `VERIFY_CUFE` | Verificar el código CUFE (64+ caracteres) de factura electrónica colombiana en los PDFs. |
+| 21 | `ORGANIZE` | Mover facturas elegibles (`PRESENTE`, sin hallazgos) al destino de auditoría; marcar `AUDITADA`. |
+| 22 | `DOWNLOAD_DRIVE` | Sincronizar carpetas `FALTANTE` desde Google Drive; actualizar estado a `PRESENTE`. |
+| 23 | `DOWNLOAD_MISSING_DOCS` | Descargar documentos faltantes específicos desde Drive para facturas con hallazgos abiertos. |
+| 24 | `COMPRESS_AUDIT` | Comprimir el directorio de auditoría en un archivo ZIP. |
 
 ### Cómo reportan progreso las etapas
 

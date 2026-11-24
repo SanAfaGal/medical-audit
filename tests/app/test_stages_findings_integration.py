@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from app.models.finding import MissingFile
 from app.models.institution import ServiceTypeDocument
 from app.models.invoice import Invoice
 from app.models.rules import DocType, FolderStatus, ServiceType
@@ -65,6 +66,78 @@ async def _status_of(ctx, number: str) -> str:
 def _data_payload(lines: list[str]):
     line = next(line for line in lines if line.startswith("[DATA] ["))
     return json.loads(line[len("[DATA] ") :])
+
+
+def _pdf(path: Path, text: str | None) -> Path:
+    import fitz
+
+    path.parent.mkdir(exist_ok=True)
+    doc = fitz.open()
+    page = doc.new_page()
+    if text:
+        page.insert_text((72, 72), text)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+class TestDetectBlankDocs:
+    async def test_quarantines_a_blank_document_of_any_type_and_records_the_finding(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        await _add_invoice(stage_env, "1")
+        invoice = _pdf(stage_path / "HSL1" / "FEV_900123456_HSL1.pdf", "factura HSL1")
+        blank_history = _pdf(stage_path / "HSL1" / "HCU_900123456_HSL1.pdf", None)
+
+        lines = await _run("DETECT_BLANK_DOCS", stage_env)
+
+        assert any("PDF en blanco: HCU_900123456_HSL1.pdf" in line for line in lines)
+        assert not any("PDF en blanco: FEV_" in line for line in lines)
+        assert any("Hallazgos registrados: 1" in line for line in lines)
+        assert not blank_history.exists()
+        assert (stage_path / "_CUARENTENA_EN_BLANCO" / "HSL1" / blank_history.name).exists()
+        assert invoice.exists()
+        assert await _status_of(stage_env, "1") == "PENDIENTE"
+        open_findings = await stage_env["db"].execute(
+            select(DocType.code)
+            .join(MissingFile, MissingFile.doc_type_id == DocType.id)
+            .where(MissingFile.resolved_at.is_(None))
+        )
+        assert open_findings.scalars().all() == ["HISTORIA"]
+
+    async def test_a_blank_file_that_maps_to_no_invoice_is_reported_and_quarantined_without_finding(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        await _add_invoice(stage_env, "1")
+        stray = _pdf(stage_path / "OTRA" / "raro.pdf", None)
+
+        lines = await _run("DETECT_BLANK_DOCS", stage_env)
+
+        assert any("PDF en blanco: raro.pdf" in line for line in lines)
+        assert any("Sin hallazgo" in line and "raro.pdf" in line for line in lines)
+        assert not any("Hallazgos registrados" in line for line in lines)
+        assert not stray.exists()
+        assert (stage_path / "_CUARENTENA_EN_BLANCO" / "OTRA" / "raro.pdf").exists()
+        assert await _status_of(stage_env, "1") == "PRESENTE"
+
+    async def test_all_pdfs_with_content_are_left_alone(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        await _add_invoice(stage_env, "1")
+        pdf = _pdf(stage_path / "HSL1" / "FEV_900123456_HSL1.pdf", "factura HSL1")
+
+        lines = await _run("DETECT_BLANK_DOCS", stage_env)
+
+        assert any("No se encontraron PDFs en blanco" in line for line in lines)
+        assert pdf.exists() and not (stage_path / "_CUARENTENA_EN_BLANCO").exists()
+
+    async def test_rerunning_does_not_rescan_the_quarantine(self, stage_env):
+        stage_path = stage_env["stage_path"]
+        await _add_invoice(stage_env, "1")
+        _pdf(stage_path / "HSL1" / "HCU_900123456_HSL1.pdf", None)
+        await _run("DETECT_BLANK_DOCS", stage_env)
+
+        lines = await _run("DETECT_BLANK_DOCS", stage_env)
+
+        assert any("PDFs a revisar: 0" in line for line in lines)
+        assert any("No se encontraron PDFs en blanco" in line for line in lines)
 
 
 class TestFindingsStages:

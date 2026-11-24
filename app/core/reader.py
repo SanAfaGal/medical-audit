@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 # Files handed to a worker process per task. Opening a PDF is ~1 ms, reading a first page ~5 ms.
 _OPEN_CHUNK = 100
 _OCR_CHUNK = 25
+# Rendering pages is heavier than reading a text layer, so smaller chunks keep progress and cancel responsive.
+_BLANK_CHUNK = 10
 
 # Blank-page detection (see DocumentReader.is_blank): render at 30% (~180x250 px for A4), a pixel darker
 # than 200/255 is "ink", and a page needs at least 0.02% ink (~10 px) to count as having content.
@@ -38,6 +40,15 @@ def _needs_ocr_chunk(paths: list[str]) -> list[bool]:
         except (fitz.FileDataError, OSError, RuntimeError):
             out.append(False)
     return out
+
+
+def _blank_chunk(paths: list[str]) -> list[bool]:
+    """Worker: True for each valid PDF with no visible content.
+
+    Unreadable files are False here (``is_blank`` alone would call them blank): they are a different problem,
+    handled by ``find_unopenable``.
+    """
+    return [DocumentReader.can_open(Path(p)) and DocumentReader.is_blank(Path(p)) for p in paths]
 
 
 class DocumentReader:
@@ -147,3 +158,24 @@ class DocumentReader:
             cancel_event=cancel_event,
         )
         return [f for f, needs in zip(files, flags, strict=True) if needs]
+
+    @staticmethod
+    def find_blank(
+        files: list[Path],
+        on_progress: ProgressFn | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[Path]:
+        """Return valid PDFs with no visible content on any page (see ``is_blank``).
+
+        Corrupt files are not included; use ``find_unopenable`` for those. ``on_progress(done, total, file_name)``
+        is called as chunks finish; once ``cancel_event`` is set the remaining files are skipped.
+        """
+        flags = pdfpool.run_chunked(
+            _blank_chunk,
+            [str(f) for f in files],
+            chunk_size=_BLANK_CHUNK,
+            names=[f.name for f in files],
+            on_progress=on_progress,
+            cancel_event=cancel_event,
+        )
+        return [f for f, blank in zip(files, flags, strict=True) if blank]

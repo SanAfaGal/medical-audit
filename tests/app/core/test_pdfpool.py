@@ -76,6 +76,15 @@ class TestPoolMatchesInThreadResults:
         assert serial[1] == [corrupt]
         assert {f.name for f in serial[0]} == {f"FEV_900_HSL{n}.pdf" for n in range(0, 60, 7)}
 
+    def test_blank_detection_agrees_with_and_without_the_pool(self, invoices, monkeypatch):
+        monkeypatch.setenv("PDF_WORKERS", "1")
+        serial = DocumentReader.find_blank(invoices)
+        monkeypatch.setenv("PDF_WORKERS", "3")
+        pooled = DocumentReader.find_blank(invoices)
+
+        assert pooled == serial
+        assert {f.name for f in serial} == {f"FEV_900_HSL{n}.pdf" for n in range(0, 60, 7)}
+
 
 class TestProgressAndCancel:
     def test_progress_reaches_the_total_and_never_goes_back(self, invoices, monkeypatch):

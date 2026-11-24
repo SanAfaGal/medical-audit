@@ -110,3 +110,31 @@ class TestIsBlank:
         path = tmp_path / "bad.pdf"
         path.write_bytes(b"not a pdf")
         assert DocumentReader.is_blank(path) is True
+
+
+class TestFindBlank:
+    def test_flags_blank_pdfs_of_any_kind_but_not_corrupt_ones(self, tmp_path: Path):
+        with_text = _pdf(tmp_path / "text.pdf", "hola")
+        scanned = _scan_pdf(tmp_path / "scan.pdf", dark=True)
+        empty = _pdf(tmp_path / "empty.pdf", None)
+        white = _scan_pdf(tmp_path / "white.pdf", dark=False)
+        corrupt = tmp_path / "corrupt.pdf"
+        corrupt.write_bytes(b"not a pdf")
+
+        # Corrupt files are REMOVE_NON_PDF's job: reporting them as blank would mislead.
+        assert DocumentReader.find_blank([with_text, scanned, empty, white, corrupt]) == [empty, white]
+
+    def test_reports_progress_for_every_file(self, tmp_path: Path):
+        files = [_pdf(tmp_path / f"{n}.pdf", "x") for n in range(4)]
+        calls: list[tuple[int, int]] = []
+
+        DocumentReader.find_blank(files, on_progress=lambda d, t, _n: calls.append((d, t)))
+
+        assert sorted(calls) == [(n, 4) for n in range(1, 5)]
+
+    def test_cancel_event_skips_files(self, tmp_path: Path):
+        empty = _pdf(tmp_path / "empty.pdf", None)
+        cancel = threading.Event()
+        cancel.set()
+
+        assert DocumentReader.find_blank([empty], cancel_event=cancel) == []

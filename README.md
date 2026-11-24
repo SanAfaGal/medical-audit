@@ -96,7 +96,7 @@ medical-audit-v2/
 │   │       └── explorer.py        # /api/explorer (explorador de archivos)
 │   ├── services/
 │   │   ├── billing.py             # Ingesta de Excel SIHOS + normalización
-│   │   ├── pipeline/              # Pipeline de 24 etapas: registry, context, runner y stages/ por fase
+│   │   ├── pipeline/              # Pipeline de 25 etapas: registry, context, runner y stages/ por fase
 │   │   ├── stage_events.py        # Progreso, latido y cancelación centralizados para las etapas
 │   │   ├── archive.py             # Extracción segura de ZIP/7z/RAR y empaquetado por streaming
 │   │   └── task_manager.py        # Gestión de tareas pipeline en background
@@ -259,7 +259,7 @@ Ambos stacks pueden correr al mismo tiempo sin conflicto (nombres de proyecto y 
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Runbook de producción: requisitos, rollback, backups, firewall, automatización |
 | [docs/MIGRATION.md](docs/MIGRATION.md) | Migrar el stack completo (DB + PDFs) a otra máquina |
 | [docs/API.md](docs/API.md) | Referencia completa de endpoints REST |
-| [docs/DOMAIN.md](docs/DOMAIN.md) | Modelo de dominio (entidades, estados) y las 24 etapas del pipeline |
+| [docs/DOMAIN.md](docs/DOMAIN.md) | Modelo de dominio (entidades, estados) y las 25 etapas del pipeline |
 
 ---
 

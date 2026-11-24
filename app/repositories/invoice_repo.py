@@ -233,6 +233,12 @@ class InvoiceRepo:
         result = await self.db.execute(q)
         return set(result.scalars().all())
 
+    async def get_ids_by_number(self, period_id: int) -> dict[str, int]:
+        """Return ``{invoice_number: invoice_id}`` for every invoice in the period."""
+        q = select(Invoice.invoice_number, Invoice.id).where(Invoice.audit_period_id == period_id)
+        result = await self.db.execute(q)
+        return {number: invoice_id for number, invoice_id in result.all()}
+
     async def get_invoice_numbers_by_status(self, period_id: int, status_code: str) -> list[str]:
         """Return invoice numbers for a period filtered by folder status code."""
         q = (

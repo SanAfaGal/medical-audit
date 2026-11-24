@@ -61,6 +61,7 @@ function pipeline() {
       { type:'phase', label:'Calidad de PDFs', color:'#4338ca', icon:'fa-solid fa-file-pdf' },
       { type:'stage', id:'LIST_UNREADABLE_PDFS', label:'Detectar PDFs ilegibles', icon:'fa-solid fa-list-check', phaseColor:'#4338ca' },
       { type:'stage', id:'DELETE_UNREADABLE_PDFS', label:'Eliminar PDFs ilegibles',   icon:'fa-solid fa-file-circle-minus',    phaseColor:'#dc2626' },
+      { type:'stage', id:'DETECT_BLANK_DOCS', label:'Detectar PDFs en blanco', icon:'fa-regular fa-file', phaseColor:'#dc2626' },
 
       // ── 4. AUDITORÍA ─────────────────────────────────────────────────────
       { type:'phase', label:'Auditoría', color:'#b45309', icon:'fa-solid fa-magnifying-glass-chart' },
@@ -104,6 +105,7 @@ function pipeline() {
       { id:'NORMALIZE_FILES',         label:'Corregir nombres de archivos',      description:'Corrige nombres en dos pasos: (1) aplica sustituciones de prefijo configuradas (ej. FVE→FEV); (2) renombra archivos con nombre inválido al formato {PREFIJO}_{NIT}_{FACTURA}.pdf. Reporta los que no se pueden renombrar.' },
       { id:'LIST_UNREADABLE_PDFS',    label:'Detectar PDFs ilegibles',           description:'Detecta PDFs de factura sin capa de texto (escaneados). Solo lista los archivos afectados; no los modifica. Úsala para decidir si eliminarlos y re-descargarlos.' },
       { id:'DELETE_UNREADABLE_PDFS',  label:'Eliminar PDFs ilegibles',           description:'Elimina permanentemente los PDFs detectados sin capa de texto. Combínala con "Descargar PDFs desde SIHOS" para reemplazarlos con versiones digitales correctas.' },
+      { id:'DETECT_BLANK_DOCS',       label:'Detectar PDFs en blanco',           description:'Revisa todos los PDFs de STAGE (cualquier tipo de documento) y detecta los que no tienen contenido visible. Los mueve a la carpeta _CUARENTENA_EN_BLANCO y registra un hallazgo para que la factura quede PENDIENTE y el documento se vuelva a descargar. Los PDFs corruptos no se tratan aquí (los maneja "Eliminar no-PDF").' },
       { id:'VERIFY_INVOICE_CODE',     label:'Verificar número en PDF',           description:'Lee el texto de cada PDF de factura y verifica que el número de la carpeta aparezca dentro del documento. Reporta con [WARN] las facturas cuyo PDF no contiene su propio número.' },
       { id:'CHECK_INVOICE_NUMBER_ON_FILES', label:'Verificar nombres de archivos', description:'Recorre cada carpeta de STAGE y verifica que todos los archivos contengan el número de factura de la carpeta en su nombre. Reporta los archivos desajustados.' },
       { id:'CHECK_DIRS',              label:'Detectar carpetas faltantes',        description:'Comprueba que cada factura en estado PRESENTE tenga su carpeta en STAGE. Las que no la tienen se marcan como FALTANTE para recuperarlas desde Drive.' },
