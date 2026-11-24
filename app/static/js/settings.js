@@ -479,13 +479,7 @@ function settingsApp() {
       const res = await api.get(`/api/institutions/periods/${periodId}/disk-usage`);
       this.diskUsage[periodId] = res.ok ? { ...res.data, loading: false } : { loading: false, error: true };
     },
-    formatBytes(bytes) {
-      if (!bytes) return '0 B';
-      const units = ['B','KB','MB','GB'];
-      let i = 0, v = bytes;
-      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-      return `${v.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
-    },
+    formatBytes(bytes) { return formatBytes(bytes); },  // shared helper from api.js, exposed to the template
     async confirmDeletePeriod(id) {
       this.confirmDeletePeriodId = id;
       await this.loadDiskUsage(id);

@@ -3,6 +3,7 @@
  *
  *   apiErrorMessage(detail, fallback)  -> human readable text for any FastAPI `detail`
  *   api.get/post/put/patch/delete(url, body?, opts?)  -> {ok, status, data, error}
+ *   formatBytes(bytes)                 -> "0 B", "512 B", "1.5 KB", "2.3 MB"...
  *
  * `api.*` never throws on HTTP errors or network failures, so callers just check `ok`.
  */
@@ -65,7 +66,16 @@
     delete: function (url, opts) { return request('DELETE', url, undefined, opts); },
   };
 
+  function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB'];
+    var i = 0, v = bytes;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return v.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+  }
+
   root.apiErrorMessage = apiErrorMessage;
+  root.formatBytes = formatBytes;
   root.api = api;
-  if (typeof module !== 'undefined' && module.exports) module.exports = { apiErrorMessage: apiErrorMessage, api: api };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { apiErrorMessage: apiErrorMessage, api: api, formatBytes: formatBytes };
 })(typeof window !== 'undefined' ? window : globalThis);

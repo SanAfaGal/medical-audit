@@ -65,6 +65,14 @@ async def _check_nested_folders(ctx: StageContext) -> AsyncGenerator[str, None]:
     )
 
 
+def _size_kb(f: Path) -> float:
+    """File size in KB for the review panel; 0 when the file vanished or cannot be read."""
+    try:
+        return round(f.stat().st_size / 1024, 1)
+    except OSError:
+        return 0.0
+
+
 @stage("REMOVE_NON_PDF", requires="stage")
 async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
     """Scan STAGE for non-PDF files and corrupt PDFs; emit [DATA] for user review."""
@@ -83,16 +91,12 @@ async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
                 continue
             if f.suffix.lower() != ".pdf":
                 ext = f.suffix.lstrip(".").lower()
-                try:
-                    size_kb = round(f.stat().st_size / 1024, 1)
-                except OSError:
-                    size_kb = 0.0
                 non_pdfs.append(
                     {
                         "rel_path": f.relative_to(s_path).as_posix(),
                         "filename": f.name,
                         "extension": ext,
-                        "size_kb": size_kb,
+                        "size_kb": _size_kb(f),
                         "is_image": ext in IMAGE_EXTENSIONS,
                     }
                 )
@@ -113,15 +117,11 @@ async def _remove_non_pdf(ctx: StageContext) -> AsyncGenerator[str, None]:
 
     corrupt_list: list[dict[str, Any]] = []
     for f in job.result:
-        try:
-            size_kb = round(f.stat().st_size / 1024, 1)
-        except OSError:
-            size_kb = 0.0
         corrupt_list.append(
             {
                 "rel_path": f.relative_to(stage_path).as_posix(),
                 "filename": f.name,
-                "size_kb": size_kb,
+                "size_kb": _size_kb(f),
             }
         )
 

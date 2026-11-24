@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { apiErrorMessage, api } = require('../../app/static/js/api.js');
+const { apiErrorMessage, api, formatBytes } = require('../../app/static/js/api.js');
 globalThis.apiErrorMessage = apiErrorMessage;
 const { createToastStore } = require('../../app/static/js/toast.js');
 
@@ -56,6 +56,16 @@ test('api.request: parses errors, handles 204 and network failures without throw
   const offline = await api.get('/x');
   assert.deepEqual([offline.ok, offline.status], [false, 0]);
   assert.match(offline.error, /conectar/);
+});
+
+test('formatBytes: picks the unit and keeps whole bytes without decimals', () => {
+  assert.equal(formatBytes(0), '0 B');
+  assert.equal(formatBytes(undefined), '0 B');
+  assert.equal(formatBytes(512), '512 B');
+  assert.equal(formatBytes(1536), '1.5 KB');
+  assert.equal(formatBytes(2.5 * 1024 * 1024), '2.5 MB');
+  assert.equal(formatBytes(3 * 1024 ** 3), '3.0 GB');
+  assert.equal(formatBytes(5 * 1024 ** 4), '5120.0 GB');  // no bigger unit: stays in GB
 });
 
 test('toast store: types, auto-dismiss, loading replacement and legacy signature', () => {

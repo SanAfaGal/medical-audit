@@ -770,8 +770,7 @@ document.addEventListener('alpine:init', () => {
         a.download = filename;
         a.click();
         URL.revokeObjectURL(url);
-        const mb = (blob.size / (1024 * 1024)).toFixed(1);
-        this.showToast(true, `ZIP listo — ${mb} MB`);
+        this.showToast(true, `ZIP listo — ${formatBytes(blob.size)}`);
       } catch {
         this.showToast(false, 'Error de red al descargar');
       }
