@@ -1,0 +1,153 @@
+    <!-- REMOVE_NON_PDF: panel de revisión de archivos problemáticos -->
+    <template x-if="nonPdfData && (nonPdfData.non_pdf.length > 0 || nonPdfData.corrupt_pdfs.length > 0)">
+      <div class="rounded-xl overflow-hidden flex flex-col shrink-0"
+           style="border:1px solid var(--border);background:var(--bg-surface);max-height:420px">
+
+        <!-- Header -->
+        <div class="px-4 py-3 flex items-center justify-between"
+             style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-file-circle-xmark text-sm" style="color:#ef4444"></i>
+            <span class="text-sm font-semibold" style="color:var(--text-1)">Revisión de archivos — REMOVE_NON_PDF</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                  style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25)"
+                  x-text="(nonPdfData.non_pdf.filter(f=>!f._done).length + nonPdfData.corrupt_pdfs.filter(f=>!f._done).length) + ' pendientes'">
+            </span>
+          </div>
+          <button @click="nonPdfData = null" class="p-1 rounded-md transition-colors"
+                  style="color:var(--text-3)" title="Cerrar panel">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+
+        <!-- Scrollable body -->
+        <div class="overflow-y-auto flex-1 divide-y" style="border-color:var(--border)">
+
+          <!-- Section A: Archivos no-PDF -->
+          <template x-if="nonPdfData.non_pdf.length > 0">
+            <div>
+              <!-- Sub-header with bulk action -->
+              <div class="px-4 py-2 flex items-center justify-between sticky top-0 z-10"
+                   style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+                <span class="text-[10px] font-bold uppercase tracking-widest" style="color:var(--text-3)">
+                  <i class="fa-solid fa-file-slash mr-1"></i>Archivos no-PDF
+                  (<span x-text="nonPdfData.non_pdf.filter(f=>!f._done).length"></span>)
+                </span>
+                <button @click="nonPdfData.non_pdf.forEach(f => { if (!f._done) f.action = 'delete' })"
+                        class="text-[10px] px-2 py-1 rounded-lg transition-opacity hover:opacity-75"
+                        style="color:#ef4444;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.07)">
+                  <i class="fa-solid fa-trash-can mr-1 text-[9px]"></i>Eliminar todo
+                </button>
+              </div>
+              <!-- File rows -->
+              <template x-for="f in nonPdfData.non_pdf" :key="f.rel_path">
+                <div>
+                  <!-- Pending row -->
+                  <div x-show="!f._done"
+                       class="flex items-center gap-3 px-4 py-2 text-xs transition-colors hover:bg-white/[0.02]">
+                    <!-- Extension badge -->
+                    <span class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded w-10 text-center"
+                          :style="f.is_image
+                            ? 'background:rgba(59,130,246,0.12);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)'
+                            : 'background:var(--bg-subtle);color:var(--text-3);border:1px solid var(--border)'"
+                          x-text="f.extension || '?'"></span>
+                    <!-- Path -->
+                    <span class="flex-1 min-w-0 font-mono text-[11px] truncate"
+                          style="color:var(--text-1)" x-text="f.rel_path" :title="f.rel_path"></span>
+                    <!-- Size -->
+                    <span class="shrink-0 text-[10px] tabular-nums"
+                          style="color:var(--text-3)" x-text="f.size_kb + ' KB'"></span>
+                    <!-- Preview button (images only) -->
+                    <template x-if="f.is_image">
+                      <button @click="previewFile = { rel_path: f.rel_path, filename: f.filename }"
+                              class="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors hover:opacity-75"
+                              style="color:#60a5fa;border:1px solid rgba(59,130,246,0.3);background:rgba(59,130,246,0.1)"
+                              title="Vista previa">
+                        <i class="fa-solid fa-eye text-[10px]"></i>
+                      </button>
+                    </template>
+                    <!-- Action: dropdown for images, fixed label for others -->
+                    <template x-if="f.is_image">
+                      <select x-model="f.action"
+                              class="shrink-0 text-[11px] rounded-lg px-2 py-1 border appearance-none cursor-pointer"
+                              style="border-color:var(--border);background:var(--bg-subtle);color:var(--text-1)">
+                        <option value="convert">Convertir a PDF</option>
+                        <option value="delete">Eliminar</option>
+                      </select>
+                    </template>
+                    <template x-if="!f.is_image">
+                      <span class="shrink-0 text-[10px] px-2 py-1 rounded"
+                            style="color:#ef4444;border:1px solid rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">
+                        <i class="fa-solid fa-trash-can mr-1 text-[9px]"></i>Eliminar
+                      </span>
+                    </template>
+                  </div>
+                  <!-- Done row -->
+                  <div x-show="f._done"
+                       class="flex items-center gap-2 px-4 py-1.5 text-[11px]"
+                       style="color:var(--text-3)">
+                    <i :class="f.action === 'convert' ? 'fa-solid fa-file-pdf' : 'fa-solid fa-trash-can text-[9px]'"
+                       :style="f.action === 'convert' ? 'color:var(--emerald)' : 'color:#ef4444'"></i>
+                    <span class="font-mono truncate" x-text="f.filename"></span>
+                    <span x-text="f.action === 'convert' ? '— convertido a PDF' : '— eliminado'"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <!-- Section B: PDFs corruptos -->
+          <template x-if="nonPdfData.corrupt_pdfs.length > 0">
+            <div>
+              <div class="px-4 py-2 flex items-center justify-between sticky top-0 z-10"
+                   style="background:var(--bg-subtle);border-bottom:1px solid var(--border)">
+                <span class="text-[10px] font-bold uppercase tracking-widest" style="color:var(--text-3)">
+                  <i class="fa-solid fa-file-circle-exclamation mr-1"></i>PDFs corruptos
+                  (<span x-text="nonPdfData.corrupt_pdfs.filter(f=>!f._done).length"></span>)
+                </span>
+                <span class="text-[10px] italic" style="color:var(--text-3)">Solo eliminación disponible</span>
+              </div>
+              <template x-for="f in nonPdfData.corrupt_pdfs" :key="f.rel_path">
+                <div>
+                  <div x-show="!f._done"
+                       class="flex items-center gap-3 px-4 py-2 text-xs transition-colors hover:bg-white/[0.02]">
+                    <span class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded w-10 text-center"
+                          style="background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.25)">pdf</span>
+                    <span class="flex-1 min-w-0 font-mono text-[11px] truncate"
+                          style="color:var(--text-1)" x-text="f.rel_path" :title="f.rel_path"></span>
+                    <span class="shrink-0 text-[10px] tabular-nums"
+                          style="color:var(--text-3)" x-text="f.size_kb + ' KB'"></span>
+                    <span class="shrink-0 text-[10px] px-2 py-1 rounded"
+                          style="color:#ef4444;border:1px solid rgba(239,68,68,0.2);background:rgba(239,68,68,0.06)">
+                      <i class="fa-solid fa-trash-can mr-1 text-[9px]"></i>Eliminar
+                    </span>
+                  </div>
+                  <div x-show="f._done"
+                       class="flex items-center gap-2 px-4 py-1.5 text-[11px]"
+                       style="color:var(--text-3)">
+                    <i class="fa-solid fa-trash-can text-[9px]" style="color:#ef4444"></i>
+                    <span class="font-mono truncate" x-text="f.filename"></span>
+                    <span>— eliminado</span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-4 py-3 flex items-center justify-between"
+             style="border-top:1px solid var(--border);background:var(--bg-subtle)">
+          <p class="text-[11px]" style="color:var(--text-3)">
+            <i class="fa-solid fa-circle-info mr-1"></i>
+            Imágenes convertidas se guardan en la misma carpeta con extensión .pdf
+          </p>
+          <button @click="confirmNonPdf()"
+                  class="flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-opacity hover:opacity-85"
+                  style="background:#ef4444;color:#fff">
+            <i class="fa-solid fa-circle-check text-xs"></i>
+            Confirmar selección
+          </button>
+        </div>
+      </div>
+    </template>

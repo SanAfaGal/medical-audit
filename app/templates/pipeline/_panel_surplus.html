@@ -1,0 +1,132 @@
+    <!-- Surplus review panel -->
+    <template x-if="surplusData && surplusData.length > 0">
+      <div :class="$store.ui.consoleOpen ? 'shrink-0' : 'flex-1 min-h-0'"
+           class="rounded-xl overflow-hidden flex flex-col"
+           style="border:1px solid var(--border);background:var(--bg-surface)">
+        <!-- Header -->
+        <div class="px-4 py-3 flex items-center justify-between border-b"
+             style="border-color:var(--border);background:var(--bg-subtle)">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-file-circle-exclamation text-sm" style="color:var(--amber)"></i>
+            <span class="text-sm font-semibold" style="color:var(--text-1)">Archivos sobrantes pendientes de revisión</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
+                  style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)"
+                  x-text="surplusData.reduce((s,r)=>s+r.sobrantes.length,0) + ' archivos'"></span>
+          </div>
+          <button @click="surplusData = null" class="p-1 rounded-md transition-colors" style="color:var(--text-3)"
+                  title="Cerrar panel">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+
+        <!-- Per-invoice groups -->
+        <div :class="$store.ui.consoleOpen ? 'max-h-64' : 'flex-1'"
+             class="divide-y overflow-y-auto" style="border-color:var(--border)">
+          <template x-for="inv in surplusData" :key="inv.invoice_id">
+            <div>
+              <!-- Invoice header -->
+              <div class="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-50 transition-colors">
+                <!-- toggle button — solo el chevron -->
+                <button @click="inv._collapsed = !inv._collapsed"
+                        class="shrink-0 w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-slate-200"
+                        :title="inv._collapsed ? 'Expandir' : 'Colapsar'">
+                  <i class="fa-solid text-[9px]"
+                     :class="inv._collapsed ? 'fa-chevron-right' : 'fa-chevron-down'"
+                     style="color:var(--text-3)"></i>
+                </button>
+                <!-- número de factura — texto seleccionable -->
+                <span class="text-xs font-semibold select-text cursor-text"
+                      style="color:var(--text-1)" x-text="inv.invoice_number"></span>
+                <!-- admin type badge -->
+                <span x-show="inv.admin_type"
+                      class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                      style="background:var(--sky-soft);color:var(--sky);border:1px solid var(--sky-border)"
+                      x-text="inv.admin_type"></span>
+                <!-- service type badge -->
+                <span x-show="inv.service_type"
+                      class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                      style="background:var(--bg-subtle);color:var(--text-2);border:1px solid var(--border)"
+                      x-text="inv.service_type"></span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded ml-auto shrink-0"
+                      style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)"
+                      x-text="inv.sobrantes.filter(s=>!s._done).length + '/' + inv.sobrantes.length"></span>
+              </div>
+
+              <!-- Sobrante rows -->
+              <div x-show="!inv._collapsed" class="px-4 pb-3 space-y-1.5">
+                <template x-for="(sob, idx) in inv.sobrantes" :key="sob.filename">
+                  <div>
+                    <!-- Pending state -->
+                    <div class="flex items-center gap-2 text-xs" x-show="!sob._done">
+                      <!-- filename — prioridad de espacio -->
+                      <span class="flex-1 min-w-0 truncate font-mono text-[11px]"
+                            style="color:var(--text-1)" x-text="sob.filename" :title="sob.filename"></span>
+                      <!-- confidence badge -->
+                      <span x-show="sob.confidence === 'high'"
+                            class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                            style="background:var(--emerald-soft);color:var(--emerald);border:1px solid var(--emerald-border)">
+                        alta
+                      </span>
+                      <span x-show="sob.confidence === 'low'"
+                            class="text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0"
+                            style="background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber-border)">
+                        baja
+                      </span>
+                      <!-- select tipo — solo código, sin descripción -->
+                      <select x-model="sob.selected_doc_type_id"
+                              class="text-[11px] rounded-lg px-2 py-1 border appearance-none shrink-0"
+                              style="border-color:var(--border);background:var(--bg-subtle);color:var(--text-1);max-width:110px">
+                        <option value="">— Tipo —</option>
+                        <template x-for="f in inv.faltantes" :key="f.doc_type_id">
+                          <option :value="f.doc_type_id" x-text="f.code"></option>
+                        </template>
+                      </select>
+                      <!-- acciones -->
+                      <button @click="applyRename(inv, sob)"
+                              :disabled="!sob.selected_doc_type_id"
+                              class="text-[11px] font-semibold px-2.5 py-1 rounded-lg shrink-0 disabled:opacity-40"
+                              style="background:var(--sky-soft);color:var(--sky);border:1px solid var(--sky-border)"
+                              title="Renombrar archivo">
+                        <i class="fa-solid fa-pencil text-[10px]"></i>
+                      </button>
+                      <button @click="applyDelete(inv, sob)"
+                              class="text-[11px] font-semibold px-2 py-1 rounded-lg shrink-0"
+                              style="background:var(--red-soft,rgba(239,68,68,0.08));color:#ef4444;border:1px solid rgba(239,68,68,0.2)"
+                              title="Eliminar archivo del disco">
+                        <i class="fa-solid fa-trash-can text-[10px]"></i>
+                      </button>
+                      <button @click="sob._done = true; sob._skipped = true"
+                              class="text-[11px] px-2 py-1 rounded-lg shrink-0"
+                              style="color:var(--text-3);border:1px solid var(--border)"
+                              title="Omitir (no hace nada en el sistema de archivos)">
+                        <i class="fa-solid fa-xmark text-[10px]"></i>
+                      </button>
+                    </div>
+                    <!-- Renamed -->
+                    <div x-show="sob._done && !sob._deleted && !sob._skipped"
+                         class="flex items-center gap-2 text-[11px] py-0.5" style="color:var(--emerald)">
+                      <i class="fa-solid fa-check shrink-0"></i>
+                      <span class="truncate" x-text="sob._new_filename || sob.filename"></span>
+                    </div>
+                    <!-- Deleted -->
+                    <div x-show="sob._done && sob._deleted"
+                         class="flex items-center gap-2 text-[11px] py-0.5" style="color:#ef4444">
+                      <i class="fa-solid fa-trash-can shrink-0"></i>
+                      <span class="truncate" x-text="sob.filename"></span>
+                      <span style="color:#ef4444">— eliminado</span>
+                    </div>
+                    <!-- Skipped -->
+                    <div x-show="sob._done && sob._skipped && !sob._deleted"
+                         class="flex items-center gap-2 text-[11px] py-0.5" style="color:var(--text-3)">
+                      <i class="fa-solid fa-minus shrink-0"></i>
+                      <span class="truncate" x-text="sob.filename"></span>
+                      <span>— omitido</span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </template>

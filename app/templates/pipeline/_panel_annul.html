@@ -1,0 +1,74 @@
+    <!-- Annul folders review panel (CHECK_FOLDERS_WITH_EXTRA_TEXT) -->
+    <template x-if="annulData && annulData.length > 0">
+      <div :class="$store.ui.consoleOpen ? 'shrink-0' : 'flex-1 min-h-0'"
+           class="rounded-xl overflow-hidden flex flex-col"
+           style="border:1px solid var(--border);background:var(--bg-surface)">
+        <!-- Header -->
+        <div class="px-4 py-3 flex items-center justify-between border-b"
+             style="border-color:var(--border);background:var(--bg-subtle)">
+          <div class="flex items-center gap-2 flex-wrap">
+            <i class="fa-solid fa-folder-open text-sm" style="color:var(--rose,#e11d48)"></i>
+            <span class="text-sm font-semibold" style="color:var(--text-1)">Carpetas con texto extra</span>
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
+                  style="background:#fff0f3;color:#e11d48;border:1px solid #fecdd3"
+                  x-text="annulData.length + ' carpeta(s)'"></span>
+            <!-- Bulk action buttons -->
+            <button @click="annulData.forEach(f => f.action = 'annul')"
+                    class="ml-2 text-[10px] px-2 py-0.5 rounded font-semibold transition-colors"
+                    style="background:#fff0f3;color:#e11d48;border:1px solid #fecdd3">
+              Todas → Anular y eliminar
+            </button>
+            <button @click="annulData.forEach(f => f.action = 'skip')"
+                    class="text-[10px] px-2 py-0.5 rounded font-semibold transition-colors"
+                    style="background:var(--bg-subtle);color:var(--text-2);border:1px solid var(--border)">
+              Todas → Ignorar
+            </button>
+          </div>
+          <button @click="annulData = null" class="p-1 rounded-md transition-colors" style="color:var(--text-3)"
+                  title="Cerrar panel">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+
+        <!-- Folder list -->
+        <div :class="$store.ui.consoleOpen ? 'max-h-64' : 'flex-1'"
+             class="divide-y overflow-y-auto" style="border-color:var(--border)">
+          <template x-for="folder in annulData" :key="folder.folder_path">
+            <div class="flex items-center gap-3 px-4 py-2.5">
+              <!-- Folder name -->
+              <i class="fa-solid fa-folder text-sm shrink-0" style="color:var(--text-3)"></i>
+              <div class="flex-1 min-w-0">
+                <div class="text-xs font-medium truncate select-text cursor-text"
+                     style="color:var(--text-1)" x-text="folder.folder_name"></div>
+                <div x-show="folder.invoice_number"
+                     class="text-[10px]" style="color:var(--text-3)"
+                     x-text="'Factura: ' + folder.invoice_number"></div>
+              </div>
+              <!-- Action select -->
+              <select x-model="folder.action"
+                      class="text-xs border rounded-md px-2 py-1 shrink-0"
+                      style="border-color:var(--border);color:var(--text-1);background:var(--bg-surface)"
+                      :style="folder.action === 'annul'
+                              ? 'border-color:#fecdd3;color:#e11d48;background:#fff0f3'
+                              : ''">
+                <option value="skip">Ignorar por ahora</option>
+                <option value="annul">Anular y eliminar carpeta</option>
+              </select>
+            </div>
+          </template>
+        </div>
+
+        <!-- Footer: apply button -->
+        <div class="px-4 py-3 border-t flex items-center justify-between gap-3"
+             style="border-color:var(--border);background:var(--bg-subtle)">
+          <span class="text-[11px]" style="color:var(--text-3)"
+                x-text="annulData.filter(f=>f.action==='annul').length + ' carpeta(s) se anularán y eliminarán del disco'"></span>
+          <button @click="applyAnnulDecisions()"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                  style="background:#e11d48;color:#fff">
+            <i class="fa-solid fa-check text-[10px]"></i>
+            Aplicar decisiones
+          </button>
+        </div>
+      </div>
+    </template>
