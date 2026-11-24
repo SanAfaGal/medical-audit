@@ -1,0 +1,36 @@
+          <!-- ── Modo Merge ─────────────────────────────────────────── -->
+          <template x-if="pdfMode === 'merge'">
+            <div class="flex-1 flex flex-col gap-4 p-4 overflow-y-auto">
+              <div class="text-sm font-semibold text-slate-700">Unir PDFs seleccionados</div>
+              <div class="text-xs text-slate-500">
+                Selecciona los PDFs en la lista de la izquierda (<span x-text="selectedPdfs.length"></span> seleccionados)
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Nombre del archivo resultado</label>
+                <input x-model="mergeOutputName"
+                       type="text"
+                       placeholder="resultado.pdf"
+                       class="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400">
+              </div>
+              <!-- Lista de PDFs seleccionados con orden -->
+              <div class="space-y-1">
+                <div class="text-xs font-medium text-slate-500">Orden de fusión:</div>
+                <template x-for="(p, i) in selectedPdfs" :key="p">
+                  <div class="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 rounded-md px-2 py-1.5">
+                    <span class="text-slate-400 font-mono w-4" x-text="i+1"></span>
+                    <span class="truncate flex-1" x-text="p.split('/').pop()"></span>
+                    <button @click="selectedPdfs.splice(i,1)"
+                            class="text-slate-300 hover:text-red-400 transition-colors">
+                      <i class="fa-solid fa-xmark text-[10px]"></i>
+                    </button>
+                  </div>
+                </template>
+              </div>
+              <button @click="executeMerge()"
+                      :disabled="selectedPdfs.length < 2"
+                      class="w-full py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                <i class="fa-solid fa-object-group mr-1.5"></i>
+                Unir PDFs
+              </button>
+            </div>
+          </template>

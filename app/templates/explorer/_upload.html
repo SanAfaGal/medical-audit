@@ -1,0 +1,24 @@
+          <!-- Inputs de archivo ocultos -->
+          <input type="file" multiple accept=".pdf" x-ref="uploadInput" class="hidden"
+                 @change="uploadFiles($event.target.files, []); $event.target.value = ''">
+          <input type="file" x-ref="uploadFolderInput" class="hidden"
+                 webkitdirectory
+                 @change="uploadFiles($event.target.files, [...$event.target.files].map(f => f.webkitRelativePath)); $event.target.value = ''">
+
+          <!-- Barra de progreso de upload -->
+          <template x-if="uploadProgress !== null">
+            <div class="shrink-0 px-3 py-2 bg-sky-50 border-b border-sky-100 flex items-center gap-2">
+              <i class="fa-solid fa-arrow-up-from-bracket text-sky-500 text-[10px] shrink-0"></i>
+              <div class="flex-1 min-w-0">
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-[10px] text-sky-700">
+                    Subiendo archivos…
+                  </span>
+                </div>
+                <div class="h-1.5 bg-sky-200 rounded-full overflow-hidden">
+                  <div class="h-full bg-sky-500 rounded-full transition-all duration-300"
+                       style="width:0%"></div>
+                </div>
+              </div>
+            </div>
+          </template>

@@ -1,0 +1,163 @@
+          <!-- ── Toolbar de operaciones ─────────────────────────────── -->
+          <div class="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 shrink-0 bg-slate-50 flex-wrap">
+
+            <!-- Volver (todos los modos excepto select y none) -->
+            <template x-if="pdfMode !== 'none' && pdfMode !== 'select'">
+              <button @click="pdfMode = 'none'"
+                      class="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-slate-500 hover:bg-white hover:text-slate-700 border border-transparent hover:border-slate-200 transition-all">
+                <i class="fa-solid fa-arrow-left text-[10px]"></i>
+                Volver
+              </button>
+            </template>
+
+            <!-- ── Toolbar modo selección ── -->
+            <template x-if="pdfMode === 'select'">
+              <div class="flex items-center gap-1.5 flex-1 flex-wrap">
+                <!-- Checkbox seleccionar todo -->
+                <label class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-slate-600 hover:bg-white border border-transparent hover:border-slate-200 cursor-pointer transition-all select-none">
+                  <input type="checkbox"
+                         class="w-3.5 h-3.5 rounded accent-sky-500 cursor-pointer"
+                         :checked="selectedEntries.length === entries.length && entries.length > 0"
+                         x-effect="$el.indeterminate = selectedEntries.length > 0 && selectedEntries.length < entries.length"
+                         @change="selectAllEntries()">
+                  Todos
+                </label>
+
+                <!-- Mover lote -->
+                <button @click="startBatchMove()"
+                        :disabled="!selectedEntries.length"
+                        class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                  <i class="fa-solid fa-arrow-right-arrow-left text-[10px]"></i>
+                  <span>Mover</span>
+                  <span x-show="selectedEntries.length" class="font-semibold"
+                        x-text="`(${selectedEntries.length})`"></span>
+                </button>
+
+                <!-- Eliminar lote -->
+                <button @click="batchDeleteConfirm = true"
+                        :disabled="!selectedEntries.length"
+                        class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                  <i class="fa-solid fa-trash text-[10px]"></i>
+                  <span>Eliminar</span>
+                  <span x-show="selectedEntries.length" class="font-semibold"
+                        x-text="`(${selectedEntries.length})`"></span>
+                </button>
+
+                <!-- Descargar selección como ZIP -->
+                <button @click="downloadZip(selectedEntries)"
+                        :disabled="!selectedEntries.length"
+                        class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all">
+                  <i class="fa-solid fa-file-zipper text-[10px]"></i>
+                  <span>Descargar</span>
+                  <span x-show="selectedEntries.length" class="font-semibold"
+                        x-text="`(${selectedEntries.length})`"></span>
+                </button>
+
+                <!-- Cancelar -->
+                <button @click="pdfMode = 'none'; selectedEntries = []"
+                        class="flex items-center gap-1 px-2 py-1 rounded-md text-xs text-slate-500 hover:bg-white hover:text-slate-700 border border-transparent hover:border-slate-200 transition-all ml-auto">
+                  <i class="fa-solid fa-xmark text-[10px]"></i>
+                  Cancelar
+                </button>
+              </div>
+            </template>
+
+            <!-- ── Toolbar modo normal ── -->
+            <template x-if="pdfMode === 'none'">
+              <div class="flex items-center gap-1.5 flex-1 flex-wrap">
+
+                <!-- Dividir + Reordenar (solo si hay PDF seleccionado) -->
+                <template x-if="selectedEntry && !selectedEntry.is_dir">
+                  <div class="flex items-center gap-1.5">
+                    <button @click="startSplit()"
+                            class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-sky-300 hover:text-sky-600 transition-all">
+                      <i class="fa-solid fa-scissors text-[10px]"></i>
+                      Dividir
+                    </button>
+                    <button @click="startReorder()"
+                            class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-violet-300 hover:text-violet-600 transition-all">
+                      <i class="fa-solid fa-sort text-[10px]"></i>
+                      Reordenar
+                    </button>
+                  </div>
+                </template>
+
+                <!-- Unir PDFs -->
+                <template x-if="entries.some(e => !e.is_dir)">
+                  <button @click="startMerge()"
+                          class="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-amber-300 hover:text-amber-600 transition-all">
+                    <i class="fa-solid fa-object-group text-[10px]"></i>
+                    Unir PDFs
+                  </button>
+                </template>
+
+                <!-- Separador flexible -->
+                <div class="flex-1"></div>
+
+                <!-- ── Action strip: Carpeta · Subir · Seleccionar ── -->
+                <div class="flex items-stretch divide-x divide-slate-200 border border-slate-200 rounded-lg bg-white shadow-sm">
+
+                  <!-- Nueva carpeta -->
+                  <button @click="creatingFolder = true; $nextTick(() => $refs.newFolderInput && $refs.newFolderInput.focus())"
+                          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-700 bg-white hover:bg-amber-50 transition-colors group rounded-l-lg"
+                          title="Crear carpeta">
+                    <i class="fa-solid fa-folder-plus text-amber-500 group-hover:text-amber-600 text-[11px]"></i>
+                    <span class="hidden sm:inline">Nueva carpeta</span>
+                  </button>
+
+                  <!-- Subir (dropdown) -->
+                  <div class="relative flex">
+                    <button @click="uploadMenuOpen = !uploadMenuOpen"
+                            class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-sky-700 bg-white hover:bg-sky-50 transition-colors group"
+                            :class="uploadMenuOpen && 'bg-sky-50'"
+                            title="Subir archivos">
+                      <i class="fa-solid fa-arrow-up-from-bracket text-sky-500 group-hover:text-sky-600 text-[11px]"></i>
+                      <span class="hidden sm:inline">Subir</span>
+                      <i class="fa-solid fa-chevron-down text-sky-400 text-[8px] transition-transform duration-150"
+                         :class="uploadMenuOpen && 'rotate-180'"></i>
+                    </button>
+
+                    <!-- Dropdown menu -->
+                    <div x-show="uploadMenuOpen"
+                         @click.outside="uploadMenuOpen = false"
+                         x-transition:enter="transition ease-out duration-100"
+                         x-transition:enter-start="opacity-0 scale-95 -translate-y-1"
+                         x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+                         x-transition:leave="transition ease-in duration-75"
+                         x-transition:leave-start="opacity-100 scale-100 translate-y-0"
+                         x-transition:leave-end="opacity-0 scale-95 -translate-y-1"
+                         class="absolute right-0 top-full mt-1 z-30 w-44 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden origin-top-right">
+                      <button @click="$refs.uploadInput.click(); uploadMenuOpen = false"
+                              class="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition-colors">
+                        <i class="fa-solid fa-file-pdf text-red-400 w-3.5 text-center"></i>
+                        <div class="text-left">
+                          <div class="font-medium">Archivos PDF</div>
+                          <div class="text-[10px] text-slate-400">Uno o varios PDFs</div>
+                        </div>
+                      </button>
+                      <div class="h-px bg-slate-100 mx-2"></div>
+                      <button @click="$refs.uploadFolderInput.click(); uploadMenuOpen = false"
+                              class="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-slate-700 hover:bg-sky-50 hover:text-sky-700 transition-colors">
+                        <i class="fa-solid fa-upload text-amber-400 w-3.5 text-center"></i>
+                        <div class="text-left">
+                          <div class="font-medium">Carpeta completa</div>
+                          <div class="text-[10px] text-slate-400">Sube todos los PDFs</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Seleccionar -->
+                  <button @click="startSelectMode()"
+                          class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-white hover:bg-slate-100 transition-colors group rounded-r-lg"
+                          title="Seleccionar elementos">
+                    <i class="fa-solid fa-check-double text-slate-400 group-hover:text-slate-600 text-[11px]"></i>
+                    <span class="hidden sm:inline">Seleccionar</span>
+                  </button>
+
+                </div>
+
+              </div>
+            </template>
+
+          </div>

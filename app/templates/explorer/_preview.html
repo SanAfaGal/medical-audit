@@ -1,0 +1,20 @@
+          <!-- ── Preview (modo none) ────────────────────────────────── -->
+          <template x-if="pdfMode === 'none'">
+            <div class="flex-1 min-h-0">
+              <template x-if="previewUrl">
+                <iframe :src="previewUrl"
+                        class="w-full h-full border-0"
+                        title="Vista previa PDF"></iframe>
+              </template>
+              <template x-if="!previewUrl">
+                <div class="flex flex-col items-center justify-center h-full text-slate-300 gap-3">
+                  <i :class="selectedEntry && selectedEntry.is_pdf === false ? 'fa-solid fa-triangle-exclamation text-amber-400' : 'fa-solid fa-file-pdf'"
+                     class="text-5xl"></i>
+                  <span class="text-sm"
+                        x-text="selectedEntry && selectedEntry.is_pdf === false
+                          ? 'Este archivo no es un PDF; no hay vista previa'
+                          : 'Selecciona un PDF para previsualizarlo'"></span>
+                </div>
+              </template>
+            </div>
+          </template>

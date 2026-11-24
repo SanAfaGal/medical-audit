@@ -1,0 +1,43 @@
+<!-- ── Modal confirmación eliminación en lote ───────────────────────────── -->
+<template x-teleport="body">
+  <div x-show="batchDeleteConfirm"
+       x-transition:enter="transition ease-out duration-150"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-100"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+       @click.self="batchDeleteConfirm = false">
+    <div x-show="batchDeleteConfirm"
+         x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100"
+         class="bg-white rounded-2xl shadow-2xl w-80 p-6 flex flex-col gap-4">
+      <div class="flex items-start gap-3">
+        <div class="shrink-0 w-9 h-9 rounded-full bg-red-100 flex items-center justify-center">
+          <i class="fa-solid fa-trash text-red-500 text-sm"></i>
+        </div>
+        <div>
+          <div class="text-sm font-semibold text-slate-800">
+            ¿Eliminar <span x-text="selectedEntries.length"></span> elemento(s)?
+          </div>
+          <p class="text-xs text-slate-500 mt-1">
+            Esto incluye carpetas y todo su contenido. Esta acción no se puede deshacer.
+          </p>
+        </div>
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button @click="batchDeleteConfirm = false"
+                class="px-3 py-1.5 rounded-lg text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">
+          Cancelar
+        </button>
+        <button @click="executeBatchDelete()"
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors">
+          <i class="fa-solid fa-trash mr-1"></i>
+          Eliminar
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
